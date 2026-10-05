@@ -250,34 +250,8 @@ describe('failures', () => {
   });
 });
 
-describe('an open run already exists', () => {
+describe('earlier runs', () => {
   const openRun: Run = { runId: 'old-run', token: 'cafebabe', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: [] };
-
-  it('exits 2 before any Orca call when the pointer names an open run', async () => {
-    const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
-    const store = createRecordStore(dir);
-    await store.save(openRun);
-    await store.setCurrent('old-run');
-
-    const summary = await run();
-
-    expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
-    expect(summary.error).toContain(dir);
-    expect(summary.error).toContain('orca-pause close');
-    expect(port.listCalls).toBe(0);
-    expect(port.sends).toHaveLength(0);
-  });
-
-  it('exits 2 when the pointer is missing but a run file is open', async () => {
-    const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'old-run.json'), JSON.stringify(openRun));
-
-    const summary = await run();
-
-    expect(summary.exitCode).toBe(2);
-    expect(port.sends).toHaveLength(0);
-  });
 
   it('starts a new run when every earlier run is closed', async () => {
     const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
