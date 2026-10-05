@@ -337,7 +337,7 @@ describe('safety rails', () => {
     expect(port.listCalls).toBe(0);
   });
 
-  it('on SIGTERM mid-wait saves the record, exits 130 and releases the lock; a re-run finds the record and sends nothing', async () => {
+  it('on SIGTERM mid-wait saves the record, exits 130 and releases the lock; a re-run extends the record and sends nothing', async () => {
     const dir = await tempStateDir();
     const emitter = new EventEmitter();
     const first = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], dir, {
@@ -354,8 +354,7 @@ describe('safety rails', () => {
     expect(emitter.listenerCount('SIGTERM')).toBe(0);
 
     const second = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], dir);
-    expect(second.code).toBe(2);
-    expect(second.err).toContain(record.runId);
+    expect(second.code).toBe(1);
     expect(second.port.sends).toHaveLength(0);
     expect((await readdir(second.stateDir)).filter((n) => n.endsWith('.json'))).toEqual([name]);
   });
