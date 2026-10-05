@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { main } from '../src/cli.js';
-import { pause } from '../src/pause.js';
+import { pause, pauseMessage } from '../src/pause.js';
 import { CONTINUE_MESSAGE, resume } from '../src/resume.js';
 import { createRecordStore } from '../src/store.js';
 import type { Run } from '../src/types.js';
@@ -413,5 +413,62 @@ describe('self handling in the CLI', () => {
 
     const without = await runCli({}, [{ paneKey: 'a:1', behavior: repliesWithToken() }]);
     expect(without.out).not.toContain(SELF_HEADING);
+  });
+});
+
+describe('roles in extension and self handling', () => {
+  const textTo = (port: FakeOrca, paneKey: string) => port.sends.filter((s) => s.handle === port.handleOf(paneKey)).map((s) => s.text);
+
+  it('re-pauses resumed agents coordinators first and words the coordinator message', async () => {
+    const t = await setup([
+      { paneKey: 'w:1', behavior: repliesWithToken() },
+      { paneKey: 'c:1', behavior: repliesWithToken() },
+    ]);
+    t.port.coordinatorsAt = () => ['c:1'];
+    const resumed = { pauseBaseline: OLD_REPLY, resumeStatus: 'resumed' as const, resumeReason: 'queued-while-working' as const };
+    await seedOpenRun(t.store(), [agentRecord('w:1', resumed), agentRecord('c:1', resumed)]);
+
+    const summary = await t.runPause();
+
+    expect(t.port.sends.map((s) => s.handle)).toEqual([t.port.handleOf('c:1'), t.port.handleOf('w:1')]);
+    expect(textTo(t.port, 'c:1')).toEqual([pauseMessage(TOKEN, 'coordinator')]);
+    expect(textTo(t.port, 'w:1')).toEqual([pauseMessage(TOKEN)]);
+    expect(summary.rows.map((r) => [r.paneKey, r.role])).toEqual([['w:1', 'worker'], ['c:1', 'coordinator']]);
+  });
+
+  it('never messages a coordinator self, and a later resume sends workers first and self last', async () => {
+    const t = await setup([
+      { paneKey: 's:1', behavior: working },
+      { paneKey: 'w:1', behavior: cycleAgent },
+    ]);
+    t.port.coordinatorsAt = () => ['s:1'];
+
+    const summary = await t.runPause('s:1');
+
+    expect(textTo(t.port, 's:1')).toEqual([]);
+    expect(summary.self).toMatchObject({ paneKey: 's:1', role: 'coordinator', pauseReason: 'self' });
+
+    const resumed = await t.runResume();
+
+    expect(t.port.sends.filter((s) => s.text === CONTINUE_MESSAGE).map((s) => s.handle)).toEqual([t.port.handleOf('w:1'), t.port.handleOf('s:1')]);
+    expect(resumed.rows.find((r) => r.paneKey === 's:1')).toMatchObject({ resumeStatus: 'resumed', resumeReason: 'queued-while-working' });
+  });
+
+  it('hands over a coordinator self by sending it the coordinator pause message', async () => {
+    let bIsWorking = false;
+    const t = await setup([
+      { paneKey: 's:1', behavior: repliesWithToken() },
+      { paneKey: 'b:9', behavior: () => (bIsWorking ? { state: 'working', message: null } : { state: 'done', message: 'idle' }) },
+      { paneKey: 'w:1', behavior: repliesWithToken() },
+    ]);
+    t.port.coordinatorsAt = () => ['s:1'];
+    await t.runPause('s:1');
+    bIsWorking = true;
+
+    const second = await t.runPause('b:9');
+
+    expect(textTo(t.port, 's:1')).toEqual([pauseMessage(TOKEN, 'coordinator')]);
+    expect(second.rows.find((r) => r.paneKey === 's:1')).toMatchObject({ role: 'coordinator', pauseStatus: 'confirmed' });
+    expect(second.self).toMatchObject({ paneKey: 'b:9' });
   });
 });
