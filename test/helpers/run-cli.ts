@@ -1,5 +1,6 @@
 import type { EventEmitter } from 'node:events';
 import { join } from 'node:path';
+import { Interrupted } from '../../src/abort.js';
 import { PromptInterrupted } from '../../src/ask.js';
 import { main } from '../../src/cli.js';
 import { createRecordStore, type RecordStore } from '../../src/store.js';
@@ -39,7 +40,10 @@ export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: Run
         if (answer === CTRL_C) return Promise.reject(new PromptInterrupted());
         if (answer === 'SIGTERM') {
           opts.signals?.emit('SIGTERM');
-          return new Promise<string>((_, reject) => signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+          return new Promise<string>((_, reject) => {
+            if (signal?.aborted) return reject(new Interrupted(signal));
+            signal?.addEventListener('abort', () => reject(new Interrupted(signal)), { once: true });
+          });
         }
         return Promise.resolve(typeof answer === 'function' ? answer() : answer);
       }

@@ -180,6 +180,12 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   let terminals: Map<string, TerminalRow>;
   let prepared: Prepared;
   let confirmed = false;
+  // The answer may have taken minutes: look again and start the clock now.
+  const afterYes = async () => {
+    confirmed = true;
+    [agents, terminals] = await listFresh(deps);
+    startedAt = clock.now();
+  };
   try {
     throwIfAborted(deps.signal);
     loaded = (await store.findOpenRun())?.run ?? null;
@@ -191,10 +197,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
       if (targets.length > 0) {
         if (!(await deps.confirm(targets, deps.signal))) return withSelf(cancelled(), selfKey);
         throwIfAborted(deps.signal);
-        confirmed = true;
-        // The answer may have taken minutes: look again and start the clock now.
-        [agents, terminals] = await listFresh(deps);
-        startedAt = clock.now();
+        await afterYes();
         prepared = prepare(loaded, startedAt, newToken, agents, terminals, selfKey);
       }
     }
@@ -208,16 +211,14 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   if (!extending) await store.setCurrent(run.runId); // findOpenRun already points at an open run
 
   // Before the first send pass that was not confirmed at the start: a "no" or a failure leaves the records as they were before this invocation.
-  const confirmLate = async (coordinators: Set<string>): Promise<RunSummary | null> => {
+  const confirmLate = async (confirm: Confirm, coordinators: Set<string>): Promise<RunSummary | null> => {
     try {
       const targets = planSends(run, agents, terminals, coordinators, deps, selfKey);
       if (targets.length === 0) return null;
-      const yes = await deps.confirm!(targets, deps.signal);
+      const yes = await confirm(targets, deps.signal);
       throwIfAborted(deps.signal);
       if (yes) {
-        confirmed = true;
-        [agents, terminals] = await listFresh(deps);
-        startedAt = clock.now();
+        await afterYes();
         return null;
       }
       if (loaded) await store.save(loaded);
@@ -233,7 +234,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
       throwIfAborted(deps.signal);
       const coordinators = await listCoordinators(deps);
       if (deps.confirm && !confirmed) {
-        const declined = await confirmLate(coordinators);
+        const declined = await confirmLate(deps.confirm, coordinators);
         if (declined) return declined;
       }
       await poll(run, agents, terminals, coordinators, deps, selfKey);

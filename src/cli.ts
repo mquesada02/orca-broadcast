@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { abortable, Interrupted, throwIfAborted } from './abort.js';
+import { Interrupted, throwIfAborted } from './abort.js';
 import { PromptInterrupted } from './ask.js';
 import { withLockAndSignals, type SignalSource } from './guard.js';
 import { createOrcaAdapter } from './orca-adapter.js';
@@ -88,7 +88,7 @@ function confirmOnTerminal(io: CliIo): Confirm {
     io.stderr(targets.map((t) => `  ${t.repo}/${t.worktree} (${t.role})\n`).join(''));
     let answer: string;
     try {
-      answer = await abortable(io.ask!(`Send to ${targets.length} ${targets.length === 1 ? 'agent' : 'agents'}? [y/N] `, signal), signal);
+      answer = await io.ask!(`Send to ${targets.length} ${targets.length === 1 ? 'agent' : 'agents'}? [y/N] `, signal);
     } catch (error) {
       if (error instanceof PromptInterrupted) throw new Interrupted(AbortSignal.abort('SIGINT'));
       throw error;
@@ -116,9 +116,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     if (command === 'close' && values.yes) throw new UsageError('--yes applies only to pause and resume');
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
     // The safety switch: nothing is sent without a yes from the user, or --yes. This runs before anything is read, locked or listed.
-    const asking = io.ask !== undefined && !json;
     const needsConfirm = command !== 'close' && !values.yes;
-    if (needsConfirm && !asking) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
+    if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
     const confirm = needsConfirm ? confirmOnTerminal(io) : undefined;
 
     const store = createRecordStore(resolveStateDir(env));

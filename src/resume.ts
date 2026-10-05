@@ -59,8 +59,8 @@ export async function resume(deps: ResumeDeps): Promise<RunSummary> {
     [rows, terminals] = await listFresh(deps);
     coordinators = await listCoordinators(deps);
     const targets = deps.confirm ? sendTargets(run, rows, terminals, coordinators) : [];
-    if (targets.length > 0) {
-      if (!(await deps.confirm!(targets, deps.signal))) return cancelled();
+    if (deps.confirm && targets.length > 0) {
+      if (!(await deps.confirm(targets, deps.signal))) return cancelled();
       throwIfAborted(deps.signal);
       [rows, terminals] = await listFresh(deps); // the answer may have taken minutes
     }
