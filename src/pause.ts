@@ -37,8 +37,12 @@ export function pauseMessage(token: string): string {
   );
 }
 
-function newToken(): string {
+function randomToken(): string {
   return randomBytes(4).toString('hex');
+}
+
+function iso(ms: number): string {
+  return new Date(ms).toISOString();
 }
 
 function lastLine(message: string | null): string | null {
@@ -92,7 +96,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<PauseSu
     return failure(
       new Error(
         `an open pause run already exists in ${store.dir}; extending it is not supported yet, ` +
-          'so close it by hand (set its status to "closed" and delete the current file) before pausing again',
+          'so until resume and close exist, close it by hand (set its status to "closed" and delete the current file) before pausing again',
       ),
       null,
     );
@@ -112,11 +116,11 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<PauseSu
   }
 
   const startedAt = clock.now();
-  const token = (deps.newToken ?? newToken)();
+  const token = (deps.newToken ?? randomToken)();
   const run: Run = {
-    runId: `${new Date(startedAt).toISOString().replace(/[-:.]/g, '')}-${token}`,
+    runId: `${iso(startedAt).replace(/[-:.]/g, '')}-${token}`,
     token,
-    startedAt: new Date(startedAt).toISOString(),
+    startedAt: iso(startedAt),
     status: 'open',
     agents: discovered.map((row) => {
       const terminal = terminals.get(row.paneKey);
@@ -176,7 +180,7 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
     if (provesPause(agent, row, run.token)) {
       agent.pauseStatus = 'confirmed';
       agent.pauseBaseline = row.lastAssistantMessage;
-      agent.confirmedAt = new Date(deps.clock.now()).toISOString();
+      agent.confirmedAt = iso(deps.clock.now());
       agent.pauseReason = null;
     } else if (!agent.messagePending && agent.pauseReason !== 'send-failed') {
       agent.pauseReason = reasonFromState(row.state) ?? agent.pauseReason;

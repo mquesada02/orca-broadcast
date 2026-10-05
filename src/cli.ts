@@ -3,10 +3,12 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createOrcaAdapter } from './orca-adapter.js';
 import { systemClock } from './clock.js';
-import { DEFAULT_TIMEOUT_MS, pause } from './pause.js';
+import { DEFAULT_TIMEOUT_MS, pause, type PauseDeps } from './pause.js';
 import { renderProgress, renderTable } from './render.js';
 import { createRecordStore } from './store.js';
 import type { Clock, OrcaPort } from './types.js';
+
+const CLEAR_LINE = '\r\x1b[K';
 
 export interface CliIo {
   stdout: (text: string) => void;
@@ -17,7 +19,7 @@ export interface CliIo {
 export interface CliDeps {
   port?: OrcaPort;
   clock?: Clock;
-  newToken?: () => string;
+  newToken?: PauseDeps['newToken'];
 }
 
 const USAGE = `Usage: orca-pause pause [--timeout <n>s|m|h]
@@ -35,9 +37,8 @@ class UsageError extends Error {}
 
 export function parseTimeout(value: string): number {
   const match = /^(\d+)([smh])$/.exec(value);
-  const amount = match ? Number(match[1]) : 0;
-  if (!match || amount <= 0) throw new UsageError(`invalid --timeout "${value}": use a positive whole number plus s, m or h, such as 90s`);
-  return amount * { s: 1000, m: 60_000, h: 3_600_000 }[match[2] as 's' | 'm' | 'h'];
+  if (!match || Number(match[1]) <= 0) throw new UsageError(`invalid --timeout "${value}": use a positive whole number plus s, m or h, such as 90s`);
+  return Number(match[1]) * { s: 1000, m: 60_000, h: 3_600_000 }[match[2] as 's' | 'm' | 'h'];
 }
 
 export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()): string {
@@ -66,9 +67,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       clock: deps.clock ?? systemClock,
       store: createRecordStore(resolveStateDir(env)),
       newToken: deps.newToken,
-      onProgress: io.isTTY ? (progress) => io.stderr(`\r\x1b[K${renderProgress(progress)}`) : undefined,
+      onProgress: io.isTTY ? (progress) => io.stderr(`${CLEAR_LINE}${renderProgress(progress)}`) : undefined,
     });
-    if (io.isTTY) io.stderr('\r\x1b[K');
+    if (io.isTTY) io.stderr(CLEAR_LINE);
 
     if (summary.outcome === 'error') {
       io.stderr(`orca-pause: ${summary.error}\n`);

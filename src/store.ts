@@ -33,14 +33,6 @@ export function createRecordStore(dir: string): RecordStore {
     dir,
 
     async hasOpenRun() {
-      let pointer: string | null = null;
-      try {
-        pointer = (await readFile(join(dir, POINTER), 'utf8')).trim();
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      }
-      if (pointer && (await readRun(runPath(pointer)))?.status === 'open') return true;
-
       let names: string[];
       try {
         names = await readdir(dir);
