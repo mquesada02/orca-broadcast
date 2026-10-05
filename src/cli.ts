@@ -119,9 +119,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     return summary.exitCode;
   } catch (error) {
     if (json) {
-      const failed: RunSummary = { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message, rows: [] };
-      io.stdout(jsonLine(command, failed));
-      return failed.exitCode;
+      io.stdout(jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
+      return 2;
     }
     io.stderr(`orca-pause: ${(error as Error).message}\n`);
     if (error instanceof UsageError) io.stderr(USAGE);
