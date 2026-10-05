@@ -80,7 +80,7 @@ describe('resolveStateDir', () => {
 
 describe('orca-pause pause', () => {
   it('exits 0 and prints a confirmed table when every agent pauses', async () => {
-    const { code, out, dir } = await run(['pause'], [
+    const { code, out, dir } = await run(['pause', '--yes'], [
       { paneKey: 'a:1', repo: 'alpha', worktree: 'wt-a', behavior: repliesWithToken() },
       { paneKey: 'b:2', repo: 'beta', worktree: 'wt-b', behavior: repliesWithToken() },
     ]);
@@ -92,7 +92,7 @@ describe('orca-pause pause', () => {
   });
 
   it('exits 1 and lists unconfirmed agents first with an action hint', async () => {
-    const { code, out } = await run(['pause', '--timeout', '10s'], [
+    const { code, out } = await run(['pause', '--yes', '--timeout', '10s'], [
       { paneKey: 'a:1', repo: 'alpha', worktree: 'wt-a', behavior: repliesWithToken() },
       { paneKey: 'b:2', repo: 'beta', worktree: 'wt-b', behavior: working },
     ]);
@@ -103,19 +103,19 @@ describe('orca-pause pause', () => {
   });
 
   it('honours --timeout', async () => {
-    const { clock } = await run(['pause', '--timeout', '30s'], [{ paneKey: 'a:1', behavior: working }]);
+    const { clock } = await run(['pause', '--yes', '--timeout', '30s'], [{ paneKey: 'a:1', behavior: working }]);
     expect(clock.slept).toBeGreaterThanOrEqual(30_000);
     expect(clock.slept).toBeLessThan(40_000);
   });
 
   it('prints nothing to pause and exits 0', async () => {
-    const { code, out } = await run(['pause'], [{ paneKey: 'a:1', behavior: () => ({ state: 'done', message: 'x' }) }]);
+    const { code, out } = await run(['pause', '--yes'], [{ paneKey: 'a:1', behavior: () => ({ state: 'done', message: 'x' }) }]);
     expect(code).toBe(0);
     expect(out).toBe('nothing to pause\n');
   });
 
   it('prints an Orca error to stderr and exits 2', async () => {
-    const { code, err } = await run(['pause'], [{ paneKey: 'a:1', behavior: working }], false, (port) => {
+    const { code, err } = await run(['pause', '--yes'], [{ paneKey: 'a:1', behavior: working }], false, (port) => {
       port.listError = new Error('orca-ide worktree ps failed: boom');
     });
     expect(code).toBe(2);
@@ -123,9 +123,9 @@ describe('orca-pause pause', () => {
   });
 
   it('shows an in-place progress line on a TTY and none otherwise', async () => {
-    const tty = await run(['pause', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: working }], true);
+    const tty = await run(['pause', '--yes', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: working }], true);
     expect(tty.err).toMatch(/\r\x1b\[Kpausing… 0\/1 confirmed · 1 still-working · \d+:\d{2} left/);
-    const plain = await run(['pause', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: working }], false);
+    const plain = await run(['pause', '--yes', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: working }], false);
     expect(plain.err).toBe('');
   });
 });
@@ -156,7 +156,7 @@ const seedRun = (agents: Partial<AgentRecord>[]) => async (store: ReturnType<typ
 describe('orca-pause resume', () => {
   it('exits 0 and prints a resumed table when every agent continues', async () => {
     const { code, out, dir } = await run(
-      ['resume'],
+      ['resume', '--yes'],
       [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }],
       false,
       () => {},
@@ -170,7 +170,7 @@ describe('orca-pause resume', () => {
 
   it('exits 1 and lists pending and gone groups first with hints', async () => {
     const { code, out } = await run(
-      ['resume'],
+      ['resume', '--yes'],
       [
         { paneKey: 'a:1', behavior: startsNewTurnAfterContinue },
         { paneKey: 'b:2', behavior: pausedDone('x'), agentIdentity: 'zsh' },
@@ -194,14 +194,14 @@ describe('orca-pause resume', () => {
   });
 
   it('prints nothing to resume and exits 0 when no run is open', async () => {
-    const { code, out, port } = await run(['resume'], [{ paneKey: 'a:1', behavior: working }]);
+    const { code, out, port } = await run(['resume', '--yes'], [{ paneKey: 'a:1', behavior: working }]);
     expect(code).toBe(0);
     expect(out).toBe('nothing to resume\n');
     expect(port.listCalls).toBe(0);
   });
 
   it('prints an Orca error to stderr and exits 2', async () => {
-    const { code, err } = await run(['resume'], [{ paneKey: 'a:1', behavior: working }], false, (port) => {
+    const { code, err } = await run(['resume', '--yes'], [{ paneKey: 'a:1', behavior: working }], false, (port) => {
       port.listError = new Error('orca-ide worktree ps failed: boom');
     }, seedRun([{ paneKey: 'a:1' }]));
     expect(code).toBe(2);
@@ -209,7 +209,7 @@ describe('orca-pause resume', () => {
   });
 
   it('shows a resuming progress line on a TTY', async () => {
-    const { err } = await run(['resume'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], true, () => {}, seedRun([{ paneKey: 'a:1' }]));
+    const { err } = await run(['resume', '--yes'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], true, () => {}, seedRun([{ paneKey: 'a:1' }]));
     expect(err).toContain('\r\x1b[Kresuming… 0/1 resumed');
     expect(err).toContain('\r\x1b[Kresuming… 1/1 resumed');
   });
@@ -277,7 +277,7 @@ describe('orca-pause close', () => {
     const tokens = ['11111111'];
 
     expect(await main(['close'], { XDG_STATE_HOME: dir }, io, { port, clock })).toBe(0);
-    expect(await main(['pause'], { XDG_STATE_HOME: dir }, io, { port, clock, newToken: () => tokens[0] as string })).toBe(0);
+    expect(await main(['pause', '--yes'], { XDG_STATE_HOME: dir }, io, { port, clock, newToken: () => tokens[0] as string })).toBe(0);
 
     const current = (await readFile(`${dir}/orca-pause/current`, 'utf8')).trim();
     expect(current).not.toBe('run-1');
@@ -306,7 +306,7 @@ describe('safety rails', () => {
   it('exits 2 with "another orca-pause is running" while a live process holds the lock, and touches nothing', async () => {
     const dir = await tempStateDir();
     await lockFile(dir, `${process.pid}\n`);
-    const { code, err, port } = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], dir);
+    const { code, err, port } = await invoke(['pause', '--yes'], [{ paneKey: 'a:1', behavior: working }], dir);
     expect(code).toBe(2);
     expect(err).toContain('another orca-pause is running');
     expect(port.listCalls).toBe(0);
@@ -316,7 +316,7 @@ describe('safety rails', () => {
   it('takes over a lock left by a dead process and releases the lock when done', async () => {
     const dir = await tempStateDir();
     await lockFile(dir, `${spawnSync(process.execPath, ['-e', '']).pid}\n`);
-    const { code, stateDir } = await invoke(['pause'], [{ paneKey: 'a:1', behavior: repliesWithToken() }], dir);
+    const { code, stateDir } = await invoke(['pause', '--yes'], [{ paneKey: 'a:1', behavior: repliesWithToken() }], dir);
     expect(code).toBe(0);
     expect((await readdir(stateDir)).filter((n) => n === 'lock' || n.startsWith('lock.'))).toEqual([]);
   });
@@ -330,7 +330,7 @@ describe('safety rails', () => {
   });
 
   it('exits 2 with a usage message for --timeout 5x before calling Orca', async () => {
-    const { code, err, port } = await invoke(['pause', '--timeout', '5x'], [{ paneKey: 'a:1', behavior: working }], await tempStateDir());
+    const { code, err, port } = await invoke(['pause', '--yes', '--timeout', '5x'], [{ paneKey: 'a:1', behavior: working }], await tempStateDir());
     expect(code).toBe(2);
     expect(err).toContain('invalid --timeout');
     expect(err).toContain('Usage: orca-pause');
@@ -340,7 +340,7 @@ describe('safety rails', () => {
   it('on SIGTERM mid-wait saves the record, exits 130 and releases the lock; a re-run extends the record and sends nothing', async () => {
     const dir = await tempStateDir();
     const emitter = new EventEmitter();
-    const first = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], dir, {
+    const first = await invoke(['pause', '--yes'], [{ paneKey: 'a:1', behavior: working }], dir, {
       clock: Object.assign(fakeClock(), { onSleep: () => emitter.emit('SIGTERM') }),
       signals: emitter,
     });
@@ -353,7 +353,7 @@ describe('safety rails', () => {
     expect(record.agents).toHaveLength(1);
     expect(emitter.listenerCount('SIGTERM')).toBe(0);
 
-    const second = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], dir);
+    const second = await invoke(['pause', '--yes'], [{ paneKey: 'a:1', behavior: working }], dir);
     expect(second.code).toBe(1);
     expect(second.port.sends).toHaveLength(0);
     expect((await readdir(second.stateDir)).filter((n) => n.endsWith('.json'))).toEqual([name]);
@@ -361,7 +361,7 @@ describe('safety rails', () => {
 
   it.each(['SIGINT', 'SIGHUP'] as const)('treats %s like SIGTERM', async (name) => {
     const emitter = new EventEmitter();
-    const { code } = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], await tempStateDir(), {
+    const { code } = await invoke(['pause', '--yes'], [{ paneKey: 'a:1', behavior: working }], await tempStateDir(), {
       clock: Object.assign(fakeClock(), { onSleep: () => emitter.emit(name) }),
       signals: emitter,
     });
@@ -429,7 +429,7 @@ describe('safety rails', () => {
       const dir = await tempStateDir();
       await seed(dir);
       await lockFile(dir, `${process.pid}\n`);
-      const { code, err, port } = await invoke(['resume'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], dir);
+      const { code, err, port } = await invoke(['resume', '--yes'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], dir);
       expect(code).toBe(2);
       expect(err).toContain('another orca-pause is running');
       expect(port.sends).toHaveLength(0);
@@ -439,7 +439,7 @@ describe('safety rails', () => {
       const dir = await tempStateDir();
       await seed(dir);
       const emitter = new EventEmitter();
-      const { code, err, stateDir, port } = await invoke(['resume'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], dir, {
+      const { code, err, stateDir, port } = await invoke(['resume', '--yes'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], dir, {
         clock: Object.assign(fakeClock(), { onSleep: () => emitter.emit('SIGTERM') }),
         signals: emitter,
       });
@@ -470,7 +470,7 @@ describe('safety rails', () => {
         key === 'worktree ps' ? ps(++psCalls > 1) : key === 'terminal list' ? JSON.stringify({ ok: true, result: { terminals: [{ handle: 'term_a', tabId: 'a', leafId: '1', agentIdentity: 'claude' }] } }) : JSON.stringify({ ok: true, result: { accepted: true } });
       return { stdout, stderr: '', code: 0 };
     };
-    const { code, err, stateDir } = await invoke(['pause'], [], dir, { port: createOrcaAdapter(exec) });
+    const { code, err, stateDir } = await invoke(['pause', '--yes'], [], dir, { port: createOrcaAdapter(exec) });
     expect(code).toBe(2);
     expect(err).toContain('incomplete');
     const [name] = (await readdir(stateDir)).filter((n) => n.endsWith('.json'));

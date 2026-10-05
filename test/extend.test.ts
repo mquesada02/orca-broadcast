@@ -375,7 +375,7 @@ describe('self handling in the CLI', () => {
     const out: string[] = [];
     const err: string[] = [];
     const port = new FakeOrca(agents);
-    const code = await main(['pause'], { XDG_STATE_HOME: dir, ...env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: false }, { port, clock: fakeClock() });
+    const code = await main(['pause', '--yes'], { XDG_STATE_HOME: dir, ...env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: false }, { port, clock: fakeClock() });
     return { code, out: out.join(''), err: err.join(''), port };
   }
 

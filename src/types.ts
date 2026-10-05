@@ -30,6 +30,15 @@ export interface OrcaPort {
   send(handle: string, text: string): Promise<SendResult>;
 }
 
+export interface ConfirmTarget {
+  repo: string;
+  worktree: string;
+  role: Role;
+}
+
+// Asked once, before the first send: false means the user said no.
+export type Confirm = (targets: ConfirmTarget[], signal?: AbortSignal) => Promise<boolean>;
+
 export interface Clock {
   now(): number;
   sleep(ms: number, signal?: AbortSignal): Promise<void>;

@@ -56,6 +56,10 @@ export function failure(error: unknown, run: Run | null): RunSummary {
   return { outcome: 'error', exitCode, run, error: (error as Error).message, rows: run?.agents ?? [] };
 }
 
+export function cancelled(): RunSummary {
+  return { outcome: 'error', exitCode: 2, run: null, error: 'cancelled: nothing was sent', rows: [] };
+}
+
 export type Located = { gone: ResumeReason } | { row: AgentRow; handle: string };
 
 // The Locate rule shared by pause and resume: the checks run in this order.

@@ -1,6 +1,8 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { Interrupted, throwIfAborted } from './abort.js';
+import { PromptInterrupted } from './ask.js';
 import { withLockAndSignals, type SignalSource } from './guard.js';
 import { createOrcaAdapter } from './orca-adapter.js';
 import { close } from './close.js';
@@ -9,7 +11,7 @@ import { DEFAULT_TIMEOUT_MS, pause, type PauseDeps } from './pause.js';
 import { renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable } from './render.js';
 import { resume } from './resume.js';
 import { createRecordStore } from './store.js';
-import type { Clock, OrcaPort, RunSummary } from './types.js';
+import type { Clock, Confirm, OrcaPort, RunSummary } from './types.js';
 
 const CLEAR_LINE = '\r\x1b[K';
 
@@ -17,6 +19,8 @@ export interface CliIo {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
   isTTY: boolean;
+  /** Present only when stdin and stderr are both a terminal: the one way the shell can ask the user. */
+  ask?: (question: string, signal?: AbortSignal) => Promise<string>;
 }
 
 export interface CliDeps {
@@ -26,8 +30,8 @@ export interface CliDeps {
   newToken?: PauseDeps['newToken'];
 }
 
-const USAGE = `Usage: orca-pause pause [--timeout <n>s|m|h]
-       orca-pause resume
+const USAGE = `Usage: orca-pause pause [--timeout <n>s|m|h] [--yes]
+       orca-pause resume [--yes]
        orca-pause close
 
 Commands:
@@ -40,7 +44,10 @@ Commands:
 
 Options:
   --timeout <n>s|m|h   How long pause waits for confirmations (default 10m)
-  --json               With a command, print one JSON object on stdout and nothing on stderr
+  --yes                Skip the confirmation before pause or resume sends. Without a terminal
+                       (a script, an agent's shell) they refuse to send unless you pass it
+  --json               With a command, print one JSON object on stdout and nothing on stderr.
+                       It never asks for confirmation, so pause and resume need --yes
   --help               Show this help
 `;
 
@@ -48,7 +55,7 @@ class UsageError extends Error {}
 
 function parseUsage(argv: string[]) {
   try {
-    return parseArgs({ args: argv, options: { help: { type: 'boolean' }, json: { type: 'boolean' }, timeout: { type: 'string' } }, allowPositionals: true });
+    return parseArgs({ args: argv, options: { help: { type: 'boolean' }, json: { type: 'boolean' }, timeout: { type: 'string' }, yes: { type: 'boolean' } }, allowPositionals: true });
   } catch (error) {
     throw new UsageError((error as Error).message);
   }
@@ -74,6 +81,23 @@ function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' |
   return `${JSON.stringify({ command, outcome, exitCode, run, error })}\n`;
 }
 
+// Lists the targets on stderr and asks once. Ctrl-C at the prompt counts as an interrupt, like SIGTERM.
+function confirmOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>): Confirm {
+  return async (targets, signal) => {
+    if (io.isTTY) io.stderr(CLEAR_LINE);
+    io.stderr(targets.map((t) => `  ${t.repo}/${t.worktree} (${t.role})\n`).join(''));
+    let answer: string;
+    try {
+      answer = await ask(`Send to ${targets.length} ${targets.length === 1 ? 'agent' : 'agents'}? [y/N] `, signal);
+    } catch (error) {
+      if (error instanceof PromptInterrupted) throw new Interrupted(AbortSignal.abort('SIGINT'));
+      throw error;
+    }
+    throwIfAborted(signal);
+    return /^y(es)?$/i.test(answer.trim());
+  };
+}
+
 export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, deps: CliDeps = {}): Promise<number> {
   // Read from the raw argv so that an argument parse failure still gets a JSON answer.
   const json = argv.includes('--json');
@@ -89,7 +113,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     }
     command = positionals[0];
     if (command !== 'pause' && values.timeout !== undefined) throw new UsageError('--timeout applies only to pause');
+    if (command === 'close' && values.yes) throw new UsageError('--yes applies only to pause and resume');
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
+    // The safety switch: nothing is sent without a yes from the user, or --yes. This runs before anything is read, locked or listed.
+    const needsConfirm = command !== 'close' && !values.yes;
+    if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
+    const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask) : undefined;
 
     const store = createRecordStore(resolveStateDir(env));
     const progressLine = <P>(render: (progress: P) => string) =>
@@ -99,8 +128,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       const port = deps.port ?? createOrcaAdapter();
       const clock = deps.clock ?? systemClock;
       return command === 'pause'
-        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderProgress), signal })
-        : resume({ port, clock, store, onProgress: progressLine(renderResumeProgress), signal });
+        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderProgress), confirm, signal })
+        : resume({ port, clock, store, onProgress: progressLine(renderResumeProgress), confirm, signal });
     });
     if (json) {
       io.stdout(jsonLine(command, summary));

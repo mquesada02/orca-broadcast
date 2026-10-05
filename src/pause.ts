@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import type { RecordStore } from './store.js';
-import { failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
-import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
+import { cancelled, failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
+import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
 
@@ -15,6 +15,7 @@ export interface PauseDeps {
   newToken?: () => string;
   selfPaneKey?: string;
   onProgress?: (progress: Progress) => void;
+  confirm?: Confirm;
   signal?: AbortSignal;
 }
 
@@ -135,53 +136,107 @@ function recheckReason(agent: AgentRecord, row: AgentRow): PauseReason {
   return row.state === 'working' ? 'still-working' : 'done-no-token';
 }
 
-export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSummary> {
-  const { clock, store } = deps;
-  const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
-  const startedAt = clock.now();
+type Prepared = { run: Run; extending: boolean } | { summary: RunSummary };
 
-  let run: Run | null;
-  let agents: Map<string, AgentRow>;
-  let terminals: Map<string, TerminalRow>;
-  try {
-    throwIfAborted(deps.signal);
-    run = (await store.findOpenRun())?.run ?? null;
-    [agents, terminals] = await listFresh(deps);
-    throwIfAborted(deps.signal);
-  } catch (error) {
-    return withSelf(failure(error, null), selfKey);
-  }
-
+// Builds the run this invocation works on, in memory: the loaded run extended, or a new run of the agents found working.
+// The loaded run is never changed, so it stays available as the pre-invocation record.
+function prepare(loaded: Run | null, startedAt: number, newToken: () => string, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, selfKey: string | undefined): Prepared {
   const selfFound = selfKey ? locate(selfKey, agents, terminals) : null;
   const self = selfFound && !('gone' in selfFound) && selfFound.row.agentType === 'claude' ? selfFound : null;
 
-  const extending = run !== null;
-  if (run) {
+  if (loaded) {
+    const run = structuredClone(loaded);
     handOverSelf(run, selfKey, self, agents, terminals);
     extend(run, selfKey, agents, terminals);
-  } else {
-    const discovered = [...agents.values()].filter((row) => isSweepable(row) && row.paneKey !== selfKey);
-    if (discovered.length === 0) {
-      const onlySelf = self?.row.state === 'working' ? markSelf(undefined, self.row, self.handle) : null;
-      return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], self: onlySelf };
-    }
-    const token = (deps.newToken ?? randomToken)();
-    run = {
-      runId: `${iso(startedAt).replace(/[-:.]/g, '')}-${token}`,
-      token,
-      startedAt: iso(startedAt),
-      status: 'open',
-      agents: discovered.map(newAgent),
-    };
-    if (self) run.agents.push(markSelf(undefined, self.row, self.handle));
+    return { run, extending: true };
   }
+  const discovered = [...agents.values()].filter((row) => isSweepable(row) && row.paneKey !== selfKey);
+  if (discovered.length === 0) {
+    const onlySelf = self?.row.state === 'working' ? markSelf(undefined, self.row, self.handle) : null;
+    return { summary: { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], self: onlySelf } };
+  }
+  const token = newToken();
+  const run: Run = {
+    runId: `${iso(startedAt).replace(/[-:.]/g, '')}-${token}`,
+    token,
+    startedAt: iso(startedAt),
+    status: 'open',
+    agents: discovered.map(newAgent),
+  };
+  if (self) run.agents.push(markSelf(undefined, self.row, self.handle));
+  return { run, extending: false };
+}
+
+export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSummary> {
+  const { clock, store } = deps;
+  const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
+  let startedAt = clock.now();
+  let token: string | undefined;
+  // The run is built again after a "yes"; the token must stay the same.
+  const newToken = () => (token ??= (deps.newToken ?? randomToken)());
+
+  let loaded: Run | null;
+  let agents: Map<string, AgentRow>;
+  let terminals: Map<string, TerminalRow>;
+  let prepared: Prepared;
+  let confirmed = false;
+  // The answer may have taken minutes: look again and start the clock now.
+  const afterYes = async () => {
+    confirmed = true;
+    [agents, terminals] = await listFresh(deps);
+    startedAt = clock.now();
+  };
+  try {
+    throwIfAborted(deps.signal);
+    loaded = (await store.findOpenRun())?.run ?? null;
+    [agents, terminals] = await listFresh(deps);
+    throwIfAborted(deps.signal);
+    prepared = prepare(loaded, startedAt, newToken, agents, terminals, selfKey);
+    if (deps.confirm && 'run' in prepared) {
+      const targets = planSends(prepared.run, agents, terminals, await listCoordinators(deps), deps, selfKey);
+      if (targets.length > 0) {
+        if (!(await deps.confirm(targets, deps.signal))) return withSelf(cancelled(), selfKey);
+        throwIfAborted(deps.signal);
+        await afterYes();
+        prepared = prepare(loaded, startedAt, newToken, agents, terminals, selfKey);
+      }
+    }
+  } catch (error) {
+    return withSelf(failure(error, null), selfKey);
+  }
+  if ('summary' in prepared) return prepared.summary;
+
+  const { run, extending } = prepared;
   await store.save(run);
   if (!extending) await store.setCurrent(run.runId); // findOpenRun already points at an open run
+
+  // Before the first send pass that was not confirmed at the start: a "no" or a failure leaves the records as they were before this invocation.
+  const confirmLate = async (confirm: Confirm, coordinators: Set<string>): Promise<RunSummary | null> => {
+    try {
+      const targets = planSends(run, agents, terminals, coordinators, deps, selfKey);
+      if (targets.length === 0) return null;
+      const yes = await confirm(targets, deps.signal);
+      throwIfAborted(deps.signal);
+      if (yes) {
+        await afterYes();
+        return null;
+      }
+      if (loaded) await store.save(loaded);
+      return withSelf(cancelled(), selfKey);
+    } catch (error) {
+      if (loaded) await store.save(loaded);
+      return withSelf(failure(error, null), selfKey);
+    }
+  };
 
   try {
     while (true) {
       throwIfAborted(deps.signal);
       const coordinators = await listCoordinators(deps);
+      if (deps.confirm && !confirmed) {
+        const declined = await confirmLate(deps.confirm, coordinators);
+        if (declined) return declined;
+      }
       await poll(run, agents, terminals, coordinators, deps, selfKey);
       await store.save(run);
       reportProgress(run, startedAt + timeoutMs - clock.now(), deps, selfKey);
@@ -242,7 +297,8 @@ function markLocated(agent: AgentRecord, agents: Map<string, AgentRow>, terminal
   return found;
 }
 
-async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: PauseDeps, selfKey: string | undefined): Promise<void> {
+// The in-memory part of a poll: sweep newcomers, locate, check wake-ups and proofs. It sends nothing and saves nothing.
+function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined): { agent: AgentRecord; row: AgentRow }[] {
   for (const row of agents.values()) {
     if (!isSweepable(row) || row.paneKey === selfKey || run.agents.some((a) => a.paneKey === row.paneKey)) continue;
     run.agents.push(newAgent(row));
@@ -278,9 +334,23 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
       agent.pauseReason = recheckReason(agent, row);
     }
   }
+  return live;
+}
 
-  for (const { agent, row } of roleFirst(live, 'coordinator', ({ agent }) => agent.role)) {
-    if (!agent.messagePending || agent.pauseReason === 'send-failed' || isWaitingLike(row.state)) continue;
+// The agents a poll would message, coordinators first.
+function sendQueue(live: { agent: AgentRecord; row: AgentRow }[]): { agent: AgentRecord; row: AgentRow }[] {
+  return roleFirst(live, 'coordinator', ({ agent }) => agent.role).filter(({ agent, row }) => agent.messagePending && agent.pauseReason !== 'send-failed' && !isWaitingLike(row.state));
+}
+
+// Who the next poll would message, found by running its in-memory part on a copy of the run.
+function planSends(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined): ConfirmTarget[] {
+  return sendQueue(refresh(structuredClone(run), agents, terminals, coordinators, deps, selfKey)).map(({ agent }) => ({ repo: agent.repo, worktree: agent.worktree, role: agent.role }));
+}
+
+async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: PauseDeps, selfKey: string | undefined): Promise<void> {
+  const live = refresh(run, agents, terminals, coordinators, deps, selfKey);
+
+  for (const { agent, row } of sendQueue(live)) {
     throwIfAborted(deps.signal);
     await deps.store.save(run);
     const [freshAgents, freshTerminals] = await listFresh(deps);

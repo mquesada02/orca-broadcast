@@ -1,7 +1,7 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { failure, iso, listAgentsFresh, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
+import { cancelled, failure, iso, listAgentsFresh, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
 import type { RecordStore } from './store.js';
-import type { AgentRecord, AgentRow, Clock, ContinueBaseline, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
+import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, ContinueBaseline, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
 const PROOF_WINDOW_MS = 60_000;
 
@@ -10,6 +10,7 @@ export interface ResumeDeps {
   clock: Clock;
   store: RecordStore;
   onProgress?: (progress: ResumeProgress) => void;
+  confirm?: Confirm;
   signal?: AbortSignal;
 }
 
@@ -23,6 +24,20 @@ export const CONTINUE_MESSAGE =
 
 function movedSince(row: AgentRow, baseline: ContinueBaseline): boolean {
   return row.stateStartedAt !== baseline.stateStartedAt || row.lastAssistantMessage !== baseline.lastAssistantMessage;
+}
+
+const isProven = (agent: AgentRecord, row: AgentRow): boolean => Boolean(agent.continueSentAt && agent.continueBaseline && movedSince(row, agent.continueBaseline));
+const isSendable = (row: AgentRow): boolean => row.state === 'working' || row.state === 'done';
+
+// The agents sendAll would message, workers first.
+function sendTargets(run: Run, rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>): ConfirmTarget[] {
+  const targets: ConfirmTarget[] = [];
+  for (const agent of run.agents.filter((a) => a.resumeStatus === 'pending')) {
+    const located = locate(agent.paneKey, rows, terminals);
+    if ('gone' in located || isProven(agent, located.row) || !isSendable(located.row)) continue;
+    targets.push({ repo: agent.repo, worktree: agent.worktree, role: roleOf(located.handle, coordinators) });
+  }
+  return roleFirst(targets, 'worker', (target) => target.role);
 }
 
 export async function resume(deps: ResumeDeps): Promise<RunSummary> {
@@ -43,6 +58,14 @@ export async function resume(deps: ResumeDeps): Promise<RunSummary> {
   try {
     [rows, terminals] = await listFresh(deps);
     coordinators = await listCoordinators(deps);
+    if (deps.confirm) {
+      const targets = sendTargets(run, rows, terminals, coordinators);
+      if (targets.length > 0) {
+        if (!(await deps.confirm(targets, deps.signal))) return cancelled();
+        throwIfAborted(deps.signal);
+        [rows, terminals] = await listFresh(deps); // the answer may have taken minutes
+      }
+    }
   } catch (error) {
     return failure(error, run);
   }
@@ -84,11 +107,11 @@ async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<str
     }
     agent.role = role;
     const { row, handle } = located;
-    if (agent.continueSentAt && agent.continueBaseline && movedSince(row, agent.continueBaseline)) {
+    if (isProven(agent, row)) {
       agent.resumeStatus = 'resumed';
       continue;
     }
-    if (row.state !== 'working' && row.state !== 'done') {
+    if (!isSendable(row)) {
       agent.resumeReason = 'waiting-permission';
       continue;
     }
