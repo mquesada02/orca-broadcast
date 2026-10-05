@@ -4,6 +4,8 @@ import type { RecordStore } from './store.js';
 import { failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
+type Found = { row: AgentRow; handle: string };
+
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface PauseDeps {
@@ -59,12 +61,16 @@ function isWaitingLike(state: string): boolean {
   return state !== 'working' && state !== 'done';
 }
 
+function clearContinueProof(agent: AgentRecord): void {
+  delete agent.continueBaseline;
+  delete agent.continueSentAt;
+}
+
 function reopen(agent: AgentRecord, row: AgentRow): void {
   agent.pauseStatus = 'unconfirmed';
   agent.pauseBaseline = row.lastAssistantMessage;
   agent.confirmedAt = null;
-  delete agent.continueBaseline;
-  delete agent.continueSentAt;
+  clearContinueProof(agent);
 }
 
 function requestPause(agent: AgentRecord, row: AgentRow): void {
@@ -113,8 +119,7 @@ function markSelf(existing: AgentRecord | undefined, row: AgentRow, handle: stri
     resumeStatus: 'pending',
   });
   delete agent.resumeReason;
-  delete agent.continueBaseline;
-  delete agent.continueSentAt;
+  clearContinueProof(agent);
   return agent;
 }
 
@@ -135,7 +140,7 @@ function recheckReason(agent: AgentRecord, row: AgentRow): PauseReason {
 
 export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSummary> {
   const { clock, store } = deps;
-  const selfKey = deps.selfPaneKey || undefined;
+  const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
   const startedAt = clock.now();
 
   let run: Run | null;
@@ -196,8 +201,6 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   const unconfirmed = run.agents.some((a) => a.paneKey !== selfKey && a.pauseStatus === 'unconfirmed');
   return withSelf({ outcome: 'done', exitCode: unconfirmed ? 1 : 0, run, error: null, rows: run.agents }, selfKey);
 }
-
-type Found = { row: AgentRow; handle: string };
 
 // Self handover: an earlier self that is not the current self becomes a normal agent; the current self is recorded for resume.
 function handOverSelf(run: Run, selfKey: string | undefined, self: Found | null, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>): void {

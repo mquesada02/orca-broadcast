@@ -94,7 +94,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     if (summary.outcome === 'error') {
       io.stderr(`orca-pause: ${summary.error}\n`);
     } else if (summary.outcome === 'nothing-to-do') {
-      io.stdout(`nothing to ${command}\n${summary.self ? renderSelfBlock(summary.self) : ''}`);
+      const selfBlock = summary.self ? renderSelfBlock(summary.self) : '';
+      io.stdout(`nothing to ${command}\n${selfBlock}`);
     } else {
       io.stdout(command === 'pause' ? renderTable(summary.rows, summary.self) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows));
     }
