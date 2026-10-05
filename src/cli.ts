@@ -9,7 +9,7 @@ import { DEFAULT_TIMEOUT_MS, pause, type PauseDeps } from './pause.js';
 import { renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable } from './render.js';
 import { resume } from './resume.js';
 import { createRecordStore } from './store.js';
-import type { Clock, OrcaPort } from './types.js';
+import type { Clock, OrcaPort, RunSummary } from './types.js';
 
 const CLEAR_LINE = '\r\x1b[K';
 
@@ -40,6 +40,7 @@ Commands:
 
 Options:
   --timeout <n>s|m|h   How long pause waits for confirmations (default 10m)
+  --json               With a command, print one JSON object on stdout and nothing on stderr
   --help               Show this help
 `;
 
@@ -47,7 +48,7 @@ class UsageError extends Error {}
 
 function parseUsage(argv: string[]) {
   try {
-    return parseArgs({ args: argv, options: { help: { type: 'boolean' }, timeout: { type: 'string' } }, allowPositionals: true });
+    return parseArgs({ args: argv, options: { help: { type: 'boolean' }, json: { type: 'boolean' }, timeout: { type: 'string' } }, allowPositionals: true });
   } catch (error) {
     throw new UsageError((error as Error).message);
   }
@@ -64,23 +65,35 @@ export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()
   return join(base, 'orca-pause');
 }
 
+const COMMANDS = ['pause', 'resume', 'close'] as const;
+type Command = (typeof COMMANDS)[number];
+const isCommand = (value: string | undefined): value is Command => COMMANDS.some((name) => name === value);
+
+function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'run' | 'error'>): string {
+  const { outcome, exitCode, run, error } = summary;
+  return `${JSON.stringify({ command, outcome, exitCode, run, error })}\n`;
+}
+
 export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, deps: CliDeps = {}): Promise<number> {
+  // Read from the raw argv so that an argument parse failure still gets a JSON answer.
+  const json = argv.includes('--json');
+  let command: Command | null = null;
   try {
     const { values, positionals } = parseUsage(argv);
     if (values.help) {
       io.stdout(USAGE);
       return 0;
     }
-    const command = positionals[0];
-    if (positionals.length !== 1 || (command !== 'pause' && command !== 'resume' && command !== 'close')) {
+    if (positionals.length !== 1 || !isCommand(positionals[0])) {
       throw new UsageError(positionals.length === 0 ? 'missing command' : `unknown command "${positionals.join(' ')}"`);
     }
+    command = positionals[0];
     if (command !== 'pause' && values.timeout !== undefined) throw new UsageError('--timeout applies only to pause');
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
 
     const store = createRecordStore(resolveStateDir(env));
     const progressLine = <P>(render: (progress: P) => string) =>
-      io.isTTY ? (progress: P) => io.stderr(`${CLEAR_LINE}${render(progress)}`) : undefined;
+      io.isTTY && !json ? (progress: P) => io.stderr(`${CLEAR_LINE}${render(progress)}`) : undefined;
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
       if (command === 'close') return close(store, signal);
       const port = deps.port ?? createOrcaAdapter();
@@ -89,6 +102,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
         ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderProgress), signal })
         : resume({ port, clock, store, onProgress: progressLine(renderResumeProgress), signal });
     });
+    if (json) {
+      io.stdout(jsonLine(command, summary));
+      return summary.exitCode;
+    }
     if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
 
     if (summary.outcome === 'error') {
@@ -101,6 +118,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     }
     return summary.exitCode;
   } catch (error) {
+    if (json) {
+      io.stdout(jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
+      return 2;
+    }
     io.stderr(`orca-pause: ${(error as Error).message}\n`);
     if (error instanceof UsageError) io.stderr(USAGE);
     return 2;
