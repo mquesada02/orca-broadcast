@@ -42,10 +42,18 @@ describe('pause happy path', () => {
     expect(record?.agents.every((a) => a.pauseStatus === 'confirmed' && a.confirmedAt && a.pauseReason === null)).toBe(true);
   });
 
-  it('ends as soon as every agent is confirmed', async () => {
-    const { clock, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
+  it('ends as soon as every agent is confirmed, reading one listing per poll', async () => {
+    const { clock, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
     await run();
-    expect(clock.slept).toBeLessThan(10_000);
+    expect(port.listCalls).toBe(2);
+    expect(clock.slept).toBe(2000);
+  });
+
+  it('runs no poll at the deadline: a 5s timeout polls at 0s, 2s and 4s', async () => {
+    const { clock, port, run } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    await run(5000);
+    expect(port.listCalls).toBe(3);
+    expect(clock.slept).toBe(6000);
   });
 
   it('keeps agents unconfirmed when they end done without the token or with an unchanged message', async () => {
@@ -183,6 +191,15 @@ describe('discovery', () => {
     const summary = await run();
     expect(summary.outcome).toBe('nothing-to-do');
     expect(port.sends).toHaveLength(0);
+  });
+
+  it('applies the newest-row rule to every poll, not only to discovery', async () => {
+    const { port, run } = await setup([{ paneKey: 'a:1', stateStartedAt: 20, behavior: working }]);
+    port.extraRows = [
+      { paneKey: 'a:1', worktreeId: 'w', worktree: 'w', repo: 'r', agentType: 'claude', state: 'done', stateStartedAt: 5, lastAssistantMessage: 'old\nORCA-PAUSED abcd1234' },
+    ];
+    const summary = await run(10_000, () => 'abcd1234');
+    expect(summary.rows[0]).toMatchObject({ pauseStatus: 'unconfirmed', pauseReason: 'still-working' });
   });
 
   it('records a working agent with no terminal as send-failed and sends nothing to it', async () => {
