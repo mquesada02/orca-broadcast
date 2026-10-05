@@ -36,7 +36,7 @@ export interface Clock {
 }
 
 export type PauseStatus = 'confirmed' | 'unconfirmed';
-export type PauseReason = 'still-working' | 'waiting-permission' | 'done-no-token' | 'send-failed';
+export type PauseReason = 'still-working' | 'waiting-permission' | 'done-no-token' | 'send-failed' | 're-woken';
 export type ResumeStatus = 'pending' | 'resumed' | 'gone';
 export type ResumeReason =
   | 'terminal-closed'

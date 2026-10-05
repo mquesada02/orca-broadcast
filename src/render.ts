@@ -54,7 +54,7 @@ function renderGroups<S extends string>(
 }
 
 export function renderTable(agents: AgentRecord[]): string {
-  return renderGroups(agents, GROUP_ORDER, HINTS, (a) => a.pauseStatus, (a) => a.pauseReason);
+  return renderGroups(agents, GROUP_ORDER, HINTS, (a) => a.pauseStatus, (a) => (a.resumeStatus === 'gone' ? a.resumeReason : a.pauseReason));
 }
 
 export function renderResumeTable(agents: AgentRecord[]): string {

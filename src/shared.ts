@@ -1,4 +1,4 @@
-import type { AgentRow, OrcaPort, Run, RunSummary, TerminalRow } from './types.js';
+import type { AgentRow, OrcaPort, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -26,4 +26,17 @@ export async function listFresh(port: OrcaPort): Promise<[Map<string, AgentRow>,
 
 export function failure(error: unknown, run: Run | null): RunSummary {
   return { outcome: 'error', exitCode: 2, run, error: (error as Error).message, rows: run?.agents ?? [] };
+}
+
+export type Located = { gone: ResumeReason } | { row: AgentRow; handle: string };
+
+// The Locate rule shared by pause and resume: the checks run in this order.
+export function locate(paneKey: string, rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>): Located {
+  const terminal = terminals.get(paneKey);
+  if (!terminal) return { gone: 'terminal-closed' };
+  if (terminal.orphaned) return { gone: 'terminal-orphaned' };
+  const row = rows.get(paneKey);
+  if (!row) return { gone: 'agent-missing' };
+  if (terminal.agentIdentity !== 'claude') return { gone: 'agent-exited' };
+  return { row, handle: terminal.handle };
 }
