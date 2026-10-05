@@ -4,8 +4,6 @@ const HINTS: Partial<Record<PauseStatus, string>> = {
   unconfirmed: 'not confirmed paused; check these agents before you leave',
 };
 
-const GROUP_ORDER: PauseStatus[] = ['unconfirmed', 'confirmed'];
-
 const RESUME_HINTS: Partial<Record<ResumeStatus, string>> = {
   pending: "run resume again; for a waiting-permission row, first answer the permission prompt in that row's worktree",
   gone: 'terminal or Claude is gone; restart these agents yourself',
@@ -57,8 +55,17 @@ function renderGroups<S extends string>(
   return out.join('\n');
 }
 
-export function renderTable(agents: AgentRecord[]): string {
-  return renderGroups(agents, GROUP_ORDER, HINTS, (a) => a.pauseStatus, (a) => (a.resumeStatus === 'gone' ? a.resumeReason : a.pauseReason));
+const SELF_HEADING = 'self (not paused) — this session must stop by itself';
+
+export function renderSelfBlock(self: AgentRecord): string {
+  return [SELF_HEADING, ...table([self], () => 'self', () => null), '', ''].join('\n');
+}
+
+export function renderTable(agents: AgentRecord[], self: AgentRecord | null = null): string {
+  const group = (status: PauseStatus) =>
+    renderGroups(agents, [status], HINTS, (a) => a.pauseStatus, (a) => (a.resumeStatus === 'gone' ? a.resumeReason : a.pauseReason));
+  const parts = [group('unconfirmed'), self ? renderSelfBlock(self) : '', group('confirmed')].filter((part) => part !== '');
+  return parts.reduce((out, part) => (out === '' || out.endsWith('\n\n') ? out + part : `${out}\n${part}`), '');
 }
 
 export function renderResumeTable(agents: AgentRecord[]): string {

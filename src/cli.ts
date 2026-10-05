@@ -6,7 +6,7 @@ import { createOrcaAdapter } from './orca-adapter.js';
 import { close } from './close.js';
 import { systemClock } from './clock.js';
 import { DEFAULT_TIMEOUT_MS, pause, type PauseDeps } from './pause.js';
-import { renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderTable } from './render.js';
+import { renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable } from './render.js';
 import { resume } from './resume.js';
 import { createRecordStore } from './store.js';
 import type { Clock, OrcaPort } from './types.js';
@@ -86,7 +86,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       const port = deps.port ?? createOrcaAdapter();
       const clock = deps.clock ?? systemClock;
       return command === 'pause'
-        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, onProgress: progressLine(renderProgress), signal })
+        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderProgress), signal })
         : resume({ port, clock, store, onProgress: progressLine(renderResumeProgress), signal });
     });
     if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
@@ -94,9 +94,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     if (summary.outcome === 'error') {
       io.stderr(`orca-pause: ${summary.error}\n`);
     } else if (summary.outcome === 'nothing-to-do') {
-      io.stdout(`nothing to ${command}\n`);
+      io.stdout(`nothing to ${command}\n${summary.self ? renderSelfBlock(summary.self) : ''}`);
     } else {
-      io.stdout(command === 'pause' ? renderTable(summary.rows) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows));
+      io.stdout(command === 'pause' ? renderTable(summary.rows, summary.self) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows));
     }
     return summary.exitCode;
   } catch (error) {
