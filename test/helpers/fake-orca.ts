@@ -1,7 +1,8 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AgentRow, Clock, OrcaPort, RunRow, SendResult, TerminalRow } from '../../src/types.js';
+import type { RecordStore } from '../../src/store.js';
+import type { AgentRecord, AgentRow, Clock, OrcaPort, Run, RunRow, SendResult, TerminalRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -32,6 +33,8 @@ export interface FakeAgent {
 export class FakeOrca implements OrcaPort {
   sends: { handle: string; text: string }[] = [];
   listCalls = 0;
+  listTerminalsCalls = 0;
+  listRunsCalls = 0;
   sendResult: (handle: string, attempt: number) => SendResult = () => ({ accepted: true });
   listError: Error | null = null;
   /** Make the listing with this number throw (a pair counts once, on its worktree ps call). */
@@ -78,10 +81,12 @@ export class FakeOrca implements OrcaPort {
   }
 
   async listTerminals(): Promise<TerminalRow[]> {
+    this.listTerminalsCalls += 1;
     return this.agents.flatMap((a) => this.terminalOf(a) ?? []);
   }
 
   async listRuns(): Promise<RunRow[]> {
+    this.listRunsCalls += 1;
     return [];
   }
 
@@ -156,3 +161,29 @@ export const repliesAfter = (delay: number): Behavior => {
     return seen > delay ? doneWithToken(received, 'Stopped.') : { state: 'working', message: null };
   };
 };
+
+export function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
+  return {
+    paneKey,
+    worktreeId: `wt-${paneKey}`,
+    worktree: `tree-${paneKey}`,
+    repo: 'repo',
+    role: 'worker',
+    lastHandle: null,
+    pauseStatus: 'confirmed',
+    pauseReason: null,
+    pauseBaseline: null,
+    messagePending: false,
+    confirmedAt: '2026-01-01T00:00:00.000Z',
+    wakeCount: 0,
+    resumeStatus: 'pending',
+    ...extra,
+  };
+}
+
+export async function seedOpenRun(store: RecordStore, agents: AgentRecord[], extra: Partial<Run> = {}): Promise<Run> {
+  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents, ...extra };
+  await store.save(run);
+  await store.setCurrent(run.runId);
+  return run;
+}

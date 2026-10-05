@@ -106,7 +106,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
     return failure(
       new Error(
         `an open pause run already exists in ${store.dir}; extending it is not supported yet, ` +
-          'so until resume and close exist, close it by hand (set its status to "closed" and delete the current file) before pausing again',
+          'so run orca-pause close to abandon it before pausing again',
       ),
       null,
     );

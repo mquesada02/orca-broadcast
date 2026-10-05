@@ -13,6 +13,10 @@ const RESUME_HINTS: Partial<Record<ResumeStatus, string>> = {
 
 const RESUME_GROUP_ORDER: ResumeStatus[] = ['pending', 'gone', 'resumed'];
 
+const ABANDONED_HINT = 'still paused — continue it by hand';
+
+const PAUSED_AGENT_HINT = 'paused and waiting for CONTINUE — run resume before close, or continue it by hand';
+
 function formatRemaining(ms: number): string {
   const total = Math.ceil(ms / 1000);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
@@ -59,4 +63,10 @@ export function renderTable(agents: AgentRecord[]): string {
 
 export function renderResumeTable(agents: AgentRecord[]): string {
   return renderGroups(agents, RESUME_GROUP_ORDER, RESUME_HINTS, (a) => a.resumeStatus, (a) => a.resumeReason);
+}
+
+export function renderCloseTable(agents: AgentRecord[]): string {
+  if (agents.length === 0) return '';
+  const reasonOf = (a: AgentRecord) => (a.pauseStatus === 'confirmed' ? PAUSED_AGENT_HINT : a.pauseReason);
+  return [`abandoned (${agents.length}) - ${ABANDONED_HINT}`, ...table(agents, (a) => a.pauseStatus, reasonOf), ''].join('\n');
 }

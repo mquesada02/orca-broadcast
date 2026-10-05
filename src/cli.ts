@@ -2,9 +2,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { createOrcaAdapter } from './orca-adapter.js';
+import { close } from './close.js';
 import { systemClock } from './clock.js';
 import { DEFAULT_TIMEOUT_MS, pause, type PauseDeps } from './pause.js';
-import { renderProgress, renderResumeProgress, renderResumeTable, renderTable } from './render.js';
+import { renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderTable } from './render.js';
 import { resume } from './resume.js';
 import { createRecordStore } from './store.js';
 import type { Clock, OrcaPort } from './types.js';
@@ -25,12 +26,15 @@ export interface CliDeps {
 
 const USAGE = `Usage: orca-pause pause [--timeout <n>s|m|h]
        orca-pause resume
+       orca-pause close
 
 Commands:
   pause    Ask every working Claude Code agent to stop at a clean point and
            prove it did. Exit 0 if all confirmed, 1 if any is unconfirmed.
   resume   Tell every paused agent to continue and prove it did. Exit 0 if the
            run closed (or there was nothing to resume), 1 if any is pending.
+  close    Abandon the open run without resuming it: pending agents become
+           abandoned, nothing is sent. Exit 0 (also when there is nothing to close).
 
 Options:
   --timeout <n>s|m|h   How long pause waits for confirmations (default 10m)
@@ -66,15 +70,22 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       return 0;
     }
     const command = positionals[0];
-    if (positionals.length !== 1 || (command !== 'pause' && command !== 'resume')) {
+    if (positionals.length !== 1 || (command !== 'pause' && command !== 'resume' && command !== 'close')) {
       throw new UsageError(positionals.length === 0 ? 'missing command' : `unknown command "${positionals.join(' ')}"`);
     }
-    if (command === 'resume' && values.timeout !== undefined) throw new UsageError('--timeout applies only to pause');
+    if (command !== 'pause' && values.timeout !== undefined) throw new UsageError('--timeout applies only to pause');
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
+
+    const store = createRecordStore(resolveStateDir(env));
+    if (command === 'close') {
+      const summary = await close(store);
+      if (summary.outcome === 'error') io.stderr(`orca-pause: ${summary.error}\n`);
+      else io.stdout(summary.outcome === 'nothing-to-do' ? `nothing to ${command}\n` : renderCloseTable(summary.rows));
+      return summary.exitCode;
+    }
 
     const port = deps.port ?? createOrcaAdapter();
     const clock = deps.clock ?? systemClock;
-    const store = createRecordStore(resolveStateDir(env));
     const progressLine = <P>(render: (progress: P) => string) =>
       io.isTTY ? (progress: P) => io.stderr(`${CLEAR_LINE}${render(progress)}`) : undefined;
     const summary =

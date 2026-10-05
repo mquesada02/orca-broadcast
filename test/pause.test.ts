@@ -263,6 +263,7 @@ describe('an open run already exists', () => {
 
     expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
     expect(summary.error).toContain(dir);
+    expect(summary.error).toContain('orca-pause close');
     expect(port.listCalls).toBe(0);
     expect(port.sends).toHaveLength(0);
   });
