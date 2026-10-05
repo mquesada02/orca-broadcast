@@ -19,6 +19,9 @@ export interface FakeAgent {
   repo?: string;
   stateStartedAt?: number;
   hasTerminal?: boolean;
+  agentIdentity?: string | null;
+  orphaned?: boolean;
+  hasRow?: boolean;
   behavior: Behavior;
 }
 
@@ -40,7 +43,7 @@ export class FakeOrca implements OrcaPort {
   async listAgents(): Promise<AgentRow[]> {
     if (this.listError) throw this.listError;
     this.listCalls += 1;
-    const rows = this.agents.map((a): AgentRow => {
+    const rows = this.agents.filter((a) => a.hasRow !== false).map((a): AgentRow => {
       const reply = a.behavior({ listCalls: this.listCalls, received: this.received.get(a.paneKey) ?? [] });
       return {
         paneKey: a.paneKey,
@@ -60,7 +63,12 @@ export class FakeOrca implements OrcaPort {
     return this.agents
       .filter((a) => a.hasTerminal !== false)
       .map((a) => {
-        return { handle: this.handleOf(a.paneKey), paneKey: a.paneKey, orphaned: false, agentIdentity: 'claude' };
+        return {
+          handle: this.handleOf(a.paneKey),
+          paneKey: a.paneKey,
+          orphaned: a.orphaned ?? false,
+          agentIdentity: a.agentIdentity === undefined ? 'claude' : a.agentIdentity,
+        };
       });
   }
 
@@ -87,6 +95,17 @@ export class FakeOrca implements OrcaPort {
 export function tokenOf(text: string): string {
   return /ORCA-PAUSED ([0-9a-z]+)\./.exec(text)?.[1] ?? 'no-token';
 }
+
+export const CONTINUE_PREFIX = '[orca-pause] CONTINUE';
+
+const gotContinue = (received: string[]) => received.some((t) => t.startsWith(CONTINUE_PREFIX));
+
+export const PAUSED_REPLY = 'Stopped here.\nORCA-PAUSED abcd1234';
+
+export const pausedDone = (note = PAUSED_REPLY): Behavior => () => ({ state: 'done', message: note });
+
+export const startsNewTurnAfterContinue: Behavior = ({ received }) =>
+  gotContinue(received) ? { state: 'done', message: 'Continued and finished.' } : { state: 'done', message: PAUSED_REPLY };
 
 export const working: Behavior = () => ({ state: 'working', message: null });
 

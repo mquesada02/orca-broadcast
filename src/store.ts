@@ -1,13 +1,15 @@
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Run } from './types.js';
 
 const POINTER = 'current';
 
 export interface RecordStore {
+  findOpenRun(): Promise<Run | null>;
   hasOpenRun(): Promise<boolean>;
   save(run: Run): Promise<void>;
   setCurrent(runId: string): Promise<void>;
+  clearCurrent(): Promise<void>;
   dir: string;
 }
 
@@ -29,21 +31,38 @@ async function readRun(path: string): Promise<Run | null> {
 export function createRecordStore(dir: string): RecordStore {
   const runPath = (runId: string) => join(dir, `${runId}.json`);
 
+  async function findOpenRun(): Promise<Run | null> {
+    let pointed: string | null = null;
+    try {
+      pointed = (await readFile(join(dir, POINTER), 'utf8')).trim();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const current = pointed ? await readRun(runPath(pointed)) : null;
+    if (current?.status === 'open') return current;
+
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+    let newest: Run | null = null;
+    for (const name of names.filter((n) => n.endsWith('.json'))) {
+      const run = await readRun(join(dir, name));
+      if (run?.status === 'open' && (!newest || run.startedAt > newest.startedAt)) newest = run;
+    }
+    return newest;
+  }
+
   return {
     dir,
 
+    findOpenRun,
+
     async hasOpenRun() {
-      let names: string[];
-      try {
-        names = await readdir(dir);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-        throw error;
-      }
-      for (const name of names.filter((n) => n.endsWith('.json'))) {
-        if ((await readRun(join(dir, name)))?.status === 'open') return true;
-      }
-      return false;
+      return (await findOpenRun()) !== null;
     },
 
     async save(run) {
@@ -54,6 +73,10 @@ export function createRecordStore(dir: string): RecordStore {
     async setCurrent(runId) {
       await mkdir(dir, { recursive: true });
       await writeAtomic(join(dir, POINTER), `${runId}\n`);
+    },
+
+    async clearCurrent() {
+      await rm(join(dir, POINTER), { force: true });
     },
   };
 }

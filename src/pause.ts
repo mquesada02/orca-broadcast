@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import type { RecordStore } from './store.js';
-import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Run, TerminalRow } from './types.js';
+import { failure, iso, listFresh, POLL_INTERVAL_MS } from './shared.js';
+import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Run, RunSummary, TerminalRow } from './types.js';
 
-const POLL_INTERVAL_MS = 2000;
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface PauseDeps {
@@ -11,14 +11,6 @@ export interface PauseDeps {
   store: RecordStore;
   newToken?: () => string;
   onProgress?: (progress: Progress) => void;
-}
-
-export interface PauseSummary {
-  outcome: 'done' | 'nothing-to-do' | 'error';
-  exitCode: 0 | 1 | 2;
-  run: Run | null;
-  error: string | null;
-  rows: AgentRecord[];
 }
 
 export function pauseMessage(token: string): string {
@@ -32,10 +24,6 @@ export function pauseMessage(token: string): string {
 
 function randomToken(): string {
   return randomBytes(4).toString('hex');
-}
-
-function iso(ms: number): string {
-  return new Date(ms).toISOString();
 }
 
 function lastLine(message: string | null): string | null {
@@ -53,19 +41,6 @@ function provesPause(agent: AgentRecord, row: AgentRow, token: string): boolean 
   );
 }
 
-function newestByPane(rows: AgentRow[]): Map<string, AgentRow> {
-  const byPane = new Map<string, AgentRow>();
-  for (const row of rows) {
-    const current = byPane.get(row.paneKey);
-    if (!current || row.stateStartedAt > current.stateStartedAt) byPane.set(row.paneKey, row);
-  }
-  return byPane;
-}
-
-function terminalsByPane(terminals: TerminalRow[]): Map<string, TerminalRow> {
-  return new Map(terminals.map((t) => [t.paneKey, t]));
-}
-
 function isSettled(agent: AgentRecord): boolean {
   return agent.pauseStatus === 'confirmed' || agent.pauseReason === 'send-failed';
 }
@@ -77,11 +52,7 @@ function reasonFromState(state: string): PauseReason | null {
   return null;
 }
 
-function failure(error: unknown, run: Run | null): PauseSummary {
-  return { outcome: 'error', exitCode: 2, run, error: (error as Error).message, rows: run?.agents ?? [] };
-}
-
-export async function pause(timeoutMs: number, deps: PauseDeps): Promise<PauseSummary> {
+export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSummary> {
   const { port, clock, store } = deps;
 
   if (await store.hasOpenRun()) {
@@ -153,11 +124,6 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<PauseSu
 
   const unconfirmed = run.agents.some((a) => a.pauseStatus === 'unconfirmed');
   return { outcome: 'done', exitCode: unconfirmed ? 1 : 0, run, error: null, rows: run.agents };
-}
-
-async function listFresh(port: OrcaPort): Promise<[Map<string, AgentRow>, Map<string, TerminalRow>]> {
-  const [rows, terminals] = await Promise.all([port.listAgents(), port.listTerminals()]);
-  return [newestByPane(rows), terminalsByPane(terminals)];
 }
 
 async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, deps: PauseDeps): Promise<void> {
