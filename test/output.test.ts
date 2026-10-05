@@ -148,7 +148,7 @@ describe('--json close', () => {
 });
 
 describe('--json errors outside the commands', () => {
-  it.each([
+  it.each<[string[], string | null, string]>([
     [['pause', '--bogus', '--json'], null, 'bogus'],
     [['pause', '--timeout', '--json'], null, 'timeout'],
     [['--json'], null, 'missing command'],
@@ -157,7 +157,7 @@ describe('--json errors outside the commands', () => {
     [['close', '--timeout', '5s', '--json'], 'close', 'only to pause'],
     [['pause', '--timeout', '0s', '--json'], 'pause', 'invalid --timeout'],
   ])('%j gives one error object, command %j, exit 2, empty stderr, Orca untouched', async (argv, command, message) => {
-    const { code, out, err, port } = await runCli(argv as string[], [{ paneKey: 'a:1', behavior: working }], { isTTY: true });
+    const { code, out, err, port } = await runCli(argv, [{ paneKey: 'a:1', behavior: working }], { isTTY: true });
     expect(code).toBe(2);
     expect(err).toBe('');
     const object = onlyObject(out);

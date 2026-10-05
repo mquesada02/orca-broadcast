@@ -24,5 +24,5 @@ export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: Run
   const port = new FakeOrca(agents);
   opts.configure?.(port);
   const code = await main(argv, { XDG_STATE_HOME: dir, ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals });
-  return { code, out: out.join(''), err: err.join(''), port, dir };
+  return { code, out: out.join(''), err: err.join(''), port };
 }
