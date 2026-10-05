@@ -1,0 +1,25 @@
+{
+  "id": "00000000-0000-4000-8000-000000000036",
+  "ok": false,
+  "error": {
+    "code": "terminal_handle_stale",
+    "message": "terminal_handle_stale Terminal prompt request ID: 00000000-0000-4000-8000-000000000037. Re-issue the exact command with --retry-request 00000000-0000-4000-8000-000000000037 --wait-submit <seconds>; do not retry it without that ID.",
+    "data": {
+      "orchestrationRequestId": "00000000-0000-4000-8000-000000000037",
+      "originalCommand": [
+        "orca-ide",
+        "terminal",
+        "send",
+        "--terminal",
+        "term_00000000-0000-4000-8000-000000000038",
+        "--text",
+        "x",
+        "--enter",
+        "--json"
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-4000-8000-000000000019"
+  }
+}

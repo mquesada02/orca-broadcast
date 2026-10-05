@@ -1,0 +1,30 @@
+{
+  "id": "00000000-0000-4000-8000-000000000034",
+  "ok": true,
+  "result": {
+    "runs": [
+      {
+        "id": "run_1f4f7c813a83",
+        "objective": "<redacted objective>",
+        "coordinator_handle": "term_00000000-0000-4000-8000-000000000035",
+        "consumer_generation": 1,
+        "legacy": 0,
+        "created_at": "2026-10-05T19:31:13Z",
+        "updated_at": "2026-10-05T19:31:13Z"
+      },
+      {
+        "id": "run_5c57b04f68ef",
+        "objective": "<redacted objective>",
+        "coordinator_handle": "term_00000000-0000-4000-8000-000000000025",
+        "consumer_generation": 1,
+        "legacy": 0,
+        "created_at": "2026-10-05T15:04:26Z",
+        "updated_at": "2026-10-05T15:04:26Z"
+      }
+    ],
+    "nextCursor": null
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-4000-8000-000000000019"
+  }
+}
