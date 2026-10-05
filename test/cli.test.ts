@@ -10,7 +10,7 @@ async function run(
   agents: FakeAgent[] = [],
   isTTY = false,
   configure: (port: FakeOrca) => void = () => {},
-  seed: (store: ReturnType<typeof createRecordStore>) => Promise<void> = async () => {},
+  seed: (store: ReturnType<typeof createRecordStore>) => Promise<unknown> = async () => {},
 ) {
   const dir = await tempStateDir();
   await seed(createRecordStore(`${dir}/orca-pause`));
@@ -217,9 +217,7 @@ describe('orca-pause resume', () => {
 });
 
 describe('orca-pause close', () => {
-  const seedRun = (agents: AgentRecord[]) => async (store: ReturnType<typeof createRecordStore>) => {
-    await seedOpenRun(store, agents);
-  };
+  const seedRun = (agents: AgentRecord[]) => (store: ReturnType<typeof createRecordStore>) => seedOpenRun(store, agents);
 
   it('lists the abandoned agents with their pauseStatus and hints, and touches Orca not at all', async () => {
     const { code, out, port, dir } = await run(
@@ -268,7 +266,7 @@ describe('orca-pause close', () => {
   it('lets the next pause start a fresh run with a different token', async () => {
     const dir = await tempStateDir();
     const store = createRecordStore(`${dir}/orca-pause`);
-    await seedRun([agentRecord('a:1')])(store);
+    await seedOpenRun(store, [agentRecord('a:1')]);
     const io = { stdout: () => {}, stderr: () => {}, isTTY: false };
     const port = new FakeOrca([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
     const clock = fakeClock();
