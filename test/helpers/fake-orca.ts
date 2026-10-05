@@ -32,6 +32,8 @@ export interface FakeAgent {
 export class FakeOrca implements OrcaPort {
   sends: { handle: string; text: string }[] = [];
   listCalls = 0;
+  listTerminalsCalls = 0;
+  listRunsCalls = 0;
   sendResult: (handle: string, attempt: number) => SendResult = () => ({ accepted: true });
   listError: Error | null = null;
   /** Make the listing with this number throw (a pair counts once, on its worktree ps call). */
@@ -78,10 +80,12 @@ export class FakeOrca implements OrcaPort {
   }
 
   async listTerminals(): Promise<TerminalRow[]> {
+    this.listTerminalsCalls += 1;
     return this.agents.flatMap((a) => this.terminalOf(a) ?? []);
   }
 
   async listRuns(): Promise<RunRow[]> {
+    this.listRunsCalls += 1;
     return [];
   }
 

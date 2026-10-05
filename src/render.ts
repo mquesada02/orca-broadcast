@@ -13,6 +13,12 @@ const RESUME_HINTS: Partial<Record<ResumeStatus, string>> = {
 
 const RESUME_GROUP_ORDER: ResumeStatus[] = ['pending', 'gone', 'resumed'];
 
+const CLOSE_HINTS: Partial<Record<ResumeStatus, string>> = {
+  abandoned: 'still paused — continue it by hand',
+};
+
+const PAUSED_AGENT_HINT = 'paused and waiting for CONTINUE — run resume before close, or continue it by hand';
+
 function formatRemaining(ms: number): string {
   const total = Math.ceil(ms / 1000);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
@@ -42,13 +48,14 @@ function renderGroups<S extends string>(
   hints: Partial<Record<S, string>>,
   statusOf: (a: AgentRecord) => S,
   reasonOf: (a: AgentRecord) => string | null | undefined,
+  shownStatusOf: (a: AgentRecord) => string = statusOf,
 ): string {
   const out: string[] = [];
   for (const status of order) {
     const group = agents.filter((a) => statusOf(a) === status);
     if (group.length === 0) continue;
     const hint = hints[status];
-    out.push(`${status} (${group.length})${hint ? ` - ${hint}` : ''}`, ...table(group, statusOf, reasonOf), '');
+    out.push(`${status} (${group.length})${hint ? ` - ${hint}` : ''}`, ...table(group, shownStatusOf, reasonOf), '');
   }
   return out.join('\n');
 }
@@ -59,4 +66,15 @@ export function renderTable(agents: AgentRecord[]): string {
 
 export function renderResumeTable(agents: AgentRecord[]): string {
   return renderGroups(agents, RESUME_GROUP_ORDER, RESUME_HINTS, (a) => a.resumeStatus, (a) => a.resumeReason);
+}
+
+export function renderCloseTable(agents: AgentRecord[]): string {
+  return renderGroups(
+    agents,
+    ['abandoned'],
+    CLOSE_HINTS,
+    (a) => a.resumeStatus,
+    (a) => (a.pauseStatus === 'confirmed' ? PAUSED_AGENT_HINT : a.pauseReason),
+    (a) => a.pauseStatus,
+  );
 }
