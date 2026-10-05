@@ -82,13 +82,13 @@ function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' |
 }
 
 // Lists the targets on stderr and asks once. Ctrl-C at the prompt counts as an interrupt, like SIGTERM.
-function confirmOnTerminal(io: CliIo): Confirm {
+function confirmOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>): Confirm {
   return async (targets, signal) => {
     if (io.isTTY) io.stderr(CLEAR_LINE);
     io.stderr(targets.map((t) => `  ${t.repo}/${t.worktree} (${t.role})\n`).join(''));
     let answer: string;
     try {
-      answer = await io.ask!(`Send to ${targets.length} ${targets.length === 1 ? 'agent' : 'agents'}? [y/N] `, signal);
+      answer = await ask(`Send to ${targets.length} ${targets.length === 1 ? 'agent' : 'agents'}? [y/N] `, signal);
     } catch (error) {
       if (error instanceof PromptInterrupted) throw new Interrupted(AbortSignal.abort('SIGINT'));
       throw error;
@@ -118,7 +118,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     // The safety switch: nothing is sent without a yes from the user, or --yes. This runs before anything is read, locked or listed.
     const needsConfirm = command !== 'close' && !values.yes;
     if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
-    const confirm = needsConfirm ? confirmOnTerminal(io) : undefined;
+    const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask) : undefined;
 
     const store = createRecordStore(resolveStateDir(env));
     const progressLine = <P>(render: (progress: P) => string) =>
