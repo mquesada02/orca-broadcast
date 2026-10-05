@@ -4,6 +4,8 @@ import type { RecordStore } from './store.js';
 import { failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
+type Found = { row: AgentRow; handle: string };
+
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface PauseDeps {
@@ -11,6 +13,7 @@ export interface PauseDeps {
   clock: Clock;
   store: RecordStore;
   newToken?: () => string;
+  selfPaneKey?: string;
   onProgress?: (progress: Progress) => void;
   signal?: AbortSignal;
 }
@@ -58,10 +61,16 @@ function isWaitingLike(state: string): boolean {
   return state !== 'working' && state !== 'done';
 }
 
+function clearContinueProof(agent: AgentRecord): void {
+  delete agent.continueBaseline;
+  delete agent.continueSentAt;
+}
+
 function reopen(agent: AgentRecord, row: AgentRow): void {
   agent.pauseStatus = 'unconfirmed';
   agent.pauseBaseline = row.lastAssistantMessage;
   agent.confirmedAt = null;
+  clearContinueProof(agent);
 }
 
 function requestPause(agent: AgentRecord, row: AgentRow): void {
@@ -94,6 +103,29 @@ function newAgent(row: AgentRow): AgentRecord {
   return agent;
 }
 
+// Self is never paused by this command: it is recorded as pending for resume, whatever its earlier record was.
+function markSelf(existing: AgentRecord | undefined, row: AgentRow, handle: string): AgentRecord {
+  const agent = existing ?? newAgent(row);
+  reopen(agent, row);
+  Object.assign(agent, {
+    worktree: row.worktree,
+    repo: row.repo,
+    lastHandle: handle,
+    pauseReason: 'self',
+    messagePending: false,
+    wakeCount: 0,
+    resumeStatus: 'pending',
+  });
+  delete agent.resumeReason;
+  return agent;
+}
+
+// The summary keeps self apart from the rows; self is null unless this invocation still has it as a live self row.
+function withSelf(summary: RunSummary, selfPaneKey: string | undefined): RunSummary {
+  const self = summary.run?.agents.find((a) => a.paneKey === selfPaneKey && a.pauseReason === 'self' && !isGone(a)) ?? null;
+  return { ...summary, rows: summary.rows.filter((a) => a !== self), self };
+}
+
 // send-failed is always kept, or the agent would be retried; re-woken is kept until it confirms.
 function recheckReason(agent: AgentRecord, row: AgentRow): PauseReason {
   if (agent.pauseReason === 'send-failed') return 'send-failed';
@@ -105,63 +137,96 @@ function recheckReason(agent: AgentRecord, row: AgentRow): PauseReason {
 
 export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSummary> {
   const { clock, store } = deps;
+  const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
+  const startedAt = clock.now();
 
+  let run: Run | null;
   let agents: Map<string, AgentRow>;
   let terminals: Map<string, TerminalRow>;
   try {
     throwIfAborted(deps.signal);
-    const open = await store.findOpenRun();
-    if (open) {
-      const others = open.others.map((r) => r.runId);
-      throw new Error(
-        `an open pause run already exists: ${open.run.runId} in ${store.dir}` +
-          (others.length > 0 ? ` (other open runs: ${others.join(', ')})` : '') +
-          '; extending it is not supported yet, so run orca-pause close to abandon it before pausing again',
-      );
-    }
+    run = (await store.findOpenRun())?.run ?? null;
     [agents, terminals] = await listFresh(deps);
     throwIfAborted(deps.signal);
   } catch (error) {
-    return failure(error, null);
+    return withSelf(failure(error, null), selfKey);
   }
 
-  const discovered = [...agents.values()].filter(isSweepable);
-  if (discovered.length === 0) {
-    return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [] };
-  }
+  const selfFound = selfKey ? locate(selfKey, agents, terminals) : null;
+  const self = selfFound && !('gone' in selfFound) && selfFound.row.agentType === 'claude' ? selfFound : null;
 
-  const startedAt = clock.now();
-  const token = (deps.newToken ?? randomToken)();
-  const run: Run = {
-    runId: `${iso(startedAt).replace(/[-:.]/g, '')}-${token}`,
-    token,
-    startedAt: iso(startedAt),
-    status: 'open',
-    agents: discovered.map(newAgent),
-  };
+  const extending = run !== null;
+  if (run) {
+    handOverSelf(run, selfKey, self, agents, terminals);
+    extend(run, selfKey, agents, terminals);
+  } else {
+    const discovered = [...agents.values()].filter((row) => isSweepable(row) && row.paneKey !== selfKey);
+    if (discovered.length === 0) {
+      const onlySelf = self?.row.state === 'working' ? markSelf(undefined, self.row, self.handle) : null;
+      return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], self: onlySelf };
+    }
+    const token = (deps.newToken ?? randomToken)();
+    run = {
+      runId: `${iso(startedAt).replace(/[-:.]/g, '')}-${token}`,
+      token,
+      startedAt: iso(startedAt),
+      status: 'open',
+      agents: discovered.map(newAgent),
+    };
+    if (self) run.agents.push(markSelf(undefined, self.row, self.handle));
+  }
   await store.save(run);
-  await store.setCurrent(run.runId);
+  if (!extending) await store.setCurrent(run.runId); // findOpenRun already points at an open run
 
   try {
     while (true) {
       throwIfAborted(deps.signal);
       const coordinators = await listCoordinators(deps);
-      await poll(run, agents, terminals, coordinators, deps);
+      await poll(run, agents, terminals, coordinators, deps, selfKey);
       await store.save(run);
-      reportProgress(run, startedAt + timeoutMs - clock.now(), deps);
+      reportProgress(run, startedAt + timeoutMs - clock.now(), deps, selfKey);
       throwIfAborted(deps.signal);
-      if (run.agents.every(isSettled)) break;
+      if (run.agents.every((a) => a.paneKey === selfKey || isSettled(a))) break;
       await sleepOrAbort(clock, POLL_INTERVAL_MS, deps.signal);
       if (clock.now() - startedAt >= timeoutMs) break;
       [agents, terminals] = await listFresh(deps);
     }
   } catch (error) {
     await store.save(run);
-    return failure(error, run);
+    return withSelf(failure(error, run), selfKey);
   }
 
-  const unconfirmed = run.agents.some((a) => a.pauseStatus === 'unconfirmed');
-  return { outcome: 'done', exitCode: unconfirmed ? 1 : 0, run, error: null, rows: run.agents };
+  const unconfirmed = run.agents.some((a) => a.paneKey !== selfKey && a.pauseStatus === 'unconfirmed');
+  return withSelf({ outcome: 'done', exitCode: unconfirmed ? 1 : 0, run, error: null, rows: run.agents }, selfKey);
+}
+
+// Self handover: an earlier self that is not the current self becomes a normal agent; the current self is recorded for resume.
+function handOverSelf(run: Run, selfKey: string | undefined, self: Found | null, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>): void {
+  for (const agent of run.agents) {
+    if (agent.pauseReason !== 'self' || agent.paneKey === selfKey || isGone(agent)) continue;
+    const found = locate(agent.paneKey, agents, terminals);
+    if (!('gone' in found)) requestPause(agent, found.row);
+  }
+  if (!self) return;
+  const existing = run.agents.find((a) => a.paneKey === self.row.paneKey);
+  const recorded = markSelf(existing, self.row, self.handle);
+  if (!existing) run.agents.push(recorded);
+}
+
+// Extending an open run: the start-of-invocation rules. Agents that cannot be located are left for the first poll.
+function extend(run: Run, selfKey: string | undefined, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>): void {
+  for (const agent of run.agents) {
+    if (isGone(agent) || agent.paneKey === selfKey) continue;
+    agent.wakeCount = 0;
+    const found = locate(agent.paneKey, agents, terminals);
+    if ('gone' in found) continue;
+    const resumed = agent.resumeStatus === 'resumed';
+    if (resumed || agent.pauseReason === 'send-failed' || agent.pauseReason === 're-woken') requestPause(agent, found.row);
+    if (resumed) {
+      agent.resumeStatus = 'pending';
+      delete agent.resumeReason;
+    }
+  }
 }
 
 // Gone is permanent within a run: a gone agent is never located again, even if its terminal reappears.
@@ -177,9 +242,9 @@ function markLocated(agent: AgentRecord, agents: Map<string, AgentRow>, terminal
   return found;
 }
 
-async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: PauseDeps): Promise<void> {
+async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: PauseDeps, selfKey: string | undefined): Promise<void> {
   for (const row of agents.values()) {
-    if (!isSweepable(row) || run.agents.some((a) => a.paneKey === row.paneKey)) continue;
+    if (!isSweepable(row) || row.paneKey === selfKey || run.agents.some((a) => a.paneKey === row.paneKey)) continue;
     run.agents.push(newAgent(row));
   }
 
@@ -188,7 +253,7 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
     const located = markLocated(agent, agents, terminals);
     if (located) {
       agent.role = roleOf(located.handle, coordinators);
-      live.push({ agent, row: located.row });
+      if (agent.paneKey !== selfKey) live.push({ agent, row: located.row });
     }
   }
 
@@ -235,10 +300,10 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
   }
 }
 
-function reportProgress(run: Run, remainingMs: number, deps: PauseDeps): void {
+function reportProgress(run: Run, remainingMs: number, deps: PauseDeps, selfKey: string | undefined): void {
   if (!deps.onProgress) return;
   const reasons: Progress['reasons'] = {};
-  const live = run.agents.filter((a) => !isGone(a));
+  const live = run.agents.filter((a) => !isGone(a) && a.paneKey !== selfKey);
   for (const agent of live) {
     if (agent.pauseReason) reasons[agent.pauseReason] = (reasons[agent.pauseReason] ?? 0) + 1;
   }

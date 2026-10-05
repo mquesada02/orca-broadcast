@@ -36,7 +36,7 @@ export interface Clock {
 }
 
 export type PauseStatus = 'confirmed' | 'unconfirmed';
-export type PauseReason = 'still-working' | 'waiting-permission' | 'done-no-token' | 'send-failed' | 're-woken';
+export type PauseReason = 'still-working' | 'waiting-permission' | 'done-no-token' | 'send-failed' | 're-woken' | 'self';
 export type ResumeStatus = 'pending' | 'resumed' | 'gone' | 'abandoned';
 export type ResumeReason =
   | 'terminal-closed'
@@ -92,6 +92,7 @@ export interface RunSummary {
   run: Run | null;
   error: string | null;
   rows: AgentRecord[];
+  self?: AgentRecord | null;
 }
 
 export interface Run {
