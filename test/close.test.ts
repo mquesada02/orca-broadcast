@@ -4,14 +4,12 @@ import { describe, expect, it } from 'vitest';
 import { close } from '../src/close.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord, Run } from '../src/types.js';
-import { agentRecord, tempStateDir } from './helpers/fake-orca.js';
+import { agentRecord, seedOpenRun, tempStateDir } from './helpers/fake-orca.js';
 
 async function setup(agents: AgentRecord[], extra: Partial<Run> = {}) {
   const dir = await tempStateDir();
   const store = createRecordStore(dir);
-  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents, ...extra };
-  await store.save(run);
-  await store.setCurrent(run.runId);
+  await seedOpenRun(store, agents, extra);
   const readRun = async (id = 'run-1'): Promise<Run> => JSON.parse(await readFile(join(dir, `${id}.json`), 'utf8')) as Run;
   return { dir, store, readRun };
 }

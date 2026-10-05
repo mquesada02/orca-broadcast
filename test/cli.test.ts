@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { main, parseTimeout, resolveStateDir } from '../src/cli.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord } from '../src/types.js';
-import { agentRecord, type FakeAgent, fakeClock, FakeOrca, pausedDone, repliesWithToken, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
+import { agentRecord, type FakeAgent, seedOpenRun, fakeClock, FakeOrca, pausedDone, repliesWithToken, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
 
 async function run(
   argv: string[],
@@ -218,8 +218,7 @@ describe('orca-pause resume', () => {
 
 describe('orca-pause close', () => {
   const seedRun = (agents: AgentRecord[]) => async (store: ReturnType<typeof createRecordStore>) => {
-    await store.save({ runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents });
-    await store.setCurrent('run-1');
+    await seedOpenRun(store, agents);
   };
 
   it('lists the abandoned agents with their pauseStatus and hints, and touches Orca not at all', async () => {

@@ -1,7 +1,8 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AgentRecord, AgentRow, Clock, OrcaPort, RunRow, SendResult, TerminalRow } from '../../src/types.js';
+import type { RecordStore } from '../../src/store.js';
+import type { AgentRecord, AgentRow, Clock, OrcaPort, Run, RunRow, SendResult, TerminalRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -178,4 +179,11 @@ export function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): 
     resumeStatus: 'pending',
     ...extra,
   };
+}
+
+export async function seedOpenRun(store: RecordStore, agents: AgentRecord[], extra: Partial<Run> = {}): Promise<Run> {
+  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents, ...extra };
+  await store.save(run);
+  await store.setCurrent(run.runId);
+  return run;
 }
