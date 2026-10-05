@@ -35,6 +35,12 @@ export class FakeOrca implements OrcaPort {
   listCalls = 0;
   listTerminalsCalls = 0;
   listRunsCalls = 0;
+  /** Pane keys whose terminal is a run's coordinator, by run-list call number (not the worktree ps listing number). */
+  coordinatorsAt: (runListCall: number) => string[] = () => [];
+  /** Make the run-list call with this number throw (one transient failure, which the retry path survives). */
+  failRunListAt: number | null = null;
+  /** Make every run-list call from this number on throw (a failure that outlasts the retries). */
+  failRunListsFrom: number | null = null;
   sendResult: (handle: string, attempt: number) => SendResult = () => ({ accepted: true });
   listError: Error | null = null;
   /** Make the listing with this number throw (a pair counts once, on its worktree ps call). */
@@ -96,7 +102,8 @@ export class FakeOrca implements OrcaPort {
 
   async listRuns(): Promise<RunRow[]> {
     this.listRunsCalls += 1;
-    return [];
+    if (this.failRunListAt === this.listRunsCalls || (this.failRunListsFrom !== null && this.listRunsCalls >= this.failRunListsFrom)) throw new Error('orca-ide orchestration run-list failed: boom');
+    return this.coordinatorsAt(this.listRunsCalls).map((paneKey, i) => ({ id: `run_${i}`, coordinatorHandle: this.handleOf(paneKey) }));
   }
 
   async send(handle: string, text: string): Promise<SendResult> {

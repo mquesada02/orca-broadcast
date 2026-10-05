@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import type { RecordStore } from './store.js';
-import { failure, iso, listFresh, locate, POLL_INTERVAL_MS } from './shared.js';
-import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Run, RunSummary, TerminalRow } from './types.js';
+import { failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
+import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -15,13 +15,15 @@ export interface PauseDeps {
   signal?: AbortSignal;
 }
 
-export function pauseMessage(token: string): string {
-  return (
+const COORDINATOR_SENTENCE = 'Do not dispatch new workers or tasks.';
+
+export function pauseMessage(token: string, role: Role = 'worker'): string {
+  const message =
     '[orca-pause] The user is leaving and the network will drop. Finish the step you are on now. ' +
     'Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, ' +
     `and your next step. The last line of your reply must be exactly: ORCA-PAUSED ${token}. ` +
-    'After that, do nothing until you get a message that starts with [orca-pause] CONTINUE.'
-  );
+    'After that, do nothing until you get a message that starts with [orca-pause] CONTINUE.';
+  return role === 'coordinator' ? `${message} ${COORDINATOR_SENTENCE}` : message;
 }
 
 function randomToken(): string {
@@ -143,7 +145,8 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   try {
     while (true) {
       throwIfAborted(deps.signal);
-      await poll(run, agents, terminals, deps);
+      const coordinators = await listCoordinators(deps);
+      await poll(run, agents, terminals, coordinators, deps);
       await store.save(run);
       reportProgress(run, startedAt + timeoutMs - clock.now(), deps);
       throwIfAborted(deps.signal);
@@ -174,19 +177,19 @@ function markLocated(agent: AgentRecord, agents: Map<string, AgentRow>, terminal
   return found;
 }
 
-async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, deps: PauseDeps): Promise<void> {
+async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: PauseDeps): Promise<void> {
+  for (const row of agents.values()) {
+    if (!isSweepable(row) || run.agents.some((a) => a.paneKey === row.paneKey)) continue;
+    run.agents.push(newAgent(row));
+  }
+
   const live: { agent: AgentRecord; row: AgentRow }[] = [];
   for (const agent of run.agents.filter((a) => !isGone(a))) {
     const located = markLocated(agent, agents, terminals);
-    if (located) live.push({ agent, row: located.row });
-  }
-
-  for (const row of agents.values()) {
-    if (!isSweepable(row) || run.agents.some((a) => a.paneKey === row.paneKey)) continue;
-    const agent = newAgent(row);
-    run.agents.push(agent);
-    const located = markLocated(agent, agents, terminals);
-    if (located) live.push({ agent, row: located.row });
+    if (located) {
+      agent.role = roleOf(located.handle, coordinators);
+      live.push({ agent, row: located.row });
+    }
   }
 
   for (const { agent, row } of live.filter(({ agent }) => agent.pauseStatus === 'confirmed')) {
@@ -211,7 +214,7 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
     }
   }
 
-  for (const { agent, row } of live) {
+  for (const { agent, row } of roleFirst(live, 'coordinator', ({ agent }) => agent.role)) {
     if (!agent.messagePending || agent.pauseReason === 'send-failed' || isWaitingLike(row.state)) continue;
     throwIfAborted(deps.signal);
     await deps.store.save(run);
@@ -222,7 +225,7 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
       agent.pauseReason = 'waiting-permission';
       continue;
     }
-    const result = await deps.port.send(fresh.handle, pauseMessage(run.token));
+    const result = await deps.port.send(fresh.handle, pauseMessage(run.token, agent.role));
     if (result.accepted) {
       agent.pauseBaseline = fresh.row.lastAssistantMessage;
       agent.messagePending = false;

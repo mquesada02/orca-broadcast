@@ -53,12 +53,14 @@ export interface ContinueBaseline {
   lastAssistantMessage: string | null;
 }
 
+export type Role = 'coordinator' | 'worker';
+
 export interface AgentRecord {
   paneKey: string;
   worktreeId: string;
   worktree: string;
   repo: string;
-  role: 'worker';
+  role: Role;
   lastHandle: string | null;
   pauseStatus: PauseStatus;
   pauseReason: PauseReason | null;
