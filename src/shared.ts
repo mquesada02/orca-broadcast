@@ -1,6 +1,6 @@
 import { Interrupted } from './abort.js';
 import { withRetry } from './retry.js';
-import type { AgentRow, Clock, OrcaPort, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
+import type { AgentRow, Clock, OrcaPort, ResumeReason, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -36,6 +36,19 @@ export async function listFresh({ port, clock, signal }: ListDeps): Promise<[Map
   if (rows.status === 'fulfilled' && terminals.status === 'fulfilled') return [rows.value, terminalsByPane(terminals.value)];
   const failures = [rows, terminals].flatMap((r) => (r.status === 'rejected' ? [r.reason] : []));
   throw failures.find((reason) => reason instanceof Interrupted) ?? failures[0];
+}
+
+export async function listCoordinators({ port, clock, signal }: ListDeps): Promise<Set<string>> {
+  return new Set((await withRetry(() => port.listRuns(), clock, signal)).map((run) => run.coordinatorHandle));
+}
+
+export function roleOf(handle: string, coordinators: Set<string>): Role {
+  return coordinators.has(handle) ? 'coordinator' : 'worker';
+}
+
+// A stable partition: items of the given role come first, and each group keeps its order.
+export function roleFirst<T>(items: T[], first: Role, roleOfItem: (item: T) => Role): T[] {
+  return [...items.filter((item) => roleOfItem(item) === first), ...items.filter((item) => roleOfItem(item) !== first)];
 }
 
 export function failure(error: unknown, run: Run | null): RunSummary {

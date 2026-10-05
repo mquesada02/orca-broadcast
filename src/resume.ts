@@ -1,5 +1,5 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { failure, iso, listAgentsFresh, listFresh, locate, POLL_INTERVAL_MS } from './shared.js';
+import { failure, iso, listAgentsFresh, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRecord, AgentRow, Clock, ContinueBaseline, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
@@ -39,14 +39,16 @@ export async function resume(deps: ResumeDeps): Promise<RunSummary> {
 
   let rows: Map<string, AgentRow>;
   let terminals: Map<string, TerminalRow>;
+  let coordinators: Set<string>;
   try {
     [rows, terminals] = await listFresh(deps);
+    coordinators = await listCoordinators(deps);
   } catch (error) {
     return failure(error, run);
   }
 
   try {
-    const awaiting = await sendAll(run, rows, terminals, deps);
+    const awaiting = await sendAll(run, rows, terminals, coordinators, deps);
     reportProgress(run, deps);
     await awaitProof(run, awaiting, deps);
   } catch (error) {
@@ -61,17 +63,26 @@ export async function resume(deps: ResumeDeps): Promise<RunSummary> {
   return { outcome: 'done', exitCode: finished ? 0 : 1, run, error: null, rows: run.agents };
 }
 
-async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, deps: ResumeDeps): Promise<Awaiting[]> {
+async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: ResumeDeps): Promise<Awaiting[]> {
   const awaiting: Awaiting[] = [];
-  for (const agent of run.agents.filter((a) => a.resumeStatus === 'pending')) {
+  // The records change only inside the send loop, so a signal leaves the agents it never reached untouched.
+  const pending = run.agents
+    .filter((a) => a.resumeStatus === 'pending')
+    .map((agent) => {
+      const located = locate(agent.paneKey, rows, terminals);
+      return { agent, located, role: 'gone' in located ? agent.role : roleOf(located.handle, coordinators) };
+    });
+
+  // Workers first, then coordinators: a send order only.
+  for (const { agent, located, role } of roleFirst(pending, 'worker', (p) => p.role)) {
     throwIfAborted(deps.signal);
     delete agent.resumeReason;
-    const located = locate(agent.paneKey, rows, terminals);
     if ('gone' in located) {
       agent.resumeStatus = 'gone';
       agent.resumeReason = located.gone;
       continue;
     }
+    agent.role = role;
     const { row, handle } = located;
     if (agent.continueSentAt && agent.continueBaseline && movedSince(row, agent.continueBaseline)) {
       agent.resumeStatus = 'resumed';
