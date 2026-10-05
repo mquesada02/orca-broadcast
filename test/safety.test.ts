@@ -4,7 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { agentRecord, fakeClock, PAUSED_REPLY, repliesWithToken, seedOpenRun, startsNewTurnAfterContinue, working, type FakeOrca } from './helpers/fake-orca.js';
-import { CTRL_C, runCli, type RunCliOptions, type Seed } from './helpers/run-cli.js';
+import { CTRL_C, runCli, type Answer, type RunCliOptions, type Seed } from './helpers/run-cli.js';
 import type { AgentRecord } from '../src/types.js';
 
 /** The run files (not the pointer or lock files), by name. */
@@ -15,6 +15,7 @@ async function runFiles(dir: string): Promise<Record<string, string>> {
   return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(join(stateDir, name), 'utf8')])));
 }
 
+const interrupts: [string, Answer][] = [['SIGTERM', 'SIGTERM'], ['Ctrl-C', CTRL_C]];
 const seedAgents = (agents: AgentRecord[]): Seed => (store) => seedOpenRun(store, agents);
 const pendingAgent = (paneKey = 'a:1', extra: Partial<AgentRecord> = {}) => agentRecord(paneKey, { pauseBaseline: PAUSED_REPLY, ...extra });
 
@@ -206,8 +207,23 @@ describe('the plan of an extended pause', () => {
       expect(after).toEqual(before);
     });
 
-    it('SIGTERM at the late prompt exits 130 and restores the original run file', async () => {
-      const { code, port, before, after } = await runSeeded(['pause', '--timeout', '10s'], agents, { isTTY: true, signals: new EventEmitter(), ask: ['SIGTERM'], seed: seedAgents([waitingA()]) });
+    it('asks once for several late starters and lists the coordinator role', async () => {
+      const late = (from: number) => ({ listCalls }: { listCalls: number }) => (listCalls >= from ? { state: 'working', message: null } : { state: 'done', message: 'x' });
+      const several = [agents[0]!, { paneKey: 'b:2', behavior: late(3) }, { paneKey: 'c:3', behavior: late(4) }];
+      const { err, questions, port } = await runCli(['pause', '--timeout', '10s'], several, {
+        isTTY: true,
+        ask: ['y'],
+        seed: seedAgents([waitingA()]),
+        configure: (p) => (p.coordinatorsAt = () => ['b:2']),
+      });
+      expect(questions).toHaveLength(1);
+      expect(err).toContain('repo/tree-b:2 (coordinator)');
+      expect(port.sendsTo('b:2')).toBe(1);
+      expect(port.sendsTo('c:3')).toBe(1);
+    });
+
+    it.each(interrupts)('%s at the late prompt exits 130 and restores the original run file', async (_name, answer) => {
+      const { code, port, before, after } = await runSeeded(['pause', '--timeout', '10s'], agents, { isTTY: true, signals: new EventEmitter(), ask: [answer], seed: seedAgents([waitingA()]) });
       expect(code).toBe(130);
       expect(port.sends).toEqual([]);
       expect(after).toEqual(before);
@@ -263,8 +279,8 @@ describe('the prompt on resume', () => {
     expect(code).toBe(1);
   });
 
-  it('SIGTERM at the prompt exits 130 and leaves the run file unchanged', async () => {
-    const { code, port, before, after } = await runSeeded(['resume'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], { isTTY: true, signals: new EventEmitter(), ask: ['SIGTERM'], seed });
+  it.each(interrupts)('%s at the prompt exits 130 and leaves the run file unchanged', async (_name, answer) => {
+    const { code, port, before, after } = await runSeeded(['resume'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], { isTTY: true, signals: new EventEmitter(), ask: [answer], seed });
     expect(code).toBe(130);
     expect(port.sends).toEqual([]);
     expect(after).toEqual(before);
