@@ -172,6 +172,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
   let startedAt = clock.now();
   let token: string | undefined;
+  // The run is built again after a "yes"; the token must stay the same.
   const newToken = () => (token ??= (deps.newToken ?? randomToken)());
 
   let loaded: Run | null;

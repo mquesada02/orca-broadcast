@@ -117,8 +117,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
     // The safety switch: nothing is sent without a yes from the user, or --yes. This runs before anything is read, locked or listed.
     const asking = io.ask !== undefined && !json;
-    if (command !== 'close' && !values.yes && !asking) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
-    const confirm = command !== 'close' && !values.yes ? confirmOnTerminal(io) : undefined;
+    const needsConfirm = command !== 'close' && !values.yes;
+    if (needsConfirm && !asking) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
+    const confirm = needsConfirm ? confirmOnTerminal(io) : undefined;
 
     const store = createRecordStore(resolveStateDir(env));
     const progressLine = <P>(render: (progress: P) => string) =>

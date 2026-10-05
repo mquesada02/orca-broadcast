@@ -7,11 +7,14 @@ import { agentRecord, fakeClock, PAUSED_REPLY, repliesWithToken, seedOpenRun, st
 import { CTRL_C, runCli, type Answer, type RunCliOptions, type Seed } from './helpers/run-cli.js';
 import type { AgentRecord } from '../src/types.js';
 
+/** True when the pointer to the open run exists. */
+const hasPointer = (dir: string) => existsSync(join(dir, 'orca-pause', 'current'));
+
 /** The run files (not the pointer or lock files), by name. */
 async function runFiles(dir: string): Promise<Record<string, string>> {
   const stateDir = join(dir, 'orca-pause');
   if (!existsSync(stateDir)) return {};
-  const names = (await readdir(stateDir)).filter((name) => name.endsWith('.json') && name !== 'current.json');
+  const names = (await readdir(stateDir)).filter((name) => name.endsWith('.json'));
   return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(join(stateDir, name), 'utf8')])));
 }
 
@@ -94,6 +97,7 @@ describe('the prompt on pause', () => {
     expect(questions).toHaveLength(1);
     expect(port.sends).toEqual([]);
     expect(await runFiles(dir)).toEqual({});
+    expect(hasPointer(dir)).toBe(false);
   });
 
   it.each([['y'], ['YES'], [' Yes ']])('answer "%s" proceeds', async (answer) => {
