@@ -339,11 +339,7 @@ function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string,
 
 // The agents a poll would message, coordinators first.
 function sendQueue(live: { agent: AgentRecord; row: AgentRow }[]): { agent: AgentRecord; row: AgentRow }[] {
-  return roleFirst(live, 'coordinator', ({ agent }) => agent.role).filter(({ agent, row }) => wantsSend(agent, row));
-}
-
-function wantsSend(agent: AgentRecord, row: AgentRow): boolean {
-  return agent.messagePending && agent.pauseReason !== 'send-failed' && !isWaitingLike(row.state);
+  return roleFirst(live, 'coordinator', ({ agent }) => agent.role).filter(({ agent, row }) => agent.messagePending && agent.pauseReason !== 'send-failed' && !isWaitingLike(row.state));
 }
 
 // Who the next poll would message, found by running its in-memory part on a copy of the run.
