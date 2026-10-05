@@ -1,4 +1,5 @@
-import { failure, iso, listFresh, locate, newestByPane, POLL_INTERVAL_MS } from './shared.js';
+import { sleepOrAbort, throwIfAborted } from './abort.js';
+import { failure, iso, listAgentsFresh, listFresh, locate, POLL_INTERVAL_MS } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRecord, AgentRow, Clock, ContinueBaseline, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
@@ -9,6 +10,7 @@ export interface ResumeDeps {
   clock: Clock;
   store: RecordStore;
   onProgress?: (progress: ResumeProgress) => void;
+  signal?: AbortSignal;
 }
 
 interface Awaiting {
@@ -28,7 +30,8 @@ export async function resume(deps: ResumeDeps): Promise<RunSummary> {
 
   let run: Run | null;
   try {
-    run = await store.findOpenRun();
+    throwIfAborted(deps.signal);
+    run = (await store.findOpenRun())?.run ?? null;
   } catch (error) {
     return failure(error, null);
   }
@@ -37,7 +40,7 @@ export async function resume(deps: ResumeDeps): Promise<RunSummary> {
   let rows: Map<string, AgentRow>;
   let terminals: Map<string, TerminalRow>;
   try {
-    [rows, terminals] = await listFresh(port);
+    [rows, terminals] = await listFresh(deps);
   } catch (error) {
     return failure(error, run);
   }
@@ -61,6 +64,7 @@ export async function resume(deps: ResumeDeps): Promise<RunSummary> {
 async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, deps: ResumeDeps): Promise<Awaiting[]> {
   const awaiting: Awaiting[] = [];
   for (const agent of run.agents.filter((a) => a.resumeStatus === 'pending')) {
+    throwIfAborted(deps.signal);
     delete agent.resumeReason;
     const located = locate(agent.paneKey, rows, terminals);
     if ('gone' in located) {
@@ -102,8 +106,8 @@ async function awaitProof(run: Run, awaiting: Awaiting[], deps: ResumeDeps): Pro
   const lastSend = Math.max(...awaiting.map((a) => a.sentAt));
   let open = awaiting;
   while (open.length > 0) {
-    await deps.clock.sleep(POLL_INTERVAL_MS);
-    const rows = newestByPane(await deps.port.listAgents());
+    await sleepOrAbort(deps.clock, POLL_INTERVAL_MS, deps.signal);
+    const rows = await listAgentsFresh(deps);
     const now = deps.clock.now();
     open = open.filter(({ agent, sentAt }) => {
       const row = rows.get(agent.paneKey);

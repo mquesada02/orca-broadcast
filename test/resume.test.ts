@@ -34,7 +34,7 @@ async function setup(agents: FakeAgent[], records: AgentRecord[] = agents.map((a
   const port = new FakeOrca(agents);
   const clock = fakeClock();
   const progress: ResumeProgress[] = [];
-  const go = () => resume({ port, clock, store: createRecordStore(dir), onProgress: (p) => progress.push(p) });
+  const go = (signal?: AbortSignal) => resume({ port, clock, store: createRecordStore(dir), onProgress: (p) => progress.push(p), signal });
   const readRun = async (): Promise<Run> => JSON.parse(await readFile(join(dir, 'run-1.json'), 'utf8')) as Run;
   return { dir, port, clock, go, readRun, progress };
 }
@@ -294,5 +294,69 @@ describe('progress', () => {
     await go();
     expect(progress[0]).toEqual({ resumed: 0, total: 1 });
     expect(progress.at(-1)).toEqual({ resumed: 1, total: 1 });
+  });
+});
+
+describe('safety rails', () => {
+  it('on a signal while waiting for proof saves the record and exits 130, and the re-run resumes from it without a new send', async () => {
+    const { clock, port, go, readRun, dir } = await setup([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
+    const abort = new AbortController();
+    clock.onSleep = () => abort.abort('SIGTERM');
+
+    const interrupted = await go(abort.signal);
+
+    expect(interrupted).toMatchObject({ outcome: 'error', exitCode: 130, error: 'interrupted by SIGTERM' });
+    const saved = await readRun();
+    expect(saved.status).toBe('open');
+    expect(saved.agents[0]).toMatchObject({ resumeStatus: 'pending' });
+    expect(saved.agents[0]?.continueSentAt).toBeDefined();
+    expect(saved.agents[0]?.continueBaseline).toBeDefined();
+    expect(await readdir(dir)).toContain('current');
+
+    clock.onSleep = () => {};
+    const rerun = await go();
+
+    expect(rerun.exitCode).toBe(0);
+    expect(port.sends).toHaveLength(1);
+    expect((await readRun()).status).toBe('closed');
+  });
+
+  it('lets a send in flight finish and be recorded, then stops before the next send', async () => {
+    const { port, go, readRun } = await setup([
+      { paneKey: 'a:1', behavior: startsNewTurnAfterContinue },
+      { paneKey: 'b:2', behavior: startsNewTurnAfterContinue },
+    ]);
+    const abort = new AbortController();
+    port.onSend = () => abort.abort('SIGHUP');
+
+    const summary = await go(abort.signal);
+
+    expect(summary.exitCode).toBe(130);
+    expect(port.sends).toHaveLength(1);
+    const [first, second] = (await readRun()).agents;
+    expect(first?.continueSentAt).toBeDefined();
+    expect(second).toMatchObject({ resumeStatus: 'pending' });
+    expect(second?.continueSentAt).toBeUndefined();
+  });
+
+  it('exits 130 without calling Orca when already interrupted', async () => {
+    const { port, go } = await setup([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
+    const summary = await go(AbortSignal.abort('SIGINT'));
+    expect(summary.exitCode).toBe(130);
+    expect(port.listCalls).toBe(0);
+    expect(port.sends).toHaveLength(0);
+  });
+
+  it('retries a failing list 3 times, 1 second apart, before exiting 2', async () => {
+    const { clock, port, go } = await setup([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
+    port.listFailures = 2;
+    expect((await go()).exitCode).toBe(0);
+    expect(clock.slept).toBeGreaterThanOrEqual(2000);
+
+    const failing = await setup([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
+    failing.port.listError = new Error('orca-ide worktree ps failed: down');
+    expect(await failing.go()).toMatchObject({ exitCode: 2 });
+    expect(failing.clock.slept).toBe(2000);
+    expect(failing.port.sends).toHaveLength(0);
   });
 });

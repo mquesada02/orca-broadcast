@@ -113,3 +113,27 @@ describe('close', () => {
     expect(summary.error).toContain('disk full');
   });
 });
+
+describe('safety rails', () => {
+  it('exits 130 and leaves the run open and untouched when already interrupted', async () => {
+    const { dir, store, readRun } = await setup([agentRecord('a:1')]);
+    const summary = await close(store, AbortSignal.abort('SIGTERM'));
+    expect(summary).toMatchObject({ outcome: 'error', exitCode: 130, error: 'interrupted by SIGTERM' });
+    expect((await readRun()).status).toBe('open');
+    expect((await readRun()).agents[0]?.resumeStatus).toBe('pending');
+    expect(await readdir(dir)).toContain('current');
+  });
+
+  it('exits 130 without changing the record when the signal arrives during the lookup', async () => {
+    const { store, readRun } = await setup([agentRecord('a:1')]);
+    const abort = new AbortController();
+    const find = store.findOpenRun.bind(store);
+    store.findOpenRun = async () => {
+      const found = await find();
+      abort.abort('SIGHUP');
+      return found;
+    };
+    expect((await close(store, abort.signal)).exitCode).toBe(130);
+    expect((await readRun()).status).toBe('open');
+  });
+});

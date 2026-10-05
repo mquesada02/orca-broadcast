@@ -1,4 +1,6 @@
-import type { AgentRow, OrcaPort, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
+import { Interrupted } from './abort.js';
+import { withRetry } from './retry.js';
+import type { AgentRow, Clock, OrcaPort, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -19,13 +21,26 @@ function terminalsByPane(terminals: TerminalRow[]): Map<string, TerminalRow> {
   return new Map(terminals.map((t) => [t.paneKey, t]));
 }
 
-export async function listFresh(port: OrcaPort): Promise<[Map<string, AgentRow>, Map<string, TerminalRow>]> {
-  const [rows, terminals] = await Promise.all([port.listAgents(), port.listTerminals()]);
-  return [newestByPane(rows), terminalsByPane(terminals)];
+export interface ListDeps {
+  port: OrcaPort;
+  clock: Clock;
+  signal?: AbortSignal;
+}
+
+export async function listAgentsFresh({ port, clock, signal }: ListDeps): Promise<Map<string, AgentRow>> {
+  return newestByPane(await withRetry(() => port.listAgents(), clock, signal));
+}
+
+export async function listFresh({ port, clock, signal }: ListDeps): Promise<[Map<string, AgentRow>, Map<string, TerminalRow>]> {
+  const [rows, terminals] = await Promise.allSettled([listAgentsFresh({ port, clock, signal }), withRetry(() => port.listTerminals(), clock, signal)]);
+  if (rows.status === 'fulfilled' && terminals.status === 'fulfilled') return [rows.value, terminalsByPane(terminals.value)];
+  const failures = [rows, terminals].flatMap((r) => (r.status === 'rejected' ? [r.reason] : []));
+  throw failures.find((reason) => reason instanceof Interrupted) ?? failures[0];
 }
 
 export function failure(error: unknown, run: Run | null): RunSummary {
-  return { outcome: 'error', exitCode: 2, run, error: (error as Error).message, rows: run?.agents ?? [] };
+  const exitCode = error instanceof Interrupted ? 130 : 2;
+  return { outcome: 'error', exitCode, run, error: (error as Error).message, rows: run?.agents ?? [] };
 }
 
 export type Located = { gone: ResumeReason } | { row: AgentRow; handle: string };
