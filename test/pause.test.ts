@@ -13,8 +13,8 @@ async function setup(agents: FakeAgent[]) {
   const dir = await tempStateDir();
   const port = new FakeOrca(agents);
   const clock = fakeClock();
-  const run = (timeoutMs = TIMEOUT, newToken?: () => string) =>
-    pause(timeoutMs, { port, clock, store: createRecordStore(dir), newToken });
+  const run = (timeoutMs = TIMEOUT, newToken?: () => string, signal?: AbortSignal) =>
+    pause(timeoutMs, { port, clock, store: createRecordStore(dir), newToken, signal });
   return { dir, port, clock, run };
 }
 
@@ -552,7 +552,7 @@ describe('robust wait loop', () => {
 
   it('saves the record and exits 2 when the fresh read before a send fails, sending nothing', async () => {
     const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: working }]);
-    port.failListingAt = 2;
+    port.failListingsFrom = 2;
     const summary = await run();
     expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
     expect(port.sends).toHaveLength(0);
@@ -578,5 +578,146 @@ describe('robust wait loop', () => {
     expect(port.sendsTo('g:3')).toBe(0);
     expect(port.sendsTo('f:4')).toBe(1);
     expect(summary.exitCode).toBe(1);
+  });
+});
+
+describe('list retries', () => {
+  it('recovers when a list call fails twice and works on the third attempt, waiting 1s between attempts', async () => {
+    const { clock, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
+    port.listFailures = 2;
+    const summary = await run();
+    expect(summary.exitCode).toBe(0);
+    expect(clock.slept).toBe(2000 + 2000);
+  });
+
+  it('stops with exit 2 after the third failed attempt, 1s apart', async () => {
+    const { clock, port, run } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    port.listError = new Error('orca-ide worktree ps failed: down');
+    const summary = await run();
+    expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
+    expect(summary.error).toContain('down');
+    expect(clock.slept).toBe(2000);
+  });
+
+  it('retries a failing list in the middle of a run and saves the record when it still fails', async () => {
+    const { dir, clock, port, run } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    port.onSend = () => {
+      port.listError = new Error('orca-ide terminal list failed: down');
+    };
+    const summary = await run();
+    expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
+    expect(clock.slept).toBe(2000 + 2000);
+    expect(summary.run?.agents).toHaveLength(1);
+    expect((await readRuns(dir))[0]?.agents[0]?.messagePending).toBe(false);
+  });
+});
+
+describe('durability and interruption', () => {
+  it('has the agent and its pending message on disk at every send', async () => {
+    const { dir, port, run } = await setup([
+      { paneKey: 'a:1', behavior: repliesWithToken() },
+      { paneKey: 'b:2', behavior: repliesWithToken() },
+    ]);
+    const seen: boolean[][] = [];
+    port.onSend = async () => {
+      const [record] = await readRuns(dir);
+      seen.push((record?.agents ?? []).map((a) => a.messagePending));
+    };
+    await run();
+    expect(seen).toEqual([[true, true], [false, true]]);
+  });
+
+  it('saves the record and exits 130 when interrupted while waiting', async () => {
+    const { dir, clock, port, run } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    const abort = new AbortController();
+    clock.onSleep = () => abort.abort('SIGTERM');
+    const summary = await run(TIMEOUT, undefined, abort.signal);
+    expect(summary).toMatchObject({ outcome: 'error', exitCode: 130, error: 'interrupted by SIGTERM' });
+    const [record] = await readRuns(dir);
+    expect(record?.agents[0]).toMatchObject({ paneKey: 'a:1', messagePending: false });
+    expect(port.sends).toHaveLength(1);
+  });
+
+  it('exits 130 when the signal arrives during the last send, even though every agent is settled', async () => {
+    const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    const abort = new AbortController();
+    port.sendResult = () => ({ accepted: false, reason: 'terminal_handle_stale' });
+    port.onSend = () => abort.abort('SIGTERM');
+    const summary = await run(TIMEOUT, undefined, abort.signal);
+    expect(summary.exitCode).toBe(130);
+    expect((await readRuns(dir))[0]?.agents[0]?.pauseReason).toBe('send-failed');
+  });
+
+  it('lets a send in flight finish and be recorded, then stops before the next send', async () => {
+    const { dir, port, run } = await setup([
+      { paneKey: 'a:1', behavior: working },
+      { paneKey: 'b:2', behavior: working },
+    ]);
+    const abort = new AbortController();
+    port.onSend = () => abort.abort('SIGHUP');
+    const summary = await run(TIMEOUT, undefined, abort.signal);
+    expect(summary.exitCode).toBe(130);
+    expect(port.sends).toHaveLength(1);
+    const [record] = await readRuns(dir);
+    expect(record?.agents.map((a) => a.messagePending)).toEqual([false, true]);
+  });
+
+  it('stops during a retry wait and still saves an existing record', async () => {
+    const { dir, clock, port, run } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    const abort = new AbortController();
+    port.onSend = () => {
+      port.listError = new Error('down');
+      clock.onSleep = () => abort.abort('SIGINT');
+    };
+    const summary = await run(TIMEOUT, undefined, abort.signal);
+    expect(summary.exitCode).toBe(130);
+    expect(await readRuns(dir)).toHaveLength(1);
+  });
+
+  it('creates no record when the signal arrives during the first listing', async () => {
+    const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    const abort = new AbortController();
+    const list = port.listAgents.bind(port);
+    port.listAgents = async () => {
+      abort.abort('SIGTERM');
+      return list();
+    };
+    const summary = await run(TIMEOUT, undefined, abort.signal);
+    expect(summary).toMatchObject({ exitCode: 130, run: null });
+    expect(port.sends).toHaveLength(0);
+    await expect(readdir(dir)).rejects.toThrow();
+  });
+
+  it('exits 130 without creating a record or calling Orca when already interrupted', async () => {
+    const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    const summary = await run(TIMEOUT, undefined, AbortSignal.abort('SIGTERM'));
+    expect(summary.exitCode).toBe(130);
+    expect(port.listCalls).toBe(0);
+    await expect(readdir(dir)).rejects.toThrow();
+  });
+});
+
+describe('open run recovery', () => {
+  it('names the recovered run and lists the other open runs in its refusal', async () => {
+    const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
+    const store = createRecordStore(dir);
+    const base: Run = { runId: 'r-old', token: 'cafebabe', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: [] };
+    await store.save(base);
+    await store.save({ ...base, runId: 'r-new', startedAt: '2026-02-01T00:00:00.000Z' });
+    const summary = await run();
+    expect(summary.exitCode).toBe(2);
+    expect(summary.error).toContain('r-new');
+    expect(summary.error).toMatch(/other open runs: r-old/);
+    expect(port.sends).toHaveLength(0);
+  });
+
+  it('exits 2 naming the file when a record is unreadable', async () => {
+    const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'broken.json'), '{');
+    const summary = await run();
+    expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
+    expect(summary.error).toMatch(/unreadable record .*broken\.json/);
+    expect(port.listCalls).toBe(0);
   });
 });

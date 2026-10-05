@@ -32,7 +32,7 @@ export interface OrcaPort {
 
 export interface Clock {
   now(): number;
-  sleep(ms: number): Promise<void>;
+  sleep(ms: number, signal?: AbortSignal): Promise<void>;
 }
 
 export type PauseStatus = 'confirmed' | 'unconfirmed';
@@ -86,7 +86,7 @@ export interface ResumeProgress {
 
 export interface RunSummary {
   outcome: 'done' | 'nothing-to-do' | 'error';
-  exitCode: 0 | 1 | 2;
+  exitCode: 0 | 1 | 2 | 130;
   run: Run | null;
   error: string | null;
   rows: AgentRecord[];

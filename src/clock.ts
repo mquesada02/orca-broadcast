@@ -3,5 +3,5 @@ import type { Clock } from './types.js';
 
 export const systemClock: Clock = {
   now: () => Date.now(),
-  sleep,
+  sleep: (ms, signal) => sleep(ms, undefined, { signal }),
 };

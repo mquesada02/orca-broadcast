@@ -1,6 +1,10 @@
+import { spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { main, parseTimeout, resolveStateDir } from '../src/cli.js';
+import { createOrcaAdapter, type Exec } from '../src/orca-adapter.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord } from '../src/types.js';
 import { agentRecord, type FakeAgent, seedOpenRun, fakeClock, FakeOrca, pausedDone, repliesWithToken, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
@@ -280,5 +284,198 @@ describe('orca-pause close', () => {
     const fresh = JSON.parse(await readFile(`${dir}/orca-pause/${current}.json`, 'utf8'));
     expect(fresh.token).toBe('11111111');
     expect(fresh.token).not.toBe('abcd1234');
+  });
+});
+
+describe('safety rails', () => {
+  async function invoke(argv: string[], agents: FakeAgent[], dir: string, extra: Partial<Parameters<typeof main>[3]> = {}) {
+    const out: string[] = [];
+    const err: string[] = [];
+    const port = new FakeOrca(agents);
+    const clock = fakeClock();
+    const signals = new EventEmitter();
+    const code = await main(argv, { XDG_STATE_HOME: dir }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: false }, { port, clock, signals, ...extra });
+    return { code, out: out.join(''), err: err.join(''), port, clock, signals, stateDir: join(dir, 'orca-pause') };
+  }
+
+  const lockFile = async (dir: string, content: string) => {
+    await mkdir(join(dir, 'orca-pause'), { recursive: true });
+    await writeFile(join(dir, 'orca-pause', 'lock'), content);
+  };
+
+  it('exits 2 with "another orca-pause is running" while a live process holds the lock, and touches nothing', async () => {
+    const dir = await tempStateDir();
+    await lockFile(dir, `${process.pid}\n`);
+    const { code, err, port } = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], dir);
+    expect(code).toBe(2);
+    expect(err).toContain('another orca-pause is running');
+    expect(port.listCalls).toBe(0);
+    expect(await readdir(join(dir, 'orca-pause'))).toEqual(['lock']);
+  });
+
+  it('takes over a lock left by a dead process and releases the lock when done', async () => {
+    const dir = await tempStateDir();
+    await lockFile(dir, `${spawnSync(process.execPath, ['-e', '']).pid}\n`);
+    const { code, stateDir } = await invoke(['pause'], [{ paneKey: 'a:1', behavior: repliesWithToken() }], dir);
+    expect(code).toBe(0);
+    expect((await readdir(stateDir)).filter((n) => n === 'lock' || n.startsWith('lock.'))).toEqual([]);
+  });
+
+  it('does not take or leave the lock for a usage error or --help', async () => {
+    const dir = await tempStateDir();
+    for (const argv of [['pause', '--timeout', '5x'], ['--help']]) {
+      await invoke(argv, [], dir);
+    }
+    await expect(readdir(dir)).rejects.toThrow();
+  });
+
+  it('exits 2 with a usage message for --timeout 5x before calling Orca', async () => {
+    const { code, err, port } = await invoke(['pause', '--timeout', '5x'], [{ paneKey: 'a:1', behavior: working }], await tempStateDir());
+    expect(code).toBe(2);
+    expect(err).toContain('invalid --timeout');
+    expect(err).toContain('Usage: orca-pause');
+    expect(port.listCalls).toBe(0);
+  });
+
+  it('on SIGTERM mid-wait saves the record, exits 130 and releases the lock; a re-run finds the record and sends nothing', async () => {
+    const dir = await tempStateDir();
+    const emitter = new EventEmitter();
+    const first = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], dir, {
+      clock: Object.assign(fakeClock(), { onSleep: () => emitter.emit('SIGTERM') }),
+      signals: emitter,
+    });
+    expect(first.code).toBe(130);
+    expect(first.err).toContain('interrupted by SIGTERM');
+    expect(await readdir(first.stateDir)).toHaveLength(2);
+    const [name] = (await readdir(first.stateDir)).filter((n) => n.endsWith('.json'));
+    const record = JSON.parse(await readFile(join(first.stateDir, name as string), 'utf8'));
+    expect(record).toMatchObject({ status: 'open' });
+    expect(record.agents).toHaveLength(1);
+    expect(emitter.listenerCount('SIGTERM')).toBe(0);
+
+    const second = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], dir);
+    expect(second.code).toBe(2);
+    expect(second.err).toContain(record.runId);
+    expect(second.port.sends).toHaveLength(0);
+    expect((await readdir(second.stateDir)).filter((n) => n.endsWith('.json'))).toEqual([name]);
+  });
+
+  it.each(['SIGINT', 'SIGHUP'] as const)('treats %s like SIGTERM', async (name) => {
+    const emitter = new EventEmitter();
+    const { code } = await invoke(['pause'], [{ paneKey: 'a:1', behavior: working }], await tempStateDir(), {
+      clock: Object.assign(fakeClock(), { onSleep: () => emitter.emit(name) }),
+      signals: emitter,
+    });
+    expect(code).toBe(130);
+  });
+
+  describe('close', () => {
+    const seedClose = (dir: string) => seedOpenRun(createRecordStore(join(dir, 'orca-pause')), [agentRecord('a:1')]);
+
+    it('exits 2 while a live process holds the lock and leaves the run open', async () => {
+      const dir = await tempStateDir();
+      await seedClose(dir);
+      await lockFile(dir, `${process.pid}\n`);
+      const { code, err, stateDir } = await invoke(['close'], [], dir);
+      expect(code).toBe(2);
+      expect(err).toContain('another orca-pause is running');
+      expect(JSON.parse(await readFile(join(stateDir, 'run-1.json'), 'utf8')).status).toBe('open');
+    });
+
+    it('on a signal exits 130, leaves the run open and releases the lock', async () => {
+      const dir = await tempStateDir();
+      await seedClose(dir);
+      const signals = Object.assign(new EventEmitter(), {
+        on(name: string, handler: () => void) {
+          if (name === 'SIGTERM') handler();
+          return this;
+        },
+      });
+      const { code, err, stateDir } = await invoke(['close'], [], dir, { signals });
+      expect(code).toBe(130);
+      expect(err).toContain('interrupted by SIGTERM');
+      expect(JSON.parse(await readFile(join(stateDir, 'run-1.json'), 'utf8')).status).toBe('open');
+      expect((await readdir(stateDir)).sort()).toEqual(['current', 'run-1.json']);
+    });
+
+    it('closes the run under the lock and releases it', async () => {
+      const dir = await tempStateDir();
+      await seedClose(dir);
+      const { code, stateDir } = await invoke(['close'], [], dir);
+      expect(code).toBe(0);
+      expect(JSON.parse(await readFile(join(stateDir, 'run-1.json'), 'utf8')).status).toBe('closed');
+      expect(await readdir(stateDir)).toEqual(['run-1.json']);
+    });
+  });
+
+  describe('resume', () => {
+    const seed = async (dir: string) => {
+      const store = createRecordStore(join(dir, 'orca-pause'));
+      await store.save({
+        runId: 'run-1',
+        token: 'abcd1234',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        status: 'open',
+        agents: [
+          {
+            paneKey: 'a:1', worktreeId: 'wt', worktree: 'wt-a', repo: 'alpha', role: 'worker', lastHandle: null, pauseStatus: 'confirmed', pauseReason: null,
+            pauseBaseline: 'Stopped here.\nORCA-PAUSED abcd1234', messagePending: false, confirmedAt: null, wakeCount: 0, resumeStatus: 'pending',
+          },
+        ],
+      });
+      await store.setCurrent('run-1');
+    };
+
+    it('exits 2 while a live process holds the lock and sends nothing', async () => {
+      const dir = await tempStateDir();
+      await seed(dir);
+      await lockFile(dir, `${process.pid}\n`);
+      const { code, err, port } = await invoke(['resume'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], dir);
+      expect(code).toBe(2);
+      expect(err).toContain('another orca-pause is running');
+      expect(port.sends).toHaveLength(0);
+    });
+
+    it('on SIGTERM saves the record, exits 130 and releases the lock', async () => {
+      const dir = await tempStateDir();
+      await seed(dir);
+      const emitter = new EventEmitter();
+      const { code, err, stateDir, port } = await invoke(['resume'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], dir, {
+        clock: Object.assign(fakeClock(), { onSleep: () => emitter.emit('SIGTERM') }),
+        signals: emitter,
+      });
+      expect(code).toBe(130);
+      expect(err).toContain('interrupted by SIGTERM');
+      expect(port.sends).toHaveLength(1);
+      expect((await readdir(stateDir)).sort()).toEqual(['current', 'run-1.json']);
+      expect(emitter.listenerCount('SIGTERM')).toBe(0);
+      expect(JSON.parse(await readFile(join(stateDir, 'run-1.json'), 'utf8')).status).toBe('open');
+    });
+  });
+
+  it('stops with exit 2 and the record saved when worktree ps becomes truncated', async () => {
+    const dir = await tempStateDir();
+    let psCalls = 0;
+    const ps = (truncated: boolean) =>
+      JSON.stringify({
+        ok: true,
+        result: {
+          truncated,
+          hostScope: { omittedHostIds: [] },
+          worktrees: [{ worktreeId: 'w1', displayName: 'tree', repo: 'repo', agents: [{ paneKey: 'a:1', agentType: 'claude', state: 'working', stateStartedAt: 1, lastAssistantMessage: null }] }],
+        },
+      });
+    const exec: Exec = async (_file, args) => {
+      const key = args.slice(0, 2).join(' ');
+      const stdout =
+        key === 'worktree ps' ? ps(++psCalls > 1) : key === 'terminal list' ? JSON.stringify({ ok: true, result: { terminals: [{ handle: 'term_a', tabId: 'a', leafId: '1', agentIdentity: 'claude' }] } }) : JSON.stringify({ ok: true, result: { accepted: true } });
+      return { stdout, stderr: '', code: 0 };
+    };
+    const { code, err, stateDir } = await invoke(['pause'], [], dir, { port: createOrcaAdapter(exec) });
+    expect(code).toBe(2);
+    expect(err).toContain('incomplete');
+    const [name] = (await readdir(stateDir)).filter((n) => n.endsWith('.json'));
+    const record = JSON.parse(await readFile(join(stateDir, name as string), 'utf8'));
+    expect(record.agents[0]).toMatchObject({ paneKey: 'a:1', messagePending: true });
   });
 });

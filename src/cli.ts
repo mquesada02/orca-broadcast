@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { withLockAndSignals, type SignalSource } from './guard.js';
 import { createOrcaAdapter } from './orca-adapter.js';
 import { close } from './close.js';
 import { systemClock } from './clock.js';
@@ -19,6 +20,7 @@ export interface CliIo {
 }
 
 export interface CliDeps {
+  signals?: SignalSource;
   port?: OrcaPort;
   clock?: Clock;
   newToken?: PauseDeps['newToken'];
@@ -77,29 +79,24 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
 
     const store = createRecordStore(resolveStateDir(env));
-    if (command === 'close') {
-      const summary = await close(store);
-      if (summary.outcome === 'error') io.stderr(`orca-pause: ${summary.error}\n`);
-      else io.stdout(summary.outcome === 'nothing-to-do' ? `nothing to ${command}\n` : renderCloseTable(summary.rows));
-      return summary.exitCode;
-    }
-
-    const port = deps.port ?? createOrcaAdapter();
-    const clock = deps.clock ?? systemClock;
     const progressLine = <P>(render: (progress: P) => string) =>
       io.isTTY ? (progress: P) => io.stderr(`${CLEAR_LINE}${render(progress)}`) : undefined;
-    const summary =
-      command === 'pause'
-        ? await pause(timeoutMs, { port, clock, store, newToken: deps.newToken, onProgress: progressLine(renderProgress) })
-        : await resume({ port, clock, store, onProgress: progressLine(renderResumeProgress) });
-    if (io.isTTY) io.stderr(CLEAR_LINE);
+    const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
+      if (command === 'close') return close(store, signal);
+      const port = deps.port ?? createOrcaAdapter();
+      const clock = deps.clock ?? systemClock;
+      return command === 'pause'
+        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, onProgress: progressLine(renderProgress), signal })
+        : resume({ port, clock, store, onProgress: progressLine(renderResumeProgress), signal });
+    });
+    if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
 
     if (summary.outcome === 'error') {
       io.stderr(`orca-pause: ${summary.error}\n`);
     } else if (summary.outcome === 'nothing-to-do') {
       io.stdout(`nothing to ${command}\n`);
     } else {
-      io.stdout(command === 'pause' ? renderTable(summary.rows) : renderResumeTable(summary.rows));
+      io.stdout(command === 'pause' ? renderTable(summary.rows) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows));
     }
     return summary.exitCode;
   } catch (error) {

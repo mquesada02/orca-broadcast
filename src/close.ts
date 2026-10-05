@@ -1,11 +1,14 @@
+import { throwIfAborted } from './abort.js';
 import { failure } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { RunSummary } from './types.js';
 
-export async function close(store: RecordStore): Promise<RunSummary> {
+export async function close(store: RecordStore, signal?: AbortSignal): Promise<RunSummary> {
   let run;
   try {
-    run = await store.findOpenRun();
+    throwIfAborted(signal);
+    run = (await store.findOpenRun())?.run;
+    throwIfAborted(signal);
   } catch (error) {
     return failure(error, null);
   }

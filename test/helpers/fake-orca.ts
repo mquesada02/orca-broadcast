@@ -39,6 +39,10 @@ export class FakeOrca implements OrcaPort {
   listError: Error | null = null;
   /** Make the listing with this number throw (a pair counts once, on its worktree ps call). */
   failListingAt: number | null = null;
+  /** Make every listing from this number on throw (a persistent failure that survives retries). */
+  failListingsFrom: number | null = null;
+  /** Make the next n worktree ps calls throw (each retry attempt counts once). */
+  listFailures = 0;
   extraRows: AgentRow[] = [];
   onSend: () => Promise<void> | void = () => {};
   private received = new Map<string, string[]>();
@@ -64,6 +68,11 @@ export class FakeOrca implements OrcaPort {
     if (this.listError) throw this.listError;
     this.listCalls += 1;
     if (this.failListingAt === this.listCalls) throw new Error('orca-ide worktree ps failed: boom');
+    if (this.failListingsFrom !== null && this.listCalls >= this.failListingsFrom) throw new Error('orca-ide worktree ps failed: down');
+    if (this.listFailures > 0) {
+      this.listFailures -= 1;
+      throw new Error('orca-ide worktree ps failed: transient');
+    }
     const rows = this.agents.filter((a) => a.hasRow !== false && (a.rowAt?.(this.listCalls) ?? true)).map((a): AgentRow => {
       const reply = a.behavior({ listCalls: this.listCalls, received: this.received.get(a.paneKey) ?? [] });
       return {
@@ -139,12 +148,14 @@ export const repliesWithToken =
   ({ received }) =>
     received.length === 0 ? { state: 'working', message: null } : doneWithToken(received, note);
 
-export const fakeClock = (start = 1_000_000): Clock & { slept: number } => {
+export const fakeClock = (start = 1_000_000): Clock & { slept: number; onSleep: () => void } => {
   const clock = {
     slept: 0,
+    onSleep: () => {},
     now: () => start + clock.slept,
     sleep: async (ms: number) => {
       clock.slept += ms;
+      clock.onSleep();
     },
   };
   return clock;

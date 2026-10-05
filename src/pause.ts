@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { sleepOrAbort, throwIfAborted } from './abort.js';
 import type { RecordStore } from './store.js';
 import { failure, iso, listFresh, locate, POLL_INTERVAL_MS } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Run, RunSummary, TerminalRow } from './types.js';
@@ -11,6 +12,7 @@ export interface PauseDeps {
   store: RecordStore;
   newToken?: () => string;
   onProgress?: (progress: Progress) => void;
+  signal?: AbortSignal;
 }
 
 export function pauseMessage(token: string): string {
@@ -100,22 +102,23 @@ function recheckReason(agent: AgentRecord, row: AgentRow): PauseReason {
 }
 
 export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSummary> {
-  const { port, clock, store } = deps;
-
-  if (await store.hasOpenRun()) {
-    return failure(
-      new Error(
-        `an open pause run already exists in ${store.dir}; extending it is not supported yet, ` +
-          'so run orca-pause close to abandon it before pausing again',
-      ),
-      null,
-    );
-  }
+  const { clock, store } = deps;
 
   let agents: Map<string, AgentRow>;
   let terminals: Map<string, TerminalRow>;
   try {
-    [agents, terminals] = await listFresh(port);
+    throwIfAborted(deps.signal);
+    const open = await store.findOpenRun();
+    if (open) {
+      const others = open.others.map((r) => r.runId);
+      throw new Error(
+        `an open pause run already exists: ${open.run.runId} in ${store.dir}` +
+          (others.length > 0 ? ` (other open runs: ${others.join(', ')})` : '') +
+          '; extending it is not supported yet, so run orca-pause close to abandon it before pausing again',
+      );
+    }
+    [agents, terminals] = await listFresh(deps);
+    throwIfAborted(deps.signal);
   } catch (error) {
     return failure(error, null);
   }
@@ -139,13 +142,15 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
 
   try {
     while (true) {
+      throwIfAborted(deps.signal);
       await poll(run, agents, terminals, deps);
       await store.save(run);
       reportProgress(run, startedAt + timeoutMs - clock.now(), deps);
+      throwIfAborted(deps.signal);
       if (run.agents.every(isSettled)) break;
-      await clock.sleep(POLL_INTERVAL_MS);
+      await sleepOrAbort(clock, POLL_INTERVAL_MS, deps.signal);
       if (clock.now() - startedAt >= timeoutMs) break;
-      [agents, terminals] = await listFresh(port);
+      [agents, terminals] = await listFresh(deps);
     }
   } catch (error) {
     await store.save(run);
@@ -208,8 +213,9 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
 
   for (const { agent, row } of live) {
     if (!agent.messagePending || agent.pauseReason === 'send-failed' || isWaitingLike(row.state)) continue;
+    throwIfAborted(deps.signal);
     await deps.store.save(run);
-    const [freshAgents, freshTerminals] = await listFresh(deps.port);
+    const [freshAgents, freshTerminals] = await listFresh(deps);
     const fresh = markLocated(agent, freshAgents, freshTerminals);
     if (!fresh) continue;
     if (isWaitingLike(fresh.row.state)) {
