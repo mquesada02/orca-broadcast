@@ -11,8 +11,7 @@ export interface AgentRow {
 
 export interface TerminalRow {
   handle: string;
-  tabId: string;
-  leafId: string;
+  paneKey: string;
   orphaned: boolean;
   agentIdentity: string | null;
 }

@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { RecordStore } from './store.js';
 import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Run, TerminalRow } from './types.js';
 
-export const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 2000;
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface PauseDeps {
@@ -75,7 +75,11 @@ function newestByPane(rows: AgentRow[]): Map<string, AgentRow> {
 }
 
 function terminalsByPane(terminals: TerminalRow[]): Map<string, TerminalRow> {
-  return new Map(terminals.map((t) => [`${t.tabId}:${t.leafId}`, t]));
+  return new Map(terminals.map((t) => [t.paneKey, t]));
+}
+
+function isSettled(agent: AgentRecord): boolean {
+  return agent.pauseStatus === 'confirmed' || agent.pauseReason === 'send-failed';
 }
 
 function reasonFromState(state: string): PauseReason | null {
@@ -145,16 +149,14 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<PauseSu
   await store.setCurrent(run.runId);
 
   try {
-    let first = true;
     while (true) {
-      if (!first) [agents, terminals] = await listFresh(port);
-      first = false;
       await poll(run, agents, terminals, deps);
       await store.save(run);
       reportProgress(run, startedAt + timeoutMs - clock.now(), deps);
-      if (run.agents.every((a) => a.pauseStatus === 'confirmed' || a.pauseReason === 'send-failed')) break;
+      if (run.agents.every(isSettled)) break;
       await clock.sleep(POLL_INTERVAL_MS);
       if (clock.now() - startedAt >= timeoutMs) break;
+      [agents, terminals] = await listFresh(port);
     }
   } catch (error) {
     await store.save(run);
@@ -188,7 +190,7 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
   }
 
   for (const agent of run.agents) {
-    if (agent.pauseStatus !== 'unconfirmed' || !agent.messagePending || agent.pauseReason === 'send-failed') continue;
+    if (isSettled(agent) || !agent.messagePending) continue;
     const handle = terminals.get(agent.paneKey)?.handle;
     if (!handle) {
       agent.pauseReason = 'send-failed';

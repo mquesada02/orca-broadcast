@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createOrcaAdapter, ORCA_EXECUTABLE, type Exec } from '../src/orca-adapter.js';
+import { createOrcaAdapter, type Exec } from '../src/orca-adapter.js';
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', `${name}.json`), 'utf8');
 const json = (name: string) => JSON.parse(fixture(name));
@@ -39,7 +39,7 @@ describe('orca adapter mapping', () => {
     const { exec } = fakeExec({ 'worktree ps': fixture('worktree-ps'), 'terminal list': fixture('terminal-list') });
     const port = createOrcaAdapter(exec);
     const [rows, terminals] = await Promise.all([port.listAgents(), port.listTerminals()]);
-    const byPane = new Map(terminals.map((t) => [`${t.tabId}:${t.leafId}`, t]));
+    const byPane = new Map(terminals.map((t) => [t.paneKey, t]));
 
     expect(terminals.length).toBeGreaterThan(0);
     expect(terminals[0]).toMatchObject({ orphaned: false });
@@ -135,7 +135,6 @@ describe('executable', () => {
     await port.send('term_x', 'hi');
 
     expect(calls).toHaveLength(4);
-    expect(ORCA_EXECUTABLE).toBe('orca-ide');
     for (const call of calls) expect(call.file).toBe('orca-ide');
   });
 });

@@ -1,13 +1,14 @@
 import { readdir } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { main, parseTimeout, resolveStateDir } from '../src/cli.js';
-import { fakeClock, FakeOrca, repliesWithToken, tempStateDir, working } from './helpers/fake-orca.js';
+import { type FakeAgent, fakeClock, FakeOrca, repliesWithToken, tempStateDir, working } from './helpers/fake-orca.js';
 
-async function run(argv: string[], agents: ConstructorParameters<typeof FakeOrca>[0] = [], isTTY = false) {
+async function run(argv: string[], agents: FakeAgent[] = [], isTTY = false, configure: (port: FakeOrca) => void = () => {}) {
   const dir = await tempStateDir();
   const out: string[] = [];
   const err: string[] = [];
   const port = new FakeOrca(agents);
+  configure(port);
   const clock = fakeClock();
   const code = await main(argv, { XDG_STATE_HOME: dir }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY }, { port, clock });
   return { code, out: out.join(''), err: err.join(''), dir, port, clock };
@@ -91,13 +92,11 @@ describe('orca-pause pause', () => {
   });
 
   it('prints an Orca error to stderr and exits 2', async () => {
-    const dir = await tempStateDir();
-    const err: string[] = [];
-    const port = new FakeOrca([{ paneKey: 'a:1', behavior: working }]);
-    port.listError = new Error('orca-ide worktree ps failed: boom');
-    const code = await main(['pause'], { XDG_STATE_HOME: dir }, { stdout: () => {}, stderr: (t) => err.push(t), isTTY: false }, { port, clock: fakeClock() });
+    const { code, err } = await run(['pause'], [{ paneKey: 'a:1', behavior: working }], false, (port) => {
+      port.listError = new Error('orca-ide worktree ps failed: boom');
+    });
     expect(code).toBe(2);
-    expect(err.join('')).toContain('boom');
+    expect(err).toContain('boom');
   });
 
   it('shows an in-place progress line on a TTY and none otherwise', async () => {

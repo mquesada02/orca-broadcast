@@ -4,11 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { pause, pauseMessage } from '../src/pause.js';
 import { createRecordStore } from '../src/store.js';
 import type { Run } from '../src/types.js';
-import { type Behavior, fakeClock, FakeOrca, repliesWithToken, tempStateDir, tokenOf, working } from './helpers/fake-orca.js';
+import { type Behavior, type FakeAgent, fakeClock, FakeOrca, repliesWithToken, tempStateDir, tokenOf, working } from './helpers/fake-orca.js';
 
 const TIMEOUT = 60_000;
 
-async function setup(agents: ConstructorParameters<typeof FakeOrca>[0]) {
+async function setup(agents: FakeAgent[]) {
   const dir = await tempStateDir();
   const port = new FakeOrca(agents);
   const clock = fakeClock();

@@ -87,8 +87,7 @@ export function createOrcaAdapter(exec: Exec = execOrca): OrcaPort {
       return (result.terminals ?? []).map(
         (t: Record<string, any>): TerminalRow => ({
           handle: t.handle,
-          tabId: t.tabId,
-          leafId: t.leafId,
+          paneKey: `${t.tabId}:${t.leafId}`,
           orphaned: t.orphaned === true,
           agentIdentity: t.agentIdentity ?? null,
         }),

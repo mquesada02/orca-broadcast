@@ -60,8 +60,7 @@ export class FakeOrca implements OrcaPort {
     return this.agents
       .filter((a) => a.hasTerminal !== false)
       .map((a) => {
-        const [tabId = '', leafId = ''] = a.paneKey.split(':');
-        return { handle: this.handleOf(a.paneKey), tabId, leafId, orphaned: false, agentIdentity: 'claude' };
+        return { handle: this.handleOf(a.paneKey), paneKey: a.paneKey, orphaned: false, agentIdentity: 'claude' };
       });
   }
 

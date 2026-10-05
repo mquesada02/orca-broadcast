@@ -35,6 +35,14 @@ Options:
 
 class UsageError extends Error {}
 
+function parseUsage(argv: string[]) {
+  try {
+    return parseArgs({ args: argv, options: { help: { type: 'boolean' }, timeout: { type: 'string' } }, allowPositionals: true });
+  } catch (error) {
+    throw new UsageError((error as Error).message);
+  }
+}
+
 export function parseTimeout(value: string): number {
   const match = /^(\d+)([smh])$/.exec(value);
   if (!match || Number(match[1]) <= 0) throw new UsageError(`invalid --timeout "${value}": use a positive whole number plus s, m or h, such as 90s`);
@@ -48,11 +56,7 @@ export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, deps: CliDeps = {}): Promise<number> {
   try {
-    const { values, positionals } = parseArgs({
-      args: argv,
-      options: { help: { type: 'boolean' }, timeout: { type: 'string' } },
-      allowPositionals: true,
-    });
+    const { values, positionals } = parseUsage(argv);
     if (values.help) {
       io.stdout(USAGE);
       return 0;
@@ -81,7 +85,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     return summary.exitCode;
   } catch (error) {
     io.stderr(`orca-pause: ${(error as Error).message}\n`);
-    if (error instanceof UsageError || (error as NodeJS.ErrnoException).code?.startsWith('ERR_PARSE_ARGS')) io.stderr(USAGE);
+    if (error instanceof UsageError) io.stderr(USAGE);
     return 2;
   }
 }
