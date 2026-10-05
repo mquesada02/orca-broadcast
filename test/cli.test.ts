@@ -1,10 +1,19 @@
 import { readdir } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { main, parseTimeout, resolveStateDir } from '../src/cli.js';
-import { type FakeAgent, fakeClock, FakeOrca, repliesWithToken, tempStateDir, working } from './helpers/fake-orca.js';
+import { createRecordStore } from '../src/store.js';
+import type { AgentRecord } from '../src/types.js';
+import { type FakeAgent, fakeClock, FakeOrca, pausedDone, repliesWithToken, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
 
-async function run(argv: string[], agents: FakeAgent[] = [], isTTY = false, configure: (port: FakeOrca) => void = () => {}) {
+async function run(
+  argv: string[],
+  agents: FakeAgent[] = [],
+  isTTY = false,
+  configure: (port: FakeOrca) => void = () => {},
+  seed: (store: ReturnType<typeof createRecordStore>) => Promise<void> = async () => {},
+) {
   const dir = await tempStateDir();
+  await seed(createRecordStore(`${dir}/orca-pause`));
   const out: string[] = [];
   const err: string[] = [];
   const port = new FakeOrca(agents);
@@ -24,7 +33,9 @@ describe('orca-pause --help and usage', () => {
 
   it.each([
     [[], 'missing command'],
-    [['resume'], 'unknown command'],
+    [['bogus'], 'unknown command'],
+    [['resume', '--timeout', '5s'], 'only to pause'],
+    [['resume', 'extra'], 'unknown command'],
     [['pause', 'extra'], 'unknown command'],
     [['pause', '--bogus'], 'bogus'],
     [['pause', '--timeout', '0s'], 'invalid --timeout'],
@@ -104,5 +115,95 @@ describe('orca-pause pause', () => {
     expect(tty.err).toMatch(/\r\x1b\[Kpausing… 0\/1 confirmed · 1 still-working · \d+:\d{2} left/);
     const plain = await run(['pause', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: working }], false);
     expect(plain.err).toBe('');
+  });
+});
+
+const seedRun = (agents: Partial<AgentRecord>[]) => async (store: ReturnType<typeof createRecordStore>) => {
+  await store.save({
+    runId: 'run-1',
+    token: 'abcd1234',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    status: 'open',
+    agents: agents.map((a) => ({
+      worktreeId: 'wt',
+      lastHandle: null,
+      pauseStatus: 'confirmed',
+      pauseReason: null,
+      pauseBaseline: 'Stopped here.\nORCA-PAUSED abcd1234',
+      messagePending: false,
+      confirmedAt: null,
+      wakeCount: 0,
+      resumeStatus: 'pending',
+      role: 'worker',
+      ...a,
+    })) as AgentRecord[],
+  });
+  await store.setCurrent('run-1');
+};
+
+describe('orca-pause resume', () => {
+  it('exits 0 and prints a resumed table when every agent continues', async () => {
+    const { code, out, dir } = await run(
+      ['resume'],
+      [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }],
+      false,
+      () => {},
+      seedRun([{ paneKey: 'a:1', repo: 'alpha', worktree: 'wt-a' }]),
+    );
+    expect(code).toBe(0);
+    expect(out).toContain('resumed (1)');
+    expect(out).toMatch(/alpha\s+wt-a\s+worker\s+resumed/);
+    expect(await readdir(`${dir}/orca-pause`)).toEqual(['run-1.json']);
+  });
+
+  it('exits 1 and lists pending and gone groups first with hints', async () => {
+    const { code, out } = await run(
+      ['resume'],
+      [
+        { paneKey: 'a:1', behavior: startsNewTurnAfterContinue },
+        { paneKey: 'b:2', behavior: pausedDone('x') , agentIdentity: 'zsh' },
+        { paneKey: 'c:3', behavior: () => ({ state: 'waiting', message: 'x' }) },
+      ],
+      false,
+      () => {},
+      seedRun([
+        { paneKey: 'a:1', repo: 'alpha', worktree: 'wt-a' },
+        { paneKey: 'b:2', repo: 'beta', worktree: 'wt-b' },
+        { paneKey: 'c:3', repo: 'gamma', worktree: 'wt-c' },
+      ]),
+    );
+    expect(code).toBe(1);
+    expect(out.indexOf('pending (1)')).toBeLessThan(out.indexOf('gone (1)'));
+    expect(out.indexOf('gone (1)')).toBeLessThan(out.indexOf('resumed (1)'));
+    expect(out).toContain('answer the permission prompt');
+    expect(out).toContain('restart these agents yourself');
+    expect(out).toMatch(/gamma\s+wt-c\s+worker\s+pending\s+waiting-permission/);
+    expect(out).toMatch(/beta\s+wt-b\s+worker\s+gone\s+agent-exited/);
+  });
+
+  it('prints nothing to resume and exits 0 when no run is open', async () => {
+    const { code, out, port } = await run(['resume'], [{ paneKey: 'a:1', behavior: working }]);
+    expect(code).toBe(0);
+    expect(out).toBe('nothing to resume\n');
+    expect(port.listCalls).toBe(0);
+  });
+
+  it('prints an Orca error to stderr and exits 2', async () => {
+    const { code, err } = await run(['resume'], [{ paneKey: 'a:1', behavior: working }], false, (port) => {
+      port.listError = new Error('orca-ide worktree ps failed: boom');
+    }, seedRun([{ paneKey: 'a:1' }]));
+    expect(code).toBe(2);
+    expect(err).toContain('boom');
+  });
+
+  it('shows a resuming progress line on a TTY', async () => {
+    const { err } = await run(['resume'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], true, () => {}, seedRun([{ paneKey: 'a:1' }]));
+    expect(err).toContain('\r\x1b[Kresuming… 0/1 resumed');
+    expect(err).toContain('\r\x1b[Kresuming… 1/1 resumed');
+  });
+
+  it('lists resume in the usage text', async () => {
+    const { out } = await run(['--help']);
+    expect(out).toContain('orca-pause resume');
   });
 });

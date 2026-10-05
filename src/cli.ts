@@ -4,7 +4,8 @@ import { parseArgs } from 'node:util';
 import { createOrcaAdapter } from './orca-adapter.js';
 import { systemClock } from './clock.js';
 import { DEFAULT_TIMEOUT_MS, pause, type PauseDeps } from './pause.js';
-import { renderProgress, renderTable } from './render.js';
+import { renderProgress, renderResumeProgress, renderResumeTable, renderTable } from './render.js';
+import { resume } from './resume.js';
 import { createRecordStore } from './store.js';
 import type { Clock, OrcaPort } from './types.js';
 
@@ -23,13 +24,16 @@ export interface CliDeps {
 }
 
 const USAGE = `Usage: orca-pause pause [--timeout <n>s|m|h]
+       orca-pause resume
 
 Commands:
   pause    Ask every working Claude Code agent to stop at a clean point and
            prove it did. Exit 0 if all confirmed, 1 if any is unconfirmed.
+  resume   Tell every paused agent to continue and prove it did. Exit 0 if the
+           run closed (or there was nothing to resume), 1 if any is pending.
 
 Options:
-  --timeout <n>s|m|h   How long to wait for confirmations (default 10m)
+  --timeout <n>s|m|h   How long pause waits for confirmations (default 10m)
   --help               Show this help
 `;
 
@@ -61,26 +65,39 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       io.stdout(USAGE);
       return 0;
     }
-    if (positionals.length !== 1 || positionals[0] !== 'pause') {
+    const command = positionals[0];
+    if (positionals.length !== 1 || (command !== 'pause' && command !== 'resume')) {
       throw new UsageError(positionals.length === 0 ? 'missing command' : `unknown command "${positionals.join(' ')}"`);
     }
+    if (command === 'resume' && values.timeout !== undefined) throw new UsageError('--timeout applies only to pause');
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
 
-    const summary = await pause(timeoutMs, {
-      port: deps.port ?? createOrcaAdapter(),
-      clock: deps.clock ?? systemClock,
-      store: createRecordStore(resolveStateDir(env)),
-      newToken: deps.newToken,
-      onProgress: io.isTTY ? (progress) => io.stderr(`${CLEAR_LINE}${renderProgress(progress)}`) : undefined,
-    });
+    const port = deps.port ?? createOrcaAdapter();
+    const clock = deps.clock ?? systemClock;
+    const store = createRecordStore(resolveStateDir(env));
+    const summary =
+      command === 'pause'
+        ? await pause(timeoutMs, {
+            port,
+            clock,
+            store,
+            newToken: deps.newToken,
+            onProgress: io.isTTY ? (progress) => io.stderr(`${CLEAR_LINE}${renderProgress(progress)}`) : undefined,
+          })
+        : await resume({
+            port,
+            clock,
+            store,
+            onProgress: io.isTTY ? (progress) => io.stderr(`${CLEAR_LINE}${renderResumeProgress(progress)}`) : undefined,
+          });
     if (io.isTTY) io.stderr(CLEAR_LINE);
 
     if (summary.outcome === 'error') {
       io.stderr(`orca-pause: ${summary.error}\n`);
     } else if (summary.outcome === 'nothing-to-do') {
-      io.stdout('nothing to pause\n');
+      io.stdout(`nothing to ${command}\n`);
     } else {
-      io.stdout(renderTable(summary.rows));
+      io.stdout(command === 'pause' ? renderTable(summary.rows) : renderResumeTable(summary.rows));
     }
     return summary.exitCode;
   } catch (error) {

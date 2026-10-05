@@ -1,10 +1,17 @@
-import type { AgentRecord, PauseStatus, Progress } from './types.js';
+import type { AgentRecord, PauseStatus, Progress, ResumeProgress, ResumeStatus } from './types.js';
 
 const HINTS: Partial<Record<PauseStatus, string>> = {
   unconfirmed: 'not confirmed paused; check these agents before you leave',
 };
 
 const GROUP_ORDER: PauseStatus[] = ['unconfirmed', 'confirmed'];
+
+const RESUME_HINTS: Partial<Record<ResumeStatus, string>> = {
+  pending: "run resume again; for a waiting-permission row, first answer the permission prompt in that row's worktree",
+  gone: 'terminal or Claude is gone; restart these agents yourself',
+};
+
+const RESUME_GROUP_ORDER: ResumeStatus[] = ['pending', 'gone', 'resumed'];
 
 function formatRemaining(ms: number): string {
   const total = Math.ceil(ms / 1000);
@@ -17,21 +24,39 @@ export function renderProgress(progress: Progress): string {
   return parts.join(' · ');
 }
 
-function table(rows: AgentRecord[]): string[] {
+export function renderResumeProgress(progress: ResumeProgress): string {
+  return `resuming… ${progress.resumed}/${progress.total} resumed`;
+}
+
+function table(rows: AgentRecord[], statusOf: (a: AgentRecord) => string, reasonOf: (a: AgentRecord) => string | undefined): string[] {
   const header = ['repo', 'worktree', 'role', 'status', 'reason'];
-  const body = rows.map((a) => [a.repo, a.worktree, a.role, a.pauseStatus, a.pauseReason ?? '-']);
+  const body = rows.map((a) => [a.repo, a.worktree, a.role, statusOf(a), reasonOf(a) ?? '-']);
   const widths = header.map((h, i) => Math.max(h.length, ...body.map((r) => (r[i] as string).length)));
   const line = (cells: string[]) => `  ${cells.map((c, i) => c.padEnd(widths[i] as number)).join('  ').trimEnd()}`;
   return [line(header), ...body.map(line)];
 }
 
-export function renderTable(agents: AgentRecord[]): string {
+function renderGroups<S extends string>(
+  agents: AgentRecord[],
+  order: S[],
+  hints: Partial<Record<S, string>>,
+  statusOf: (a: AgentRecord) => S,
+  reasonOf: (a: AgentRecord) => string | undefined,
+): string {
   const out: string[] = [];
-  for (const status of GROUP_ORDER) {
-    const group = agents.filter((a) => a.pauseStatus === status);
+  for (const status of order) {
+    const group = agents.filter((a) => statusOf(a) === status);
     if (group.length === 0) continue;
-    const hint = HINTS[status];
-    out.push(`${status} (${group.length})${hint ? ` - ${hint}` : ''}`, ...table(group), '');
+    const hint = hints[status];
+    out.push(`${status} (${group.length})${hint ? ` - ${hint}` : ''}`, ...table(group, statusOf, reasonOf), '');
   }
   return out.join('\n');
+}
+
+export function renderTable(agents: AgentRecord[]): string {
+  return renderGroups(agents, GROUP_ORDER, HINTS, (a) => a.pauseStatus, (a) => a.pauseReason ?? undefined);
+}
+
+export function renderResumeTable(agents: AgentRecord[]): string {
+  return renderGroups(agents, RESUME_GROUP_ORDER, RESUME_HINTS, (a) => a.resumeStatus, (a) => a.resumeReason);
 }

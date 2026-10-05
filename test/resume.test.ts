@@ -1,0 +1,290 @@
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { CONTINUE_MESSAGE, resume } from '../src/resume.js';
+import { createRecordStore } from '../src/store.js';
+import type { AgentRecord, ResumeProgress, Run } from '../src/types.js';
+import { type FakeAgent, fakeClock, FakeOrca, pausedDone, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
+
+const PAUSED_REPLY = 'Stopped here.\nORCA-PAUSED abcd1234';
+
+function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
+  return {
+    paneKey,
+    worktreeId: `wt-${paneKey}`,
+    worktree: `tree-${paneKey}`,
+    repo: 'repo',
+    role: 'worker',
+    lastHandle: null,
+    pauseStatus: 'confirmed',
+    pauseReason: null,
+    pauseBaseline: PAUSED_REPLY,
+    messagePending: false,
+    confirmedAt: '2026-01-01T00:00:00.000Z',
+    wakeCount: 0,
+    resumeStatus: 'pending',
+    ...extra,
+  };
+}
+
+async function setup(agents: FakeAgent[], records: AgentRecord[] = agents.map((a) => agentRecord(a.paneKey))) {
+  const dir = await tempStateDir();
+  const store = createRecordStore(dir);
+  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: records };
+  await store.save(run);
+  await store.setCurrent(run.runId);
+  const port = new FakeOrca(agents);
+  const clock = fakeClock();
+  const progress: ResumeProgress[] = [];
+  const go = () => resume({ port, clock, store: createRecordStore(dir), onProgress: (p) => progress.push(p) });
+  const readRun = async (): Promise<Run> => JSON.parse(await readFile(join(dir, 'run-1.json'), 'utf8')) as Run;
+  return { dir, port, clock, go, readRun, progress };
+}
+
+describe('resume happy path', () => {
+  it('marks a done agent resumed when it starts a new turn after CONTINUE, closes the run and exits 0', async () => {
+    const { dir, port, go, readRun } = await setup([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
+
+    const summary = await go();
+
+    expect(summary.exitCode).toBe(0);
+    expect(summary.outcome).toBe('done');
+    expect(port.sends).toEqual([{ handle: 'term_a:1', text: CONTINUE_MESSAGE }]);
+    const run = await readRun();
+    expect(run.status).toBe('closed');
+    expect(run.agents[0]).toMatchObject({ resumeStatus: 'resumed' });
+    expect(run.agents[0]?.resumeReason).toBeUndefined();
+    expect(await readdir(dir)).not.toContain('current');
+  });
+
+  it('sends the exact one-line continue message', async () => {
+    const { port, go } = await setup([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
+    await go();
+    expect(port.sends[0]?.text).toBe(
+      '[orca-pause] CONTINUE. The network is back. Continue your task from the note in your last pause reply.',
+    );
+    expect(port.sends[0]?.text).not.toContain('\n');
+  });
+
+  it('keeps a done agent pending with no-proof when it does not move, and exits 1', async () => {
+    const { dir, go, readRun } = await setup([{ paneKey: 'a:1', behavior: pausedDone(PAUSED_REPLY) }]);
+
+    const summary = await go();
+
+    expect(summary.exitCode).toBe(1);
+    const run = await readRun();
+    expect(run.status).toBe('open');
+    expect(run.agents[0]).toMatchObject({ resumeStatus: 'pending', resumeReason: 'no-proof' });
+    expect(await readdir(dir)).toContain('current');
+  });
+
+  it('stores continueBaseline before the send and continueSentAt after an accepted send', async () => {
+    const { port, go, readRun, dir } = await setup([{ paneKey: 'a:1', stateStartedAt: 7, behavior: pausedDone(PAUSED_REPLY) }]);
+    let during: Run | undefined;
+    port.onSend = async () => {
+      during = JSON.parse(await readFile(join(dir, 'run-1.json'), 'utf8')) as Run;
+    };
+
+    await go();
+
+    expect(during?.agents[0]?.continueBaseline).toEqual({ stateStartedAt: 7, lastAssistantMessage: PAUSED_REPLY });
+    expect(during?.agents[0]?.continueSentAt).toBeUndefined();
+    expect((await readRun()).agents[0]?.continueSentAt).toBe(new Date(1_000_000).toISOString());
+  });
+
+  it('counts a change that shows in the poll at 58 s or 60 s, but never sees one after 60 s', async () => {
+    const changeAtPoll = (n: number) => (ctx: { listCalls: number; received: string[] }) =>
+      ctx.listCalls > n && ctx.received.length ? { state: 'done', message: 'new turn' } : { state: 'done', message: PAUSED_REPLY };
+    // listCalls 1 is the initial listing; poll k (k * 2 s after the send) is listCall k + 1.
+    const at58 = await setup([{ paneKey: 'a:1', behavior: changeAtPoll(29) }]);
+    expect((await at58.go()).exitCode).toBe(0);
+    const at60 = await setup([{ paneKey: 'a:1', behavior: changeAtPoll(30) }]);
+    expect((await at60.go()).exitCode).toBe(0);
+    const late = await setup([{ paneKey: 'a:1', behavior: changeAtPoll(31) }]);
+    const summary = await late.go();
+    expect(summary.exitCode).toBe(1);
+    expect(summary.rows[0]).toMatchObject({ resumeStatus: 'pending', resumeReason: 'no-proof' });
+    expect(late.clock.slept).toBe(60_000);
+  });
+
+  it('measures each agent window from its own send', async () => {
+    const changeAtPoll = (n: number) => (ctx: { listCalls: number; received: string[] }) =>
+      ctx.listCalls > n && ctx.received.length ? { state: 'done', message: 'new turn' } : { state: 'done', message: PAUSED_REPLY };
+    const { port, clock, go } = await setup([
+      { paneKey: 'a:1', behavior: changeAtPoll(30) },
+      { paneKey: 'b:2', behavior: changeAtPoll(30) },
+    ]);
+    let sends = 0;
+    port.onSend = () => {
+      sends += 1;
+      if (sends === 2) clock.slept += 10_000;
+    };
+
+    const summary = await go();
+
+    // b:2 sent at +10 s; a:1's window closed at 60 s, b:2's at 70 s. The change is first seen at poll 30 (60 s after the last send).
+    expect(summary.rows.map((r) => r.resumeStatus)).toEqual(['pending', 'resumed']);
+    expect(summary.rows[0]?.resumeReason).toBe('no-proof');
+  });
+});
+
+describe('earlier send and re-run', () => {
+  it('marks an agent resumed without a new send when it moved since the stored baseline', async () => {
+    const { port, go } = await setup(
+      [{ paneKey: 'a:1', behavior: () => ({ state: 'working', message: 'moved on' }) }],
+      [agentRecord('a:1', { continueBaseline: { stateStartedAt: 1, lastAssistantMessage: PAUSED_REPLY }, continueSentAt: '2026-01-01T00:01:00.000Z' })],
+    );
+
+    const summary = await go();
+
+    expect(port.sends).toHaveLength(0);
+    expect(summary.rows[0]?.resumeStatus).toBe('resumed');
+    expect(summary.exitCode).toBe(0);
+  });
+
+  it('sends again with a fresh baseline to an agent that did not move, and resends nothing to resumed or gone agents', async () => {
+    const { port, go, readRun } = await setup(
+      [
+        { paneKey: 'a:1', behavior: pausedDone(PAUSED_REPLY) },
+        { paneKey: 'b:2', behavior: working },
+        { paneKey: 'c:3', behavior: working, hasTerminal: false },
+      ],
+      [
+        agentRecord('a:1', { continueBaseline: { stateStartedAt: 1, lastAssistantMessage: PAUSED_REPLY }, continueSentAt: '2026-01-01T00:01:00.000Z' }),
+        agentRecord('b:2', { resumeStatus: 'resumed' }),
+        agentRecord('c:3', { resumeStatus: 'gone', resumeReason: 'terminal-closed' }),
+      ],
+    );
+
+    await go();
+
+    expect(port.sends.map((s) => s.handle)).toEqual(['term_a:1']);
+    expect((await readRun()).agents[0]?.continueSentAt).toBe(new Date(1_000_000).toISOString());
+  });
+
+  it('retries only pending agents on a second resume', async () => {
+    const { port, go } = await setup([
+      { paneKey: 'a:1', behavior: startsNewTurnAfterContinue },
+      { paneKey: 'b:2', behavior: pausedDone(PAUSED_REPLY) },
+    ]);
+    await go();
+    expect(port.sends).toHaveLength(2);
+
+    const second = await go();
+
+    expect(port.sends.map((s) => s.handle)).toEqual(['term_a:1', 'term_b:2', 'term_b:2']);
+    expect(second.rows.map((r) => r.resumeStatus)).toEqual(['resumed', 'pending']);
+  });
+});
+
+describe('state check and Locate', () => {
+  it.each(['waiting', 'blocked'])('sends nothing to a %s agent and keeps it pending with waiting-permission', async (state) => {
+    const { port, go } = await setup([{ paneKey: 'a:1', behavior: () => ({ state, message: PAUSED_REPLY }) }]);
+    const summary = await go();
+    expect(port.sends).toHaveLength(0);
+    expect(summary.rows[0]).toMatchObject({ resumeStatus: 'pending', resumeReason: 'waiting-permission' });
+    expect(summary.exitCode).toBe(1);
+  });
+
+  it.each([
+    ['agent-exited', { agentIdentity: 'zsh' }],
+    ['agent-exited', { agentIdentity: null }],
+    ['terminal-closed', { hasTerminal: false }],
+    ['terminal-orphaned', { orphaned: true }],
+    ['agent-missing', { hasRow: false }],
+  ] as const)('marks the agent gone (%s) and sends nothing', async (reason, extra: Partial<FakeAgent>) => {
+    const { port, go } = await setup([{ paneKey: 'a:1', behavior: pausedDone(), ...extra }]);
+    const summary = await go();
+    expect(port.sends).toHaveLength(0);
+    expect(summary.rows[0]).toMatchObject({ resumeStatus: 'gone', resumeReason: reason });
+    expect(summary.exitCode).toBe(0);
+    expect(summary.run?.status).toBe('closed');
+  });
+
+  it('closes the run with exit 0 when agents are only resumed or gone, and keeps it open with one pending', async () => {
+    const mixed = await setup([
+      { paneKey: 'a:1', behavior: startsNewTurnAfterContinue },
+      { paneKey: 'b:2', behavior: pausedDone(), agentIdentity: 'zsh' },
+    ]);
+    expect((await mixed.go()).exitCode).toBe(0);
+    expect((await mixed.readRun()).status).toBe('closed');
+
+    const open = await setup([
+      { paneKey: 'a:1', behavior: startsNewTurnAfterContinue },
+      { paneKey: 'b:2', behavior: () => ({ state: 'waiting', message: PAUSED_REPLY }) },
+    ]);
+    expect((await open.go()).exitCode).toBe(1);
+    expect((await open.readRun()).status).toBe('open');
+  });
+});
+
+describe('working agents and failed sends', () => {
+  it('marks a working agent resumed (queued-while-working) at once, with one send and no polling', async () => {
+    const { port, clock, go } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    const summary = await go();
+    expect(port.sendsTo('a:1')).toBe(1);
+    expect(port.listCalls).toBe(1);
+    expect(clock.slept).toBe(0);
+    expect(summary.rows[0]).toMatchObject({ resumeStatus: 'resumed', resumeReason: 'queued-while-working' });
+    expect(summary.exitCode).toBe(0);
+  });
+
+  it.each([
+    ['not accepted', (p: FakeOrca) => (p.sendResult = () => ({ accepted: false, reason: 'terminal_handle_stale' }))],
+    ['thrown', (p: FakeOrca) => (p.onSend = () => Promise.reject(new Error('boom')))],
+  ])('keeps the agent pending with send-failed when the send is %s, and retries it on the next resume', async (_name, fail) => {
+    const { port, go } = await setup([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
+    fail(port);
+    const first = await go();
+    expect(first.rows[0]).toMatchObject({ resumeStatus: 'pending', resumeReason: 'send-failed' });
+    expect(first.exitCode).toBe(1);
+
+    port.sendResult = () => ({ accepted: true });
+    port.onSend = () => {};
+    const second = await go();
+    expect(second.rows[0]?.resumeStatus).toBe('resumed');
+    expect(second.exitCode).toBe(0);
+  });
+});
+
+describe('no run and errors', () => {
+  it('reports nothing to resume with exit 0 and no Orca call when no run is open', async () => {
+    const dir = await tempStateDir();
+    const port = new FakeOrca([{ paneKey: 'a:1', behavior: working }]);
+    const summary = await resume({ port, clock: fakeClock(), store: createRecordStore(dir) });
+    expect(summary).toMatchObject({ outcome: 'nothing-to-do', exitCode: 0, run: null });
+    expect(port.listCalls).toBe(0);
+  });
+
+  it('exits 2 on a listing error and leaves the record unchanged', async () => {
+    const { port, go, readRun } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    const before = await readRun();
+    port.listError = new Error('orca-ide not found');
+    const summary = await go();
+    expect(summary).toMatchObject({ outcome: 'error', exitCode: 2, error: 'orca-ide not found' });
+    expect(await readRun()).toEqual(before);
+  });
+
+  it('exits 2 when the run file cannot be parsed', async () => {
+    const { dir, go, port } = await setup([{ paneKey: 'a:1', behavior: working }]);
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(join(dir, 'run-1.json'), '{not json');
+    const summary = await go();
+    expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
+    expect(port.sends).toHaveLength(0);
+  });
+});
+
+describe('progress', () => {
+  it('reports resumed over non-gone agents after the sends and after each poll', async () => {
+    const { go, progress } = await setup(
+      [
+        { paneKey: 'a:1', behavior: startsNewTurnAfterContinue },
+        { paneKey: 'b:2', behavior: pausedDone(), agentIdentity: 'zsh' },
+      ],
+    );
+    await go();
+    expect(progress[0]).toEqual({ resumed: 0, total: 1 });
+    expect(progress.at(-1)).toEqual({ resumed: 1, total: 1 });
+  });
+});
