@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AgentRow, Clock, OrcaPort, RunRow, SendResult, TerminalRow } from '../../src/types.js';
+import type { AgentRecord, AgentRow, Clock, OrcaPort, RunRow, SendResult, TerminalRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -160,3 +160,22 @@ export const repliesAfter = (delay: number): Behavior => {
     return seen > delay ? doneWithToken(received, 'Stopped.') : { state: 'working', message: null };
   };
 };
+
+export function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
+  return {
+    paneKey,
+    worktreeId: `wt-${paneKey}`,
+    worktree: `tree-${paneKey}`,
+    repo: 'repo',
+    role: 'worker',
+    lastHandle: null,
+    pauseStatus: 'confirmed',
+    pauseReason: null,
+    pauseBaseline: null,
+    messagePending: false,
+    confirmedAt: '2026-01-01T00:00:00.000Z',
+    wakeCount: 0,
+    resumeStatus: 'pending',
+    ...extra,
+  };
+}

@@ -1,29 +1,10 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { close } from '../src/close.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord, Run } from '../src/types.js';
-import { tempStateDir } from './helpers/fake-orca.js';
-
-function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
-  return {
-    paneKey,
-    worktreeId: `wt-${paneKey}`,
-    worktree: `tree-${paneKey}`,
-    repo: 'repo',
-    role: 'worker',
-    lastHandle: null,
-    pauseStatus: 'confirmed',
-    pauseReason: null,
-    pauseBaseline: null,
-    messagePending: false,
-    confirmedAt: '2026-01-01T00:00:00.000Z',
-    wakeCount: 0,
-    resumeStatus: 'pending',
-    ...extra,
-  };
-}
+import { agentRecord, tempStateDir } from './helpers/fake-orca.js';
 
 async function setup(agents: AgentRecord[], extra: Partial<Run> = {}) {
   const dir = await tempStateDir();
@@ -112,11 +93,18 @@ describe('close', () => {
 
   it('exits 2 when a record is unreadable', async () => {
     const { dir, store } = await setup([agentRecord('a:1')]);
-    const { writeFile } = await import('node:fs/promises');
     await writeFile(join(dir, 'run-1.json'), '{not json');
     const summary = await close(store);
     expect(summary).toMatchObject({ outcome: 'error', exitCode: 2, run: null });
     expect(summary.error).toContain('unreadable record');
+  });
+
+  it('exits 2 when the pointer cannot be cleared', async () => {
+    const { store } = await setup([agentRecord('a:1')]);
+    const failing = { ...store, clearCurrent: async () => { throw new Error('read-only'); } };
+    const summary = await close(failing);
+    expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
+    expect(summary.error).toContain('read-only');
   });
 
   it('exits 2 when the run file cannot be saved', async () => {

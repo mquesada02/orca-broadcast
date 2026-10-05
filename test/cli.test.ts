@@ -1,9 +1,9 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { main, parseTimeout, resolveStateDir } from '../src/cli.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord } from '../src/types.js';
-import { type FakeAgent, fakeClock, FakeOrca, pausedDone, repliesWithToken, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
+import { agentRecord, type FakeAgent, fakeClock, FakeOrca, pausedDone, repliesWithToken, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
 
 async function run(
   argv: string[],
@@ -217,22 +217,6 @@ describe('orca-pause resume', () => {
 });
 
 describe('orca-pause close', () => {
-  const record = (paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord => ({
-    paneKey,
-    worktreeId: `wt-${paneKey}`,
-    worktree: `wt-${paneKey}`,
-    repo: 'alpha',
-    role: 'worker',
-    lastHandle: null,
-    pauseStatus: 'confirmed',
-    pauseReason: null,
-    pauseBaseline: null,
-    messagePending: false,
-    confirmedAt: '2026-01-01T00:00:00.000Z',
-    wakeCount: 0,
-    resumeStatus: 'pending',
-    ...extra,
-  });
   const seedRun = (agents: AgentRecord[]) => async (store: ReturnType<typeof createRecordStore>) => {
     await store.save({ runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents });
     await store.setCurrent('run-1');
@@ -244,15 +228,15 @@ describe('orca-pause close', () => {
       [{ paneKey: 'a:1', behavior: working }],
       false,
       () => {},
-      seedRun([record('a:1'), record('b:2', { pauseStatus: 'unconfirmed', pauseReason: 'still-working' }), record('c:3', { pauseStatus: 'unconfirmed' }), record('d:4', { resumeStatus: 'resumed' })]),
+      seedRun([agentRecord('a:1'), agentRecord('b:2', { pauseStatus: 'unconfirmed', pauseReason: 'still-working' }), agentRecord('c:3', { pauseStatus: 'unconfirmed' }), agentRecord('d:4', { resumeStatus: 'resumed' })]),
     );
 
     expect(code).toBe(0);
     expect(out).toContain('abandoned (3) - still paused — continue it by hand');
-    expect(out).toMatch(/alpha\s+wt-a:1\s+worker\s+confirmed\s+paused and waiting for CONTINUE — run resume before close, or continue it by hand/);
-    expect(out).toMatch(/wt-b:2\s+worker\s+unconfirmed\s+still-working/);
-    expect(out).toMatch(/wt-c:3\s+worker\s+unconfirmed\s+-/);
-    expect(out).not.toContain('wt-d:4');
+    expect(out).toMatch(/repo\s+tree-a:1\s+worker\s+confirmed\s+paused and waiting for CONTINUE — run resume before close, or continue it by hand/);
+    expect(out).toMatch(/tree-b:2\s+worker\s+unconfirmed\s+still-working/);
+    expect(out).toMatch(/tree-c:3\s+worker\s+unconfirmed\s+-/);
+    expect(out).not.toContain('tree-d:4');
     expect(port.sends).toHaveLength(0);
     expect([port.listCalls, port.listTerminalsCalls, port.listRunsCalls]).toEqual([0, 0, 0]);
     const runFile = JSON.parse(await readFile(`${dir}/orca-pause/run-1.json`, 'utf8'));
@@ -261,7 +245,7 @@ describe('orca-pause close', () => {
   });
 
   it('prints no table and exits 0 when every agent was resumed or gone', async () => {
-    const { code, out } = await run(['close'], [], false, () => {}, seedRun([record('a:1', { resumeStatus: 'resumed' })]));
+    const { code, out } = await run(['close'], [], false, () => {}, seedRun([agentRecord('a:1', { resumeStatus: 'resumed' }), agentRecord('b:2', { resumeStatus: 'gone' })]));
     expect(code).toBe(0);
     expect(out).toBe('');
   });
@@ -274,7 +258,6 @@ describe('orca-pause close', () => {
 
   it('exits 2 and prints the error on stderr when a record is unreadable', async () => {
     const { code, err, out } = await run(['close'], [], false, () => {}, async (store) => {
-      const { mkdir, writeFile } = await import('node:fs/promises');
       await mkdir(store.dir, { recursive: true });
       await writeFile(`${store.dir}/bad.json`, '{nope');
     });
@@ -286,7 +269,7 @@ describe('orca-pause close', () => {
   it('lets the next pause start a fresh run with a different token', async () => {
     const dir = await tempStateDir();
     const store = createRecordStore(`${dir}/orca-pause`);
-    await seedRun([record('a:1')])(store);
+    await seedRun([agentRecord('a:1')])(store);
     const io = { stdout: () => {}, stderr: () => {}, isTTY: false };
     const port = new FakeOrca([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
     const clock = fakeClock();

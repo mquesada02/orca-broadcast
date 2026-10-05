@@ -80,7 +80,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     if (command === 'close') {
       const summary = await close(store);
       if (summary.outcome === 'error') io.stderr(`orca-pause: ${summary.error}\n`);
-      else io.stdout(summary.outcome === 'nothing-to-do' ? 'nothing to close\n' : renderCloseTable(summary.rows));
+      else io.stdout(summary.outcome === 'nothing-to-do' ? `nothing to ${command}\n` : renderCloseTable(summary.rows));
       return summary.exitCode;
     }
 
