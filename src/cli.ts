@@ -29,7 +29,6 @@ export interface CliDeps {
 const USAGE = `Usage: orca-pause pause [--timeout <n>s|m|h]
        orca-pause resume
        orca-pause close
-       (each command also takes --json)
 
 Commands:
   pause    Ask every working Claude Code agent to stop at a clean point and
@@ -41,7 +40,7 @@ Commands:
 
 Options:
   --timeout <n>s|m|h   How long pause waits for confirmations (default 10m)
-  --json               Print one JSON object on stdout and nothing on stderr
+  --json               With a command, print one JSON object on stdout and nothing on stderr
   --help               Show this help
 `;
 
@@ -66,7 +65,8 @@ export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()
   return join(base, 'orca-pause');
 }
 
-type Command = 'pause' | 'resume' | 'close';
+const COMMANDS = ['pause', 'resume', 'close'] as const;
+type Command = (typeof COMMANDS)[number];
 
 function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'run' | 'error'>): string {
   const { outcome, exitCode, run, error } = summary;
@@ -83,11 +83,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       io.stdout(USAGE);
       return 0;
     }
-    const named = positionals[0];
-    if (positionals.length !== 1 || (named !== 'pause' && named !== 'resume' && named !== 'close')) {
+    const commandName = positionals[0];
+    if (positionals.length !== 1 || !COMMANDS.some((name) => name === commandName)) {
       throw new UsageError(positionals.length === 0 ? 'missing command' : `unknown command "${positionals.join(' ')}"`);
     }
-    command = named;
+    command = commandName as Command;
     if (command !== 'pause' && values.timeout !== undefined) throw new UsageError('--timeout applies only to pause');
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
 
