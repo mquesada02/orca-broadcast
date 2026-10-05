@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { RecordStore } from './store.js';
-import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Run, TerminalRow } from './types.js';
+import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Run, TerminalRow } from './types.js';
 
 const POLL_INTERVAL_MS = 2000;
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -11,13 +11,6 @@ export interface PauseDeps {
   store: RecordStore;
   newToken?: () => string;
   onProgress?: (progress: Progress) => void;
-}
-
-export interface Progress {
-  confirmed: number;
-  total: number;
-  reasons: Partial<Record<PauseReason, number>>;
-  remainingMs: number;
 }
 
 export interface PauseSummary {
@@ -46,13 +39,8 @@ function iso(ms: number): string {
 }
 
 function lastLine(message: string | null): string | null {
-  if (message === null) return null;
-  const lines = message
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '');
-  const last = lines.at(-1);
-  if (last === undefined) return null;
+  const last = message?.trimEnd().split(/\r?\n/).at(-1)?.trim();
+  if (!last) return null;
   return last.length >= 2 && last.startsWith('`') && last.endsWith('`') ? last.slice(1, -1) : last;
 }
 

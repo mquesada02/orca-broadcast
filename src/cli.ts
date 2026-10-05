@@ -50,7 +50,7 @@ export function parseTimeout(value: string): number {
 }
 
 export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()): string {
-  const base = env.XDG_STATE_HOME ? env.XDG_STATE_HOME : join(home, '.local', 'state');
+  const base = env.XDG_STATE_HOME || join(home, '.local', 'state');
   return join(base, 'orca-pause');
 }
 

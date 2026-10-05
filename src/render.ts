@@ -1,5 +1,4 @@
-import type { Progress } from './pause.js';
-import type { AgentRecord, PauseStatus } from './types.js';
+import type { AgentRecord, PauseStatus, Progress } from './types.js';
 
 const HINTS: Partial<Record<PauseStatus, string>> = {
   unconfirmed: 'not confirmed paused; check these agents before you leave',

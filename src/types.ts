@@ -54,6 +54,13 @@ export interface AgentRecord {
   resumeStatus: 'pending';
 }
 
+export interface Progress {
+  confirmed: number;
+  total: number;
+  reasons: Partial<Record<PauseReason, number>>;
+  remainingMs: number;
+}
+
 export interface Run {
   runId: string;
   token: string;
