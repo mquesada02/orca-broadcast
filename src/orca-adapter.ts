@@ -5,7 +5,18 @@ export const ORCA_EXECUTABLE = 'orca-ide';
 
 export interface ExecResult {
   stdout: string;
+  stderr: string;
   code: number;
+}
+
+export class ExecFailure extends Error {
+  constructor(
+    cause: Error,
+    readonly stdout: string,
+    readonly stderr: string,
+  ) {
+    super(cause.message, { cause });
+  }
 }
 
 export type Exec = (file: string, args: string[]) => Promise<ExecResult>;
@@ -15,11 +26,11 @@ const MAX_BUFFER = 64 * 1024 * 1024;
 
 export const execOrca: Exec = (file, args) =>
   new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: EXEC_TIMEOUT_MS, maxBuffer: MAX_BUFFER }, (error, stdout) => {
-      if (!error) return resolve({ stdout, code: 0 });
+    execFile(file, args, { timeout: EXEC_TIMEOUT_MS, maxBuffer: MAX_BUFFER }, (error, stdout, stderr) => {
+      if (!error) return resolve({ stdout, stderr, code: 0 });
       const code = (error as NodeJS.ErrnoException & { code?: unknown }).code;
-      if (typeof code === 'number') return resolve({ stdout, code });
-      reject(error);
+      if (typeof code === 'number') return resolve({ stdout, stderr, code });
+      reject(new ExecFailure(error, stdout, stderr));
     });
   });
 
@@ -40,6 +51,30 @@ function parseEnvelope(stdout: string): Envelope {
     throw new Error('orca-ide returned an unexpected JSON shape');
   }
   return parsed as Envelope;
+}
+
+const REQUEST_ID = /"orchestrationRequestId"\s*:\s*"([\w-]+)"|--retry-request\s+([\w-]+)/;
+
+function findRequestId(output: string): string | null {
+  const match = REQUEST_ID.exec(output);
+  return match?.[1] ?? match?.[2] ?? null;
+}
+
+// A send is "unknown" when Orca printed no valid JSON envelope: it may or may not have delivered the text.
+type SendAttempt = { kind: 'known'; result: SendResult } | { kind: 'unknown'; reason: string; output: string };
+
+async function attemptSend(exec: Exec, args: string[]): Promise<SendAttempt> {
+  let output = '';
+  try {
+    const { stdout, stderr } = await exec(ORCA_EXECUTABLE, args);
+    output = `${stdout}\n${stderr}`;
+    const envelope = parseEnvelope(stdout);
+    if (!envelope.ok) return { kind: 'known', result: { accepted: false, reason: envelope.error?.code ?? 'send-rejected' } };
+    return { kind: 'known', result: envelope.result?.accepted === true ? { accepted: true } : { accepted: false, reason: 'not-accepted' } };
+  } catch (error) {
+    if (error instanceof ExecFailure) output = `${error.stdout}\n${error.stderr}`;
+    return { kind: 'unknown', reason: (error as Error).message, output };
+  }
 }
 
 export function createOrcaAdapter(exec: Exec = execOrca): OrcaPort {
@@ -109,14 +144,13 @@ export function createOrcaAdapter(exec: Exec = execOrca): OrcaPort {
     },
 
     async send(handle, text): Promise<SendResult> {
-      try {
-        const { stdout } = await exec(ORCA_EXECUTABLE, ['terminal', 'send', '--terminal', handle, '--text', text, '--enter', '--json']);
-        const envelope = parseEnvelope(stdout);
-        if (!envelope.ok) return { accepted: false, reason: envelope.error?.code ?? 'send-rejected' };
-        return envelope.result?.accepted === true ? { accepted: true } : { accepted: false, reason: 'not-accepted' };
-      } catch (error) {
-        return { accepted: false, reason: (error as Error).message };
-      }
+      const args = ['terminal', 'send', '--terminal', handle, '--text', text, '--enter', '--json'];
+      const first = await attemptSend(exec, args);
+      if (first.kind === 'known') return first.result;
+      const requestId = findRequestId(first.output);
+      if (!requestId) return { accepted: false, reason: first.reason };
+      const retry = await attemptSend(exec, [...args, '--retry-request', requestId]);
+      return retry.kind === 'known' ? retry.result : { accepted: false, reason: retry.reason };
     },
   };
 }

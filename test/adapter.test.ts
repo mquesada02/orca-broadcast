@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createOrcaAdapter, type Exec } from '../src/orca-adapter.js';
+import { createOrcaAdapter, ExecFailure, type Exec } from '../src/orca-adapter.js';
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', `${name}.json`), 'utf8');
 const json = (name: string) => JSON.parse(fixture(name));
@@ -13,7 +13,7 @@ function fakeExec(responses: Record<string, string | ((args: string[]) => string
     const key = args.slice(0, 2).join(' ');
     const response = responses[key];
     if (response === undefined) throw new Error(`unexpected command ${key}`);
-    return { stdout: typeof response === 'function' ? response(args) : response, code: 0 };
+    return { stdout: typeof response === 'function' ? response(args) : response, stderr: '', code: 0 };
   };
   return { exec, calls };
 }
@@ -82,6 +82,69 @@ describe('orca adapter mapping', () => {
     expect(await createOrcaAdapter(crash).send('term_x', 'hello')).toMatchObject({ accepted: false });
     const garbage = fakeExec({ 'terminal send': 'not json' });
     expect(await createOrcaAdapter(garbage.exec).send('term_x', 'hello')).toMatchObject({ accepted: false });
+  });
+});
+
+describe('orca adapter unknown-outcome send', () => {
+  const ID = '00000000-0000-4000-8000-000000000037';
+  const partial = readFileSync(join(import.meta.dirname, 'fixtures', 'terminal-send-truncated.txt'), 'utf8');
+
+  function sequence(...outcomes: (string | Error)[]) {
+    const calls: string[][] = [];
+    const exec: Exec = async (_file, args) => {
+      calls.push(args);
+      const outcome = outcomes[calls.length - 1];
+      if (outcome === undefined) throw new Error('unexpected extra call');
+      if (outcome instanceof Error) throw outcome;
+      return { stdout: outcome, stderr: '', code: 0 };
+    };
+    return { exec, calls };
+  }
+
+  const timeout = (stdout: string, stderr = '') => new ExecFailure(new Error('timed out'), stdout, stderr);
+
+  it('retries once with the reported request id, same terminal and text, no --wait-submit', async () => {
+    const { exec, calls } = sequence(timeout(partial), fixture('terminal-send-accepted'));
+    expect(await createOrcaAdapter(exec).send('term_x', 'hello')).toEqual({ accepted: true });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual([...calls[0]!, '--retry-request', ID]);
+    expect(calls[1]).not.toContain('--wait-submit');
+  });
+
+  it('finds the id in the error text of unparseable stdout or in stderr', async () => {
+    const text = sequence('Terminal prompt request ID: x. Re-issue the exact command with --retry-request abc-123 --wait-submit 5', fixture('terminal-send-accepted'));
+    expect(await createOrcaAdapter(text.exec).send('term_x', 'hello')).toEqual({ accepted: true });
+    expect(text.calls[1]).toContain('abc-123');
+    const err = sequence(timeout('', `--retry-request ${ID}`), fixture('terminal-send-accepted'));
+    expect(await createOrcaAdapter(err.exec).send('term_x', 'hello')).toEqual({ accepted: true });
+  });
+
+  it('finds the id in stderr when exec resolves with a non-zero exit code', async () => {
+    const calls: string[][] = [];
+    const exec: Exec = async (_file, args) => {
+      calls.push(args);
+      return calls.length === 1 ? { stdout: '', stderr: `--retry-request ${ID}`, code: 1 } : { stdout: fixture('terminal-send-accepted'), stderr: '', code: 0 };
+    };
+    expect(await createOrcaAdapter(exec).send('term_x', 'hello')).toEqual({ accepted: true });
+    expect(calls[1]).toContain(ID);
+  });
+
+  it('is not accepted when no id was reported, without a retry', async () => {
+    const { exec, calls } = sequence(timeout('{"id":"x"'));
+    expect(await createOrcaAdapter(exec).send('term_x', 'hello')).toMatchObject({ accepted: false });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('retries only once when the retry is also unknown', async () => {
+    const { exec, calls } = sequence(timeout(partial), timeout(partial));
+    expect(await createOrcaAdapter(exec).send('term_x', 'hello')).toMatchObject({ accepted: false });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('never retries a valid ok:false envelope, even when it carries a request id', async () => {
+    const { exec, calls } = sequence(fixture('terminal-send-stale'));
+    expect(await createOrcaAdapter(exec).send('term_x', 'hello')).toEqual({ accepted: false, reason: 'terminal_handle_stale' });
+    expect(calls).toHaveLength(1);
   });
 });
 
