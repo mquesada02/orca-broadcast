@@ -1,0 +1,20 @@
+{
+  "id": "x",
+  "ok": true,
+  "result": {
+    "handle": "term_x",
+    "accepted": true,
+    "stages": [
+      "input_accepted",
+      "turn_started"
+    ],
+    "provider": "claude",
+    "observation": "supported",
+    "baselineWorkingSequence": 7,
+    "baselineExplicitWorkingStartedAt": null,
+    "baselinePermissionSequence": 0
+  },
+  "_meta": {
+    "runtimeId": "x"
+  }
+}
