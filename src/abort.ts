@@ -20,3 +20,19 @@ export async function sleepOrAbort(clock: Clock, ms: number, signal: AbortSignal
   }
   throwIfAborted(signal);
 }
+
+// Settles like the promise, or rejects with Interrupted as soon as the signal aborts.
+export async function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise;
+  throwIfAborted(signal);
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new Interrupted(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([promise, aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
