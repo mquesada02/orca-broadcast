@@ -1,4 +1,4 @@
-import { failure, iso, listFresh, newestByPane, POLL_INTERVAL_MS } from './shared.js';
+import { failure, iso, listFresh, locate, newestByPane, POLL_INTERVAL_MS } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRecord, AgentRow, Clock, ContinueBaseline, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
@@ -18,18 +18,6 @@ interface Awaiting {
 
 export const CONTINUE_MESSAGE =
   '[orca-pause] CONTINUE. The network is back. Continue your task from the note in your last pause reply.';
-
-type Located = { gone: ResumeReason } | { row: AgentRow; handle: string };
-
-function locate(agent: AgentRecord, rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>): Located {
-  const terminal = terminals.get(agent.paneKey);
-  if (!terminal) return { gone: 'terminal-closed' };
-  if (terminal.orphaned) return { gone: 'terminal-orphaned' };
-  const row = rows.get(agent.paneKey);
-  if (!row) return { gone: 'agent-missing' };
-  if (terminal.agentIdentity !== 'claude') return { gone: 'agent-exited' };
-  return { row, handle: terminal.handle };
-}
 
 function movedSince(row: AgentRow, baseline: ContinueBaseline): boolean {
   return row.stateStartedAt !== baseline.stateStartedAt || row.lastAssistantMessage !== baseline.lastAssistantMessage;
@@ -74,7 +62,7 @@ async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<str
   const awaiting: Awaiting[] = [];
   for (const agent of run.agents.filter((a) => a.resumeStatus === 'pending')) {
     delete agent.resumeReason;
-    const located = locate(agent, rows, terminals);
+    const located = locate(agent.paneKey, rows, terminals);
     if ('gone' in located) {
       agent.resumeStatus = 'gone';
       agent.resumeReason = located.gone;
