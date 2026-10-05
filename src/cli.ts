@@ -75,21 +75,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const port = deps.port ?? createOrcaAdapter();
     const clock = deps.clock ?? systemClock;
     const store = createRecordStore(resolveStateDir(env));
+    const progressLine = <P>(render: (progress: P) => string) =>
+      io.isTTY ? (progress: P) => io.stderr(`${CLEAR_LINE}${render(progress)}`) : undefined;
     const summary =
       command === 'pause'
-        ? await pause(timeoutMs, {
-            port,
-            clock,
-            store,
-            newToken: deps.newToken,
-            onProgress: io.isTTY ? (progress) => io.stderr(`${CLEAR_LINE}${renderProgress(progress)}`) : undefined,
-          })
-        : await resume({
-            port,
-            clock,
-            store,
-            onProgress: io.isTTY ? (progress) => io.stderr(`${CLEAR_LINE}${renderResumeProgress(progress)}`) : undefined,
-          });
+        ? await pause(timeoutMs, { port, clock, store, newToken: deps.newToken, onProgress: progressLine(renderProgress) })
+        : await resume({ port, clock, store, onProgress: progressLine(renderResumeProgress) });
     if (io.isTTY) io.stderr(CLEAR_LINE);
 
     if (summary.outcome === 'error') {

@@ -100,10 +100,12 @@ export const CONTINUE_PREFIX = '[orca-pause] CONTINUE';
 
 const gotContinue = (received: string[]) => received.some((t) => t.startsWith(CONTINUE_PREFIX));
 
-export const pausedDone = (note = 'Stopped here.\nORCA-PAUSED abcd1234'): Behavior => () => ({ state: 'done', message: note });
+export const PAUSED_REPLY = 'Stopped here.\nORCA-PAUSED abcd1234';
+
+export const pausedDone = (note = PAUSED_REPLY): Behavior => () => ({ state: 'done', message: note });
 
 export const startsNewTurnAfterContinue: Behavior = ({ received }) =>
-  gotContinue(received) ? { state: 'done', message: 'Continued and finished.' } : { state: 'done', message: 'Stopped here.\nORCA-PAUSED abcd1234' };
+  gotContinue(received) ? { state: 'done', message: 'Continued and finished.' } : { state: 'done', message: PAUSED_REPLY };
 
 export const working: Behavior = () => ({ state: 'working', message: null });
 

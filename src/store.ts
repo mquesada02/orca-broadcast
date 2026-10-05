@@ -31,36 +31,38 @@ async function readRun(path: string): Promise<Run | null> {
 export function createRecordStore(dir: string): RecordStore {
   const runPath = (runId: string) => join(dir, `${runId}.json`);
 
+  async function findOpenRun(): Promise<Run | null> {
+    let pointed: string | null = null;
+    try {
+      pointed = (await readFile(join(dir, POINTER), 'utf8')).trim();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const current = pointed ? await readRun(runPath(pointed)) : null;
+    if (current?.status === 'open') return current;
+
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+    let newest: Run | null = null;
+    for (const name of names.filter((n) => n.endsWith('.json'))) {
+      const run = await readRun(join(dir, name));
+      if (run?.status === 'open' && (!newest || run.startedAt > newest.startedAt)) newest = run;
+    }
+    return newest;
+  }
+
   return {
     dir,
 
-    async findOpenRun() {
-      let pointed: string | null = null;
-      try {
-        pointed = (await readFile(join(dir, POINTER), 'utf8')).trim();
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      }
-      const current = pointed ? await readRun(runPath(pointed)) : null;
-      if (current?.status === 'open') return current;
-
-      let names: string[];
-      try {
-        names = await readdir(dir);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-        throw error;
-      }
-      let newest: Run | null = null;
-      for (const name of names.filter((n) => n.endsWith('.json'))) {
-        const run = await readRun(join(dir, name));
-        if (run?.status === 'open' && (!newest || run.startedAt > newest.startedAt)) newest = run;
-      }
-      return newest;
-    },
+    findOpenRun,
 
     async hasOpenRun() {
-      return (await this.findOpenRun()) !== null;
+      return (await findOpenRun()) !== null;
     },
 
     async save(run) {

@@ -28,7 +28,7 @@ export function renderResumeProgress(progress: ResumeProgress): string {
   return `resuming… ${progress.resumed}/${progress.total} resumed`;
 }
 
-function table(rows: AgentRecord[], statusOf: (a: AgentRecord) => string, reasonOf: (a: AgentRecord) => string | undefined): string[] {
+function table(rows: AgentRecord[], statusOf: (a: AgentRecord) => string, reasonOf: (a: AgentRecord) => string | null | undefined): string[] {
   const header = ['repo', 'worktree', 'role', 'status', 'reason'];
   const body = rows.map((a) => [a.repo, a.worktree, a.role, statusOf(a), reasonOf(a) ?? '-']);
   const widths = header.map((h, i) => Math.max(h.length, ...body.map((r) => (r[i] as string).length)));
@@ -41,7 +41,7 @@ function renderGroups<S extends string>(
   order: S[],
   hints: Partial<Record<S, string>>,
   statusOf: (a: AgentRecord) => S,
-  reasonOf: (a: AgentRecord) => string | undefined,
+  reasonOf: (a: AgentRecord) => string | null | undefined,
 ): string {
   const out: string[] = [];
   for (const status of order) {
@@ -54,7 +54,7 @@ function renderGroups<S extends string>(
 }
 
 export function renderTable(agents: AgentRecord[]): string {
-  return renderGroups(agents, GROUP_ORDER, HINTS, (a) => a.pauseStatus, (a) => a.pauseReason ?? undefined);
+  return renderGroups(agents, GROUP_ORDER, HINTS, (a) => a.pauseStatus, (a) => a.pauseReason);
 }
 
 export function renderResumeTable(agents: AgentRecord[]): string {

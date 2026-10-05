@@ -161,7 +161,7 @@ describe('orca-pause resume', () => {
       ['resume'],
       [
         { paneKey: 'a:1', behavior: startsNewTurnAfterContinue },
-        { paneKey: 'b:2', behavior: pausedDone('x') , agentIdentity: 'zsh' },
+        { paneKey: 'b:2', behavior: pausedDone('x'), agentIdentity: 'zsh' },
         { paneKey: 'c:3', behavior: () => ({ state: 'waiting', message: 'x' }) },
       ],
       false,

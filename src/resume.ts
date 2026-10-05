@@ -1,8 +1,7 @@
-import { failure, iso, listFresh, newestByPane } from './shared.js';
+import { failure, iso, listFresh, newestByPane, POLL_INTERVAL_MS } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRecord, AgentRow, Clock, ContinueBaseline, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
-const POLL_INTERVAL_MS = 2000;
 const PROOF_WINDOW_MS = 60_000;
 
 export interface ResumeDeps {
@@ -36,12 +35,6 @@ function movedSince(row: AgentRow, baseline: ContinueBaseline): boolean {
   return row.stateStartedAt !== baseline.stateStartedAt || row.lastAssistantMessage !== baseline.lastAssistantMessage;
 }
 
-function markResumed(agent: AgentRecord, reason?: ResumeReason): void {
-  agent.resumeStatus = 'resumed';
-  if (reason) agent.resumeReason = reason;
-  else delete agent.resumeReason;
-}
-
 export async function resume(deps: ResumeDeps): Promise<RunSummary> {
   const { port, clock, store } = deps;
 
@@ -53,8 +46,15 @@ export async function resume(deps: ResumeDeps): Promise<RunSummary> {
   }
   if (!run) return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [] };
 
+  let rows: Map<string, AgentRow>;
+  let terminals: Map<string, TerminalRow>;
   try {
-    const [rows, terminals] = await listFresh(port);
+    [rows, terminals] = await listFresh(port);
+  } catch (error) {
+    return failure(error, run);
+  }
+
+  try {
     const awaiting = await sendAll(run, rows, terminals, deps);
     reportProgress(run, deps);
     await awaitProof(run, awaiting, deps);
@@ -82,7 +82,7 @@ async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<str
     }
     const { row, handle } = located;
     if (agent.continueSentAt && agent.continueBaseline && movedSince(row, agent.continueBaseline)) {
-      markResumed(agent);
+      agent.resumeStatus = 'resumed';
       continue;
     }
     if (row.state !== 'working' && row.state !== 'done') {
@@ -100,8 +100,12 @@ async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<str
     }
     const sentAt = deps.clock.now();
     agent.continueSentAt = iso(sentAt);
-    if (row.state === 'working') markResumed(agent, 'queued-while-working');
-    else awaiting.push({ agent, sentAt });
+    if (row.state === 'working') {
+      agent.resumeStatus = 'resumed';
+      agent.resumeReason = 'queued-while-working';
+    } else {
+      awaiting.push({ agent, sentAt });
+    }
   }
   return awaiting;
 }
@@ -116,7 +120,10 @@ async function awaitProof(run: Run, awaiting: Awaiting[], deps: ResumeDeps): Pro
     open = open.filter(({ agent, sentAt }) => {
       const row = rows.get(agent.paneKey);
       const proven = now - sentAt <= PROOF_WINDOW_MS && row && agent.continueBaseline && movedSince(row, agent.continueBaseline);
-      if (proven) markResumed(agent);
+      if (proven) {
+        agent.resumeStatus = 'resumed';
+        delete agent.resumeReason;
+      }
       return !proven;
     });
     await deps.store.save(run);

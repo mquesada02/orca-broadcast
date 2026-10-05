@@ -4,9 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { CONTINUE_MESSAGE, resume } from '../src/resume.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord, ResumeProgress, Run } from '../src/types.js';
-import { type FakeAgent, fakeClock, FakeOrca, pausedDone, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
-
-const PAUSED_REPLY = 'Stopped here.\nORCA-PAUSED abcd1234';
+import { type FakeAgent, fakeClock, FakeOrca, PAUSED_REPLY, pausedDone, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
 
 function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
   return {
@@ -140,6 +138,16 @@ describe('earlier send and re-run', () => {
     expect(port.sends).toHaveLength(0);
     expect(summary.rows[0]?.resumeStatus).toBe('resumed');
     expect(summary.exitCode).toBe(0);
+  });
+
+  it('marks a waiting agent resumed without a send when it moved since the stored baseline', async () => {
+    const { port, go } = await setup(
+      [{ paneKey: 'a:1', behavior: () => ({ state: 'waiting', message: 'moved on' }) }],
+      [agentRecord('a:1', { continueBaseline: { stateStartedAt: 1, lastAssistantMessage: PAUSED_REPLY }, continueSentAt: '2026-01-01T00:01:00.000Z' })],
+    );
+    const summary = await go();
+    expect(port.sends).toHaveLength(0);
+    expect(summary.rows[0]?.resumeStatus).toBe('resumed');
   });
 
   it('sends again with a fresh baseline to an agent that did not move, and resends nothing to resumed or gone agents', async () => {

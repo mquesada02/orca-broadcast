@@ -1,9 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import type { RecordStore } from './store.js';
-import { failure, iso, listFresh } from './shared.js';
+import { failure, iso, listFresh, POLL_INTERVAL_MS } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, OrcaPort, PauseReason, Progress, Run, RunSummary, TerminalRow } from './types.js';
 
-const POLL_INTERVAL_MS = 2000;
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface PauseDeps {

@@ -1,5 +1,7 @@
 import type { AgentRow, OrcaPort, Run, RunSummary, TerminalRow } from './types.js';
 
+export const POLL_INTERVAL_MS = 2000;
+
 export function iso(ms: number): string {
   return new Date(ms).toISOString();
 }
@@ -13,7 +15,7 @@ export function newestByPane(rows: AgentRow[]): Map<string, AgentRow> {
   return byPane;
 }
 
-export function terminalsByPane(terminals: TerminalRow[]): Map<string, TerminalRow> {
+function terminalsByPane(terminals: TerminalRow[]): Map<string, TerminalRow> {
   return new Map(terminals.map((t) => [t.paneKey, t]));
 }
 
