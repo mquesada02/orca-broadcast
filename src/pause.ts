@@ -106,20 +106,17 @@ function newAgent(row: AgentRow): AgentRecord {
 // Self is never paused by this command: it is recorded as pending for resume, whatever its earlier record was.
 function markSelf(existing: AgentRecord | undefined, row: AgentRow, handle: string): AgentRecord {
   const agent = existing ?? newAgent(row);
+  reopen(agent, row);
   Object.assign(agent, {
     worktree: row.worktree,
     repo: row.repo,
     lastHandle: handle,
-    pauseStatus: 'unconfirmed',
     pauseReason: 'self',
-    pauseBaseline: row.lastAssistantMessage,
     messagePending: false,
-    confirmedAt: null,
     wakeCount: 0,
     resumeStatus: 'pending',
   });
   delete agent.resumeReason;
-  clearContinueProof(agent);
   return agent;
 }
 
@@ -158,6 +155,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   const selfFound = selfKey ? locate(selfKey, agents, terminals) : null;
   const self = selfFound && !('gone' in selfFound) && selfFound.row.agentType === 'claude' ? selfFound : null;
 
+  const extending = run !== null;
   if (run) {
     handOverSelf(run, selfKey, self, agents, terminals);
     extend(run, selfKey, agents, terminals);
@@ -178,7 +176,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
     if (self) run.agents.push(markSelf(undefined, self.row, self.handle));
   }
   await store.save(run);
-  await store.setCurrent(run.runId);
+  if (!extending) await store.setCurrent(run.runId); // findOpenRun already points at an open run
 
   try {
     while (true) {

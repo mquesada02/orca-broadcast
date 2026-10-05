@@ -58,14 +58,13 @@ function renderGroups<S extends string>(
 const SELF_HEADING = 'self (not paused) — this session must stop by itself';
 
 export function renderSelfBlock(self: AgentRecord): string {
-  return [SELF_HEADING, ...table([self], () => 'self', () => null), '', ''].join('\n');
+  return [SELF_HEADING, ...table([self], () => 'self', () => null), ''].join('\n');
 }
 
 export function renderTable(agents: AgentRecord[], self: AgentRecord | null = null): string {
   const group = (status: PauseStatus) =>
     renderGroups(agents, [status], HINTS, (a) => a.pauseStatus, (a) => (a.resumeStatus === 'gone' ? a.resumeReason : a.pauseReason));
-  const parts = [group('unconfirmed'), self ? renderSelfBlock(self) : '', group('confirmed')].filter((part) => part !== '');
-  return parts.reduce((out, part) => (out === '' || out.endsWith('\n\n') ? out + part : `${out}\n${part}`), '');
+  return [group('unconfirmed'), self ? renderSelfBlock(self) : '', group('confirmed')].filter((part) => part !== '').join('\n');
 }
 
 export function renderResumeTable(agents: AgentRecord[]): string {
