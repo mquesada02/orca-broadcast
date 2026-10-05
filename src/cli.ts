@@ -67,6 +67,7 @@ export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()
 
 const COMMANDS = ['pause', 'resume', 'close'] as const;
 type Command = (typeof COMMANDS)[number];
+const isCommand = (value: string | undefined): value is Command => COMMANDS.some((name) => name === value);
 
 function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'run' | 'error'>): string {
   const { outcome, exitCode, run, error } = summary;
@@ -83,11 +84,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       io.stdout(USAGE);
       return 0;
     }
-    const commandName = positionals[0];
-    if (positionals.length !== 1 || !COMMANDS.some((name) => name === commandName)) {
+    if (positionals.length !== 1 || !isCommand(positionals[0])) {
       throw new UsageError(positionals.length === 0 ? 'missing command' : `unknown command "${positionals.join(' ')}"`);
     }
-    command = commandName as Command;
+    command = positionals[0];
     if (command !== 'pause' && values.timeout !== undefined) throw new UsageError('--timeout applies only to pause');
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
 
@@ -119,8 +119,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     return summary.exitCode;
   } catch (error) {
     if (json) {
-      io.stdout(jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
-      return 2;
+      const failed: RunSummary = { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message, rows: [] };
+      io.stdout(jsonLine(command, failed));
+      return failed.exitCode;
     }
     io.stderr(`orca-pause: ${(error as Error).message}\n`);
     if (error instanceof UsageError) io.stderr(USAGE);
