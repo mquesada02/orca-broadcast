@@ -37,6 +37,21 @@ export interface Clock {
 
 export type PauseStatus = 'confirmed' | 'unconfirmed';
 export type PauseReason = 'still-working' | 'waiting-permission' | 'done-no-token' | 'send-failed';
+export type ResumeStatus = 'pending' | 'resumed' | 'gone';
+export type ResumeReason =
+  | 'terminal-closed'
+  | 'terminal-orphaned'
+  | 'agent-missing'
+  | 'agent-exited'
+  | 'waiting-permission'
+  | 'send-failed'
+  | 'no-proof'
+  | 'queued-while-working';
+
+export interface ContinueBaseline {
+  stateStartedAt: number;
+  lastAssistantMessage: string | null;
+}
 
 export interface AgentRecord {
   paneKey: string;
@@ -51,7 +66,10 @@ export interface AgentRecord {
   messagePending: boolean;
   confirmedAt: string | null;
   wakeCount: number;
-  resumeStatus: 'pending';
+  resumeStatus: ResumeStatus;
+  resumeReason?: ResumeReason;
+  continueBaseline?: ContinueBaseline;
+  continueSentAt?: string;
 }
 
 export interface Progress {
@@ -59,6 +77,19 @@ export interface Progress {
   total: number;
   reasons: Partial<Record<PauseReason, number>>;
   remainingMs: number;
+}
+
+export interface ResumeProgress {
+  resumed: number;
+  total: number;
+}
+
+export interface RunSummary {
+  outcome: 'done' | 'nothing-to-do' | 'error';
+  exitCode: 0 | 1 | 2;
+  run: Run | null;
+  error: string | null;
+  rows: AgentRecord[];
 }
 
 export interface Run {
