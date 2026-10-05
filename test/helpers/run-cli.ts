@@ -1,10 +1,10 @@
 import type { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { main } from '../../src/cli.js';
-import { createRecordStore } from '../../src/store.js';
+import { createRecordStore, type RecordStore } from '../../src/store.js';
 import { fakeClock, FakeOrca, tempStateDir, type FakeAgent } from './fake-orca.js';
 
-export type Seed = (store: ReturnType<typeof createRecordStore>, dir: string) => Promise<unknown>;
+export type Seed = (store: RecordStore, dir: string) => Promise<unknown>;
 
 export interface RunCliOptions {
   isTTY?: boolean;
