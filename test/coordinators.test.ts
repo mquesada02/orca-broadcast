@@ -70,6 +70,8 @@ describe('coordinators in pause', () => {
     expect(sent[0]).not.toContain('\n');
     expect(sent[0]?.endsWith(SENTENCE)).toBe(true);
     expect(summary.rows.map((r) => r.role)).toEqual(['coordinator']);
+    expect(summary.rows.map((r) => r.pauseReason)).not.toContain('send-failed');
+    expect(summary.rows.map((r) => r.messagePending)).toEqual([false]);
   });
 
   it('sends a worker the unchanged pause message and records role worker', async () => {
