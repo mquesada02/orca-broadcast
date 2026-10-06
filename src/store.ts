@@ -9,7 +9,7 @@ const LOCK_ATTEMPTS = 3;
 
 export class LockHeldError extends Error {
   constructor(staleFile?: string) {
-    super(`another orca-pause is running${staleFile ? ` (if none is, delete ${staleFile})` : ''}`);
+    super(`another orca-broadcast is running${staleFile ? ` (if none is, delete ${staleFile})` : ''}`);
   }
 }
 

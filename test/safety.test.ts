@@ -8,11 +8,11 @@ import { CTRL_C, runCli, type Answer, type RunCliOptions, type Seed } from './he
 import type { AgentRecord } from '../src/types.js';
 
 /** True when the pointer to the open run exists. */
-const hasPointer = (dir: string) => existsSync(join(dir, 'orca-pause', 'current'));
+const hasPointer = (dir: string) => existsSync(join(dir, 'orca-broadcast', 'current'));
 
 /** The run files (not the pointer or lock files), by name. */
 async function runFiles(dir: string): Promise<Record<string, string>> {
-  const stateDir = join(dir, 'orca-pause');
+  const stateDir = join(dir, 'orca-broadcast');
   if (!existsSync(stateDir)) return {};
   const names = (await readdir(stateDir)).filter((name) => name.endsWith('.json'));
   return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(join(stateDir, name), 'utf8')])));

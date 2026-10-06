@@ -18,7 +18,7 @@ async function run(
   seed: (store: ReturnType<typeof createRecordStore>) => Promise<unknown> = async () => {},
 ) {
   const dir = await tempStateDir();
-  await seed(createRecordStore(`${dir}/orca-pause`));
+  await seed(createRecordStore(`${dir}/orca-broadcast`));
   const out: string[] = [];
   const err: string[] = [];
   const port = new FakeOrca(agents);
@@ -28,11 +28,11 @@ async function run(
   return { code, out: out.join(''), err: err.join(''), dir, port, clock };
 }
 
-describe('orca-pause --help and usage', () => {
+describe('orca-broadcast --help and usage', () => {
   it('prints usage and exits 0 for --help', async () => {
     const { code, out } = await run(['--help']);
     expect(code).toBe(0);
-    expect(out).toContain('Usage: orca-pause pause');
+    expect(out).toContain('Usage: orca-broadcast pause');
     expect(out).toContain('--timeout');
   });
 
@@ -60,7 +60,7 @@ describe('orca-pause --help and usage', () => {
 
   it('describes close in the usage text', async () => {
     const { out } = await run(['--help']);
-    expect(out).toContain('orca-pause close');
+    expect(out).toContain('orca-broadcast close');
   });
 });
 
@@ -74,12 +74,12 @@ describe('parseTimeout', () => {
 
 describe('resolveStateDir', () => {
   it('uses XDG_STATE_HOME when set and the home default otherwise', () => {
-    expect(resolveStateDir({ XDG_STATE_HOME: '/x/state' }, '/home/u')).toBe('/x/state/orca-pause');
-    expect(resolveStateDir({}, '/home/u')).toBe('/home/u/.local/state/orca-pause');
+    expect(resolveStateDir({ XDG_STATE_HOME: '/x/state' }, '/home/u')).toBe('/x/state/orca-broadcast');
+    expect(resolveStateDir({}, '/home/u')).toBe('/home/u/.local/state/orca-broadcast');
   });
 });
 
-describe('orca-pause pause', () => {
+describe('orca-broadcast pause', () => {
   it('exits 0 and prints a confirmed table when every agent pauses', async () => {
     const { code, out, dir } = await run(['pause', '--yes'], [
       { paneKey: 'a:1', repo: 'alpha', worktree: 'wt-a', behavior: repliesWithToken() },
@@ -89,7 +89,7 @@ describe('orca-pause pause', () => {
     expect(out).toContain('confirmed (2)');
     expect(out).toMatch(/alpha\s+wt-a\s+worker\s+confirmed/);
     expect(out).not.toContain('unconfirmed');
-    expect((await readdir(`${dir}/orca-pause`)).sort()).toHaveLength(2);
+    expect((await readdir(`${dir}/orca-broadcast`)).sort()).toHaveLength(2);
   });
 
   it('exits 1 and lists unconfirmed agents first with an action hint', async () => {
@@ -154,7 +154,7 @@ const seedRun = (agents: Partial<AgentRecord>[]) => async (store: ReturnType<typ
   await store.setCurrent('run-1');
 };
 
-describe('orca-pause resume', () => {
+describe('orca-broadcast resume', () => {
   it('exits 0 and prints a resumed table when every agent continues', async () => {
     const { code, out, dir } = await run(
       ['resume', '--yes'],
@@ -166,7 +166,7 @@ describe('orca-pause resume', () => {
     expect(code).toBe(0);
     expect(out).toContain('resumed (1)');
     expect(out).toMatch(/alpha\s+wt-a\s+worker\s+resumed/);
-    expect(await readdir(`${dir}/orca-pause`)).toEqual(['run-1.json']);
+    expect(await readdir(`${dir}/orca-broadcast`)).toEqual(['run-1.json']);
   });
 
   it('exits 1 and lists pending and gone groups first with hints', async () => {
@@ -217,11 +217,11 @@ describe('orca-pause resume', () => {
 
   it('lists resume in the usage text', async () => {
     const { out } = await run(['--help']);
-    expect(out).toContain('orca-pause resume');
+    expect(out).toContain('orca-broadcast resume');
   });
 });
 
-describe('orca-pause close', () => {
+describe('orca-broadcast close', () => {
   const seedRun = (agents: AgentRecord[]) => (store: ReturnType<typeof createRecordStore>) => seedOpenRun(store, agents);
 
   it('lists the abandoned agents with their pauseStatus and hints, and touches Orca not at all', async () => {
@@ -241,9 +241,9 @@ describe('orca-pause close', () => {
     expect(out).not.toContain('tree-d:4');
     expect(port.sends).toHaveLength(0);
     expect([port.listCalls, port.listTerminalsCalls, port.listRunsCalls]).toEqual([0, 0, 0]);
-    const runFile = JSON.parse(await readFile(`${dir}/orca-pause/run-1.json`, 'utf8'));
+    const runFile = JSON.parse(await readFile(`${dir}/orca-broadcast/run-1.json`, 'utf8'));
     expect(runFile.status).toBe('closed');
-    expect(await readdir(`${dir}/orca-pause`)).not.toContain('current');
+    expect(await readdir(`${dir}/orca-broadcast`)).not.toContain('current');
   });
 
   it('prints no table and exits 0 when every agent was resumed or gone', async () => {
@@ -270,7 +270,7 @@ describe('orca-pause close', () => {
 
   it('lets the next pause start a fresh run with a different token', async () => {
     const dir = await tempStateDir();
-    const store = createRecordStore(`${dir}/orca-pause`);
+    const store = createRecordStore(`${dir}/orca-broadcast`);
     await seedOpenRun(store, [agentRecord('a:1')]);
     const io = { stdout: () => {}, stderr: () => {}, isTTY: false };
     const port = new FakeOrca([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
@@ -280,9 +280,9 @@ describe('orca-pause close', () => {
     expect(await main(['close'], { XDG_STATE_HOME: dir }, io, { port, clock })).toBe(0);
     expect(await main(['pause', '--yes'], { XDG_STATE_HOME: dir }, io, { port, clock, newToken: () => tokens[0] as string })).toBe(0);
 
-    const current = (await readFile(`${dir}/orca-pause/current`, 'utf8')).trim();
+    const current = (await readFile(`${dir}/orca-broadcast/current`, 'utf8')).trim();
     expect(current).not.toBe('run-1');
-    const fresh = JSON.parse(await readFile(`${dir}/orca-pause/${current}.json`, 'utf8'));
+    const fresh = JSON.parse(await readFile(`${dir}/orca-broadcast/${current}.json`, 'utf8'));
     expect(fresh.token).toBe('11111111');
     expect(fresh.token).not.toBe('abcd1234');
   });
@@ -296,22 +296,22 @@ describe('safety rails', () => {
     const clock = fakeClock();
     const signals = new EventEmitter();
     const code = await main(argv, { XDG_STATE_HOME: dir }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: false }, { port, clock, signals, ...extra });
-    return { code, out: out.join(''), err: err.join(''), port, clock, signals, stateDir: join(dir, 'orca-pause') };
+    return { code, out: out.join(''), err: err.join(''), port, clock, signals, stateDir: join(dir, 'orca-broadcast') };
   }
 
   const lockFile = async (dir: string, content: string) => {
-    await mkdir(join(dir, 'orca-pause'), { recursive: true });
-    await writeFile(join(dir, 'orca-pause', 'lock'), content);
+    await mkdir(join(dir, 'orca-broadcast'), { recursive: true });
+    await writeFile(join(dir, 'orca-broadcast', 'lock'), content);
   };
 
-  it('exits 2 with "another orca-pause is running" while a live process holds the lock, and touches nothing', async () => {
+  it('exits 2 with "another orca-broadcast is running" while a live process holds the lock, and touches nothing', async () => {
     const dir = await tempStateDir();
     await lockFile(dir, `${process.pid}\n`);
     const { code, err, port } = await invoke(['pause', '--yes'], [{ paneKey: 'a:1', behavior: working }], dir);
     expect(code).toBe(2);
-    expect(err).toContain('another orca-pause is running');
+    expect(err).toContain('another orca-broadcast is running');
     expect(port.listCalls).toBe(0);
-    expect(await readdir(join(dir, 'orca-pause'))).toEqual(['lock']);
+    expect(await readdir(join(dir, 'orca-broadcast'))).toEqual(['lock']);
   });
 
   it('takes over a lock left by a dead process and releases the lock when done', async () => {
@@ -334,7 +334,7 @@ describe('safety rails', () => {
     const { code, err, port } = await invoke(['pause', '--yes', '--timeout', '5x'], [{ paneKey: 'a:1', behavior: working }], await tempStateDir());
     expect(code).toBe(2);
     expect(err).toContain('invalid --timeout');
-    expect(err).toContain('Usage: orca-pause');
+    expect(err).toContain('Usage: orca-broadcast');
     expect(port.listCalls).toBe(0);
   });
 
@@ -370,7 +370,7 @@ describe('safety rails', () => {
   });
 
   describe('close', () => {
-    const seedClose = (dir: string) => seedOpenRun(createRecordStore(join(dir, 'orca-pause')), [agentRecord('a:1')]);
+    const seedClose = (dir: string) => seedOpenRun(createRecordStore(join(dir, 'orca-broadcast')), [agentRecord('a:1')]);
 
     it('exits 2 while a live process holds the lock and leaves the run open', async () => {
       const dir = await tempStateDir();
@@ -378,7 +378,7 @@ describe('safety rails', () => {
       await lockFile(dir, `${process.pid}\n`);
       const { code, err, stateDir } = await invoke(['close'], [], dir);
       expect(code).toBe(2);
-      expect(err).toContain('another orca-pause is running');
+      expect(err).toContain('another orca-broadcast is running');
       expect(JSON.parse(await readFile(join(stateDir, 'run-1.json'), 'utf8')).status).toBe('open');
     });
 
@@ -410,7 +410,7 @@ describe('safety rails', () => {
 
   describe('resume', () => {
     const seed = async (dir: string) => {
-      const store = createRecordStore(join(dir, 'orca-pause'));
+      const store = createRecordStore(join(dir, 'orca-broadcast'));
       await store.save({
         runId: 'run-1',
         token: 'abcd1234',
@@ -432,7 +432,7 @@ describe('safety rails', () => {
       await lockFile(dir, `${process.pid}\n`);
       const { code, err, port } = await invoke(['resume', '--yes'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], dir);
       expect(code).toBe(2);
-      expect(err).toContain('another orca-pause is running');
+      expect(err).toContain('another orca-broadcast is running');
       expect(port.sends).toHaveLength(0);
     });
 
@@ -492,8 +492,8 @@ describe('--reason', () => {
   it('sends the preset sentence and stores it in the record', async () => {
     const { code, port, dir } = await run(['pause', '--yes', '--reason', 'end-of-day'], agents());
     expect(code).toBe(0);
-    expect(port.sends[0]?.text).toContain('[orca-pause] The user is stopping work for the day. Finish');
-    expect(JSON.parse(await readFile(`${dir}/orca-pause/${(await readdir(`${dir}/orca-pause`)).find((n) => n.endsWith('.json'))}`, 'utf8')).reason).toBe('end-of-day');
+    expect(port.sends[0]?.text).toContain('[orca-broadcast] The user is stopping work for the day. Finish');
+    expect(JSON.parse(await readFile(`${dir}/orca-broadcast/${(await readdir(`${dir}/orca-broadcast`)).find((n) => n.endsWith('.json'))}`, 'utf8')).reason).toBe('end-of-day');
   });
 
   const bad: [string, string[], string][] = [
@@ -529,14 +529,14 @@ describe('--reason', () => {
     const { code, out, err, port } = await run(['pause', '--yes', '--reason', 'network'], agents(), false, () => {}, (store) => seedOpenRun(store, [agentRecord('a:1')]));
     expect(code).toBe(2);
     expect(out).toBe('');
-    expect(err).toBe('orca-pause: This run was paused without --reason; run pause without --reason, or close it first.\n');
+    expect(err).toBe('orca-broadcast: This run was paused without --reason; run pause without --reason, or close it first.\n');
     expect(port.sends).toHaveLength(0);
   });
 
   it('prints the refusal on stderr for a run with a reason', async () => {
     const { code, err } = await run(['pause', '--yes', '--reason', 'limit'], agents(), false, () => {}, (store) => seedOpenRun(store, [agentRecord('a:1')], { reason: 'away' }));
     expect(code).toBe(2);
-    expect(err).toBe('orca-pause: This run was paused with --reason away; use --reason away, or close it first.\n');
+    expect(err).toBe('orca-broadcast: This run was paused with --reason away; use --reason away, or close it first.\n');
   });
 
   it('refuses a different reason on an open run with one JSON error object and sends nothing', async () => {

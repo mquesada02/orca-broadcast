@@ -59,7 +59,7 @@ describe('resume happy path', () => {
     const { port, go } = await setup([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
     await go();
     expect(port.sends[0]?.text).toBe(
-      '[orca-pause] CONTINUE. The user asked you to continue. Continue your task from the note in your last pause reply.',
+      '[orca-broadcast] CONTINUE. The user asked you to continue. Continue your task from the note in your last pause reply.',
     );
     expect(port.sends[0]?.text).not.toContain('\n');
   });
@@ -378,7 +378,7 @@ describe('resume reasons', () => {
 
       await resume({ port, clock: fakeClock(), store: createRecordStore(dir) });
 
-      expect(port.sends.map((s) => s.text)).toEqual([`[orca-pause] CONTINUE. ${sentence} Continue your task from the note in your last pause reply.`]);
+      expect(port.sends.map((s) => s.text)).toEqual([`[orca-broadcast] CONTINUE. ${sentence} Continue your task from the note in your last pause reply.`]);
     });
   }
 });

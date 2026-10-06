@@ -131,7 +131,7 @@ export function tokenOf(text: string): string {
   return /ORCA-PAUSED ([0-9a-z]+)\./.exec(text)?.[1] ?? 'no-token';
 }
 
-export const CONTINUE_PREFIX = '[orca-pause] CONTINUE';
+export const CONTINUE_PREFIX = '[orca-broadcast] CONTINUE';
 
 const gotContinue = (received: string[]) => received.some((t) => t.startsWith(CONTINUE_PREFIX));
 
@@ -168,7 +168,7 @@ export const fakeClock = (start = 1_000_000): Clock & { slept: number; onSleep: 
   return clock;
 };
 
-export const tempStateDir = async (): Promise<string> => join(await mkdtemp(join(tmpdir(), 'orca-pause-test-')), 'state');
+export const tempStateDir = async (): Promise<string> => join(await mkdtemp(join(tmpdir(), 'orca-broadcast-test-')), 'state');
 
 /** Replies with the token `delay` listings after it received the pause message. */
 export const repliesAfter = (delay: number): Behavior => {

@@ -26,7 +26,7 @@ export interface RunCliOptions {
 /** Runs the CLI shell once with a fake Orca port, a fake clock and a fresh state directory. */
 export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: RunCliOptions = {}) {
   const dir = await tempStateDir();
-  await opts.seed?.(createRecordStore(join(dir, 'orca-pause')), dir);
+  await opts.seed?.(createRecordStore(join(dir, 'orca-broadcast')), dir);
   const out: string[] = [];
   const err: string[] = [];
   const port = new FakeOrca(agents);

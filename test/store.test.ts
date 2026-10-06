@@ -22,7 +22,7 @@ describe('lock', () => {
     const a = createRecordStore(dir, { pid: 100, isAlive: alive(100) });
     const b = createRecordStore(dir, { pid: 200, isAlive: alive(100, 200) });
     const release = await a.acquireLock();
-    await expect(b.acquireLock()).rejects.toThrow('another orca-pause is running');
+    await expect(b.acquireLock()).rejects.toThrow('another orca-broadcast is running');
     await expect(b.acquireLock()).rejects.toBeInstanceOf(LockHeldError);
     await release();
     expect(await readdir(dir)).toEqual([]);
@@ -55,7 +55,7 @@ describe('lock', () => {
   it('never reclaims a leftover takeover file and names it in the error', async () => {
     const dir = await withDir({ lock: `${DEAD}\n`, 'lock.takeover': `${DEAD}\n` });
     const store = createRecordStore(dir, { pid: 200, isAlive: alive(200) });
-    await expect(store.acquireLock()).rejects.toThrow(/another orca-pause is running.*lock\.takeover/);
+    await expect(store.acquireLock()).rejects.toThrow(/another orca-broadcast is running.*lock\.takeover/);
   });
 
   it('gives one holder and one failure when two processes take over the same dead lock', async () => {
