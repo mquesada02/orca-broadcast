@@ -75,6 +75,19 @@ describe('orca adapter mapping', () => {
     expect(await createOrcaAdapter(stale.exec).send('term_x', 'hello')).toEqual({ accepted: false, reason: 'terminal_handle_stale' });
   });
 
+  it.each([
+    ['send.accepted is false', (r: any) => { r.send.accepted = false; }],
+    ['send.accepted is not a boolean true', (r: any) => { r.send.accepted = 'true'; }],
+    ['the send object is missing', (r: any) => { delete r.send; }],
+    ['send is null', (r: any) => { r.send = null; }],
+    ['accepted sits at the old result.accepted location', (r: any) => { delete r.send; r.accepted = true; }],
+  ])('does not accept a receipt when %s', async (_name, mutate) => {
+    const receipt = json('terminal-send-accepted');
+    mutate(receipt.result);
+    const { exec } = fakeExec({ 'terminal send': JSON.stringify(receipt) });
+    expect(await createOrcaAdapter(exec).send('term_x', 'hello')).toEqual({ accepted: false, reason: 'not-accepted' });
+  });
+
   it('returns a crashed or invalid send as not accepted instead of throwing', async () => {
     const crash: Exec = async () => {
       throw new Error('spawn orca-ide ENOENT');
@@ -109,6 +122,13 @@ describe('orca adapter unknown-outcome send', () => {
     expect(calls).toHaveLength(2);
     expect(calls[1]).toEqual([...calls[0]!, '--retry-request', ID]);
     expect(calls[1]).not.toContain('--wait-submit');
+  });
+
+  it('extracts the retry id from the warning text of the real receipt', async () => {
+    const receipt = json('terminal-send-accepted');
+    const { exec, calls } = sequence(timeout(receipt.result.warnings[0]), fixture('terminal-send-accepted'));
+    expect(await createOrcaAdapter(exec).send('term_x', 'hello')).toEqual({ accepted: true });
+    expect(calls[1]).toEqual([...calls[0]!, '--retry-request', receipt.result.mutation.requestId]);
   });
 
   it('finds the id in the error text of unparseable stdout or in stderr', async () => {

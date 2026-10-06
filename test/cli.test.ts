@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -464,10 +465,11 @@ describe('safety rails', () => {
           worktrees: [{ worktreeId: 'w1', displayName: 'tree', repo: 'repo', agents: [{ paneKey: 'a:1', agentType: 'claude', state: 'working', stateStartedAt: 1, lastAssistantMessage: null }] }],
         },
       });
+    const sendReceipt = readFileSync(join(import.meta.dirname, 'fixtures', 'terminal-send-accepted.json'), 'utf8');
     const exec: Exec = async (_file, args) => {
       const key = args.slice(0, 2).join(' ');
       const stdout =
-        key === 'worktree ps' ? ps(++psCalls > 1) : key === 'terminal list' ? JSON.stringify({ ok: true, result: { terminals: [{ handle: 'term_a', tabId: 'a', leafId: '1', agentIdentity: 'claude' }] } }) : JSON.stringify({ ok: true, result: { accepted: true } });
+        key === 'worktree ps' ? ps(++psCalls > 1) : key === 'terminal list' ? JSON.stringify({ ok: true, result: { terminals: [{ handle: 'term_a', tabId: 'a', leafId: '1', agentIdentity: 'claude' }] } }) : sendReceipt;
       return { stdout, stderr: '', code: 0 };
     };
     const { code, err, stateDir } = await invoke(['pause', '--yes'], [], dir, { port: createOrcaAdapter(exec) });

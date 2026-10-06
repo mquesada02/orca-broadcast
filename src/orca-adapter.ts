@@ -70,7 +70,7 @@ async function attemptSend(exec: Exec, args: string[]): Promise<SendAttempt> {
     output = `${stdout}\n${stderr}`;
     const envelope = parseEnvelope(stdout);
     if (!envelope.ok) return { kind: 'known', result: { accepted: false, reason: envelope.error?.code ?? 'send-rejected' } };
-    return { kind: 'known', result: envelope.result?.accepted === true ? { accepted: true } : { accepted: false, reason: 'not-accepted' } };
+    return { kind: 'known', result: envelope.result?.send?.accepted === true ? { accepted: true } : { accepted: false, reason: 'not-accepted' } };
   } catch (error) {
     if (error instanceof ExecFailure) output = `${error.stdout}\n${error.stderr}`;
     return { kind: 'unknown', reason: (error as Error).message, output };

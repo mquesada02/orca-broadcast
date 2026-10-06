@@ -1,20 +1,34 @@
 {
-  "id": "x",
+  "id": "00000000-0000-0000-0000-504151536860",
   "ok": true,
   "result": {
-    "handle": "term_x",
-    "accepted": true,
-    "stages": [
-      "input_accepted",
-      "turn_started"
-    ],
-    "provider": "claude",
-    "observation": "supported",
-    "baselineWorkingSequence": 7,
-    "baselineExplicitWorkingStartedAt": null,
-    "baselinePermissionSequence": 0
+    "send": {
+      "handle": "term_00000000-0000-0000-0000-578248529145",
+      "accepted": true,
+      "bytesWritten": 45,
+      "prompt": {
+        "requestId": "00000000-0000-0000-0000-263968117261",
+        "stages": [
+          "input_accepted"
+        ],
+        "provider": "claude",
+        "observation": "supported",
+        "processIncarnation": "00000000-0000-0000-0000-856861628270",
+        "generation": 758,
+        "baselineWorkingSequence": 0,
+        "baselineExplicitWorkingStartedAt": null,
+        "baselinePermissionSequence": 0
+      }
+    },
+    "mutation": {
+      "requestId": "00000000-0000-0000-0000-263968117261",
+      "replayed": false
+    },
+    "warnings": [
+      "input was accepted but no turn start was observed, so the Enter may have been swallowed. Confirm delivery by reissuing the exact command with --retry-request 00000000-0000-0000-0000-263968117261 --wait-submit <seconds>; the same request ID replays the receipt instead of sending the prompt again."
+    ]
   },
   "_meta": {
-    "runtimeId": "x"
+    "runtimeId": "00000000-0000-0000-0000-556975495194"
   }
 }
