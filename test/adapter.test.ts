@@ -76,11 +76,11 @@ describe('orca adapter mapping', () => {
   });
 
   it.each([
-    ['send.accepted is false', (r: any) => (r.send.accepted = false)],
-    ['send.accepted is not a boolean true', (r: any) => (r.send.accepted = 'true')],
-    ['the send object is missing', (r: any) => delete r.send],
-    ['send is not an object', (r: any) => (r.send = null)],
-    ['accepted sits at the old result.accepted location', (r: any) => (delete r.send, (r.accepted = true))],
+    ['send.accepted is false', (r: any) => { r.send.accepted = false; }],
+    ['send.accepted is not a boolean true', (r: any) => { r.send.accepted = 'true'; }],
+    ['the send object is missing', (r: any) => { delete r.send; }],
+    ['send is null', (r: any) => { r.send = null; }],
+    ['accepted sits at the old result.accepted location', (r: any) => { delete r.send; r.accepted = true; }],
   ])('does not accept a receipt when %s', async (_name, mutate) => {
     const receipt = json('terminal-send-accepted');
     mutate(receipt.result);
