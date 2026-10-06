@@ -480,3 +480,52 @@ describe('safety rails', () => {
     expect(record.agents[0]).toMatchObject({ paneKey: 'a:1', messagePending: true });
   });
 });
+
+describe('--reason', () => {
+  const agents = (): FakeAgent[] => [{ paneKey: 'a:1', behavior: repliesWithToken() }];
+
+  it('lists the presets in --help', async () => {
+    const { out } = await run(['--help']);
+    for (const name of ['--reason <name>', 'network', 'away', 'end-of-day', 'limit']) expect(out).toContain(name);
+  });
+
+  it('sends the preset sentence and stores it in the record', async () => {
+    const { code, port, dir } = await run(['pause', '--yes', '--reason', 'end-of-day'], agents());
+    expect(code).toBe(0);
+    expect(port.sends[0]?.text).toContain('[orca-pause] The user is stopping work for the day. Finish');
+    expect(JSON.parse(await readFile(`${dir}/orca-pause/${(await readdir(`${dir}/orca-pause`)).find((n) => n.endsWith('.json'))}`, 'utf8')).reason).toBe('end-of-day');
+  });
+
+  const bad: [string, string[], string][] = [
+    ['an unknown name', ['pause', '--yes', '--reason', 'bogus'], 'use one of network, away, end-of-day, limit'],
+    ['an empty name', ['pause', '--yes', '--reason', ''], 'use one of network, away, end-of-day, limit'],
+    ['resume', ['resume', '--yes', '--reason', 'away'], '--reason applies only to pause'],
+    ['close', ['close', '--reason', 'away'], '--reason applies only to pause'],
+    ['resume with an unknown name', ['resume', '--yes', '--reason', 'bogus'], '--reason applies only to pause'],
+  ];
+  for (const [name, argv, message] of bad) {
+    it(`exits 2 for ${name}, before calling Orca`, async () => {
+      const plain = await run(argv, agents());
+      expect(plain.code).toBe(2);
+      expect(plain.err).toContain(message);
+      expect(plain.port.listCalls).toBe(0);
+      expect(plain.port.sends).toHaveLength(0);
+
+      const json = await run([...argv, '--json'], agents());
+      expect(json.code).toBe(2);
+      expect(json.err).toBe('');
+      expect(JSON.parse(json.out)).toMatchObject({ outcome: 'error', exitCode: 2, run: null });
+      expect(JSON.parse(json.out).error).toContain(message);
+    });
+  }
+
+  it('refuses a different reason on an open run with one JSON error object and sends nothing', async () => {
+    const { code, out, err, port } = await run(['pause', '--yes', '--json', '--reason', 'limit'], agents(), false, () => {}, (store) =>
+      seedOpenRun(store, [agentRecord('a:1')], { reason: 'away' }),
+    );
+    expect(code).toBe(2);
+    expect(err).toBe('');
+    expect(JSON.parse(out)).toMatchObject({ command: 'pause', outcome: 'error', exitCode: 2, error: 'This run was paused for away; use the same --reason, or close it first.' });
+    expect(port.sends).toHaveLength(0);
+  });
+});

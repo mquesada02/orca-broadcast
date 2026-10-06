@@ -3,9 +3,10 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { main } from '../src/cli.js';
 import { pause, pauseMessage } from '../src/pause.js';
-import { CONTINUE_MESSAGE, resume } from '../src/resume.js';
+import { continueMessage, resume } from '../src/resume.js';
 import { createRecordStore } from '../src/store.js';
-import type { Run } from '../src/types.js';
+import type { Preset } from '../src/reasons.js';
+import type { Confirm, Run } from '../src/types.js';
 import {
   agentRecord,
   type Behavior,
@@ -186,7 +187,7 @@ describe('extending an open run', () => {
 
     await t.runResume();
 
-    expect(t.port.sends.filter((s) => s.text === CONTINUE_MESSAGE)).toHaveLength(1);
+    expect(t.port.sends.filter((s) => s.text === continueMessage())).toHaveLength(1);
   });
 
   it('marks a normal agent woken twice as re-woken, and a re-run sends it one more pause message', async () => {
@@ -230,7 +231,7 @@ describe('extending an open run', () => {
       { paneKey: 'a:1', behavior: cycleAgent },
       { paneKey: 'b:2', behavior: cycleAgent },
     ]);
-    const continueSends = (key: string) => t.port.sends.filter((s) => s.handle === t.port.handleOf(key) && s.text === CONTINUE_MESSAGE).length;
+    const continueSends = (key: string) => t.port.sends.filter((s) => s.handle === t.port.handleOf(key) && s.text === continueMessage()).length;
     let rejected = 0;
     const continues = (key: string) => continueSends(key) - (key === 'b:2' ? rejected : 0); // accepted CONTINUE messages
 
@@ -282,7 +283,7 @@ describe('self handling in pause', () => {
     const resumed = await t.runResume();
 
     expect(resumed.exitCode).toBe(0);
-    expect(t.port.sends.filter((s) => s.handle === t.port.handleOf('s:1')).map((s) => s.text)).toEqual([CONTINUE_MESSAGE]);
+    expect(t.port.sends.filter((s) => s.handle === t.port.handleOf('s:1')).map((s) => s.text)).toEqual([continueMessage()]);
     expect(resumed.rows.find((r) => r.paneKey === 's:1')).toMatchObject({ resumeStatus: 'resumed', resumeReason: 'queued-while-working' });
   });
 
@@ -450,7 +451,7 @@ describe('roles in extension and self handling', () => {
 
     const resumed = await t.runResume();
 
-    expect(t.port.sends.filter((s) => s.text === CONTINUE_MESSAGE).map((s) => s.handle)).toEqual([t.port.handleOf('w:1'), t.port.handleOf('s:1')]);
+    expect(t.port.sends.filter((s) => s.text === continueMessage()).map((s) => s.handle)).toEqual([t.port.handleOf('w:1'), t.port.handleOf('s:1')]);
     expect(resumed.rows.find((r) => r.paneKey === 's:1')).toMatchObject({ resumeStatus: 'resumed', resumeReason: 'queued-while-working' });
   });
 
@@ -471,4 +472,52 @@ describe('roles in extension and self handling', () => {
     expect(second.rows.find((r) => r.paneKey === 's:1')).toMatchObject({ role: 'coordinator', pauseStatus: 'confirmed' });
     expect(second.self).toMatchObject({ paneKey: 'b:9' });
   });
+});
+
+describe('extending an open run with a reason', () => {
+  const textTo = (port: FakeOrca, paneKey: string) => port.sends.filter((s) => s.handle === port.handleOf(paneKey)).map((s) => s.text);
+  const seed = (t: Awaited<ReturnType<typeof setup>>, reason?: Run['reason']) =>
+    seedOpenRun(t.store(), [agentRecord('a:1', { pauseStatus: 'unconfirmed', pauseReason: 'still-working', pauseBaseline: null, confirmedAt: null, messagePending: true })], reason ? { reason } : {});
+  const runPauseWith = (t: Awaited<ReturnType<typeof setup>>, reason?: Preset, confirm?: Confirm) =>
+    pause(TIMEOUT, { port: t.port, clock: t.clock, store: t.store(), newToken: () => TOKEN, reason, confirm });
+
+  it('inherits the run reason when no flag is given', async () => {
+    const t = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
+    await seed(t, 'limit');
+    await runPauseWith(t);
+    expect(textTo(t.port, 'a:1')).toEqual([pauseMessage(TOKEN, 'worker', 'limit')]);
+    expect((await t.readRun()).reason).toBe('limit');
+  });
+
+  it('accepts the same reason', async () => {
+    const t = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
+    await seed(t, 'away');
+    const summary = await runPauseWith(t, 'away');
+    expect(summary.exitCode).toBe(0);
+    expect(textTo(t.port, 'a:1')).toEqual([pauseMessage(TOKEN, 'worker', 'away')]);
+  });
+
+  const refusals: [string, Run['reason'], Preset, string][] = [
+    ['a different reason', 'away', 'limit', 'away'],
+    ['an explicit reason on a run with no reason', undefined, 'network', 'no reason'],
+  ];
+  for (const [name, stored, flag, shown] of refusals) {
+    it(`refuses ${name}: exit 2, nothing sent, no prompt, record byte-identical`, async () => {
+      const t = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
+      await seed(t, stored);
+      const file = join(t.dir, 'run-1.json');
+      const before = await readFile(file, 'utf8');
+      let asked = 0;
+
+      const summary = await runPauseWith(t, flag, async () => {
+        asked += 1;
+        return true;
+      });
+
+      expect(summary).toMatchObject({ outcome: 'error', exitCode: 2, run: null, error: `This run was paused for ${shown}; use the same --reason, or close it first.` });
+      expect(t.port.sends).toHaveLength(0);
+      expect(asked).toBe(0);
+      expect(await readFile(file, 'utf8')).toBe(before);
+    });
+  }
 });

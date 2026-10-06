@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { sleepOrAbort, throwIfAborted } from './abort.js';
+import { describeReason, pauseSentence, type Preset } from './reasons.js';
 import type { RecordStore } from './store.js';
 import { cancelled, failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
@@ -14,6 +15,7 @@ export interface PauseDeps {
   store: RecordStore;
   newToken?: () => string;
   selfPaneKey?: string;
+  reason?: Preset;
   onProgress?: (progress: Progress) => void;
   confirm?: Confirm;
   signal?: AbortSignal;
@@ -21,9 +23,9 @@ export interface PauseDeps {
 
 const COORDINATOR_SENTENCE = 'Do not dispatch new workers or tasks.';
 
-export function pauseMessage(token: string, role: Role = 'worker'): string {
+export function pauseMessage(token: string, role: Role = 'worker', reason?: Preset): string {
   const message =
-    '[orca-pause] The user is leaving and the network will drop. Finish the step you are on now. ' +
+    `[orca-pause] ${pauseSentence(reason)} Finish the step you are on now. ` +
     'Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, ' +
     `and your next step. The last line of your reply must be exactly: ORCA-PAUSED ${token}. ` +
     'After that, do nothing until you get a message that starts with [orca-pause] CONTINUE.';
@@ -140,7 +142,7 @@ type Prepared = { run: Run; extending: boolean } | { summary: RunSummary };
 
 // Builds the run this invocation works on, in memory: the loaded run extended, or a new run of the agents found working.
 // The loaded run is never changed, so it stays available as the pre-invocation record.
-function prepare(loaded: Run | null, startedAt: number, newToken: () => string, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, selfKey: string | undefined): Prepared {
+function prepare(loaded: Run | null, startedAt: number, newToken: () => string, reason: Preset | undefined, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, selfKey: string | undefined): Prepared {
   const selfFound = selfKey ? locate(selfKey, agents, terminals) : null;
   const self = selfFound && !('gone' in selfFound) && selfFound.row.agentType === 'claude' ? selfFound : null;
 
@@ -163,6 +165,7 @@ function prepare(loaded: Run | null, startedAt: number, newToken: () => string, 
     status: 'open',
     agents: discovered.map(newAgent),
   };
+  if (reason) run.reason = reason;
   if (self) run.agents.push(markSelf(undefined, self.row, self.handle));
   return { run, extending: false };
 }
@@ -189,16 +192,19 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   try {
     throwIfAborted(deps.signal);
     loaded = (await store.findOpenRun())?.run ?? null;
+    if (loaded && deps.reason !== undefined && deps.reason !== loaded.reason) {
+      throw new Error(`This run was paused for ${describeReason(loaded.reason)}; use the same --reason, or close it first.`);
+    }
     [agents, terminals] = await listFresh(deps);
     throwIfAborted(deps.signal);
-    prepared = prepare(loaded, startedAt, newToken, agents, terminals, selfKey);
+    prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, selfKey);
     if (deps.confirm && 'run' in prepared) {
       const targets = planSends(prepared.run, agents, terminals, await listCoordinators(deps), deps, selfKey);
       if (targets.length > 0) {
         if (!(await deps.confirm(targets, deps.signal))) return withSelf(cancelled(), selfKey);
         throwIfAborted(deps.signal);
         await afterYes();
-        prepared = prepare(loaded, startedAt, newToken, agents, terminals, selfKey);
+        prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, selfKey);
       }
     }
   } catch (error) {
@@ -360,7 +366,7 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
       agent.pauseReason = 'waiting-permission';
       continue;
     }
-    const result = await deps.port.send(fresh.handle, pauseMessage(run.token, agent.role));
+    const result = await deps.port.send(fresh.handle, pauseMessage(run.token, agent.role, run.reason));
     if (result.accepted) {
       agent.pauseBaseline = fresh.row.lastAssistantMessage;
       agent.messagePending = false;

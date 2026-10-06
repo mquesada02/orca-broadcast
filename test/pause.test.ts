@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { pause, pauseMessage } from '../src/pause.js';
 import { renderTable } from '../src/render.js';
 import { createRecordStore } from '../src/store.js';
+import type { Preset } from '../src/reasons.js';
 import type { Progress, Run } from '../src/types.js';
 import { type Behavior, type FakeAgent, doneWithToken, fakeClock, FakeOrca, repliesAfter, repliesWithToken, tempStateDir, tokenOf, working } from './helpers/fake-orca.js';
 
@@ -112,7 +113,7 @@ describe('pause happy path', () => {
     const text = port.sends[0]?.text ?? '';
     expect(text).toBe(pauseMessage('abcd1234'));
     expect(text).toBe(
-      '[orca-pause] The user is leaving and the network will drop. Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. After that, do nothing until you get a message that starts with [orca-pause] CONTINUE.',
+      '[orca-pause] The user asked all agents to pause. Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. After that, do nothing until you get a message that starts with [orca-pause] CONTINUE.',
     );
     expect(text).not.toMatch(/[\r\n]/);
   });
@@ -695,4 +696,37 @@ describe('open run recovery', () => {
     expect(summary.error).toMatch(/unreadable record .*broken\.json/);
     expect(port.listCalls).toBe(0);
   });
+});
+
+describe('pause reasons', () => {
+  const REST =
+    ' Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. After that, do nothing until you get a message that starts with [orca-pause] CONTINUE.';
+  const COORDINATOR_SENTENCE = ' Do not dispatch new workers or tasks.';
+  const cases: [string | undefined, string][] = [
+    ['network', 'The user is leaving and the network will drop.'],
+    ['away', 'The user is stepping away for a while.'],
+    ['end-of-day', 'The user is stopping work for the day.'],
+    ['limit', 'The user is close to a usage or rate limit.'],
+    [undefined, 'The user asked all agents to pause.'],
+  ];
+
+  for (const [reason, sentence] of cases) {
+    it(`sends the exact ${reason ?? 'neutral'} pause sentence to a worker and a coordinator, and records the reason`, async () => {
+      const dir = await tempStateDir();
+      const port = new FakeOrca([
+        { paneKey: 'w:1', behavior: repliesWithToken() },
+        { paneKey: 'c:2', behavior: repliesWithToken() },
+      ]);
+      port.coordinatorsAt = () => ['c:2'];
+
+      await pause(TIMEOUT, { port, clock: fakeClock(), store: createRecordStore(dir), newToken: () => 'abcd1234', reason: reason as Preset | undefined });
+
+      const text = (key: string) => port.sends.find((s) => s.handle === port.handleOf(key))?.text;
+      expect(text('w:1')).toBe(`[orca-pause] ${sentence}${REST}`);
+      expect(text('c:2')).toBe(`[orca-pause] ${sentence}${REST}${COORDINATOR_SENTENCE}`);
+      const [record] = await readRuns(dir);
+      expect(record && 'reason' in record).toBe(reason !== undefined);
+      expect(record?.reason).toBe(reason);
+    });
+  }
 });

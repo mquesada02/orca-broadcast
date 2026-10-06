@@ -1,3 +1,5 @@
+import type { Preset } from './reasons.js';
+
 export interface AgentRow {
   paneKey: string;
   worktreeId: string;
@@ -109,5 +111,6 @@ export interface Run {
   token: string;
   startedAt: string;
   status: 'open' | 'closed';
+  reason?: Preset;
   agents: AgentRecord[];
 }

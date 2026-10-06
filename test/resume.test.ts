@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CONTINUE_MESSAGE, resume } from '../src/resume.js';
+import { continueMessage, resume } from '../src/resume.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord, ResumeProgress, Run } from '../src/types.js';
 import { type FakeAgent, fakeClock, FakeOrca, PAUSED_REPLY, pausedDone, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
@@ -47,7 +47,7 @@ describe('resume happy path', () => {
 
     expect(summary.exitCode).toBe(0);
     expect(summary.outcome).toBe('done');
-    expect(port.sends).toEqual([{ handle: 'term_a:1', text: CONTINUE_MESSAGE }]);
+    expect(port.sends).toEqual([{ handle: 'term_a:1', text: continueMessage() }]);
     const run = await readRun();
     expect(run.status).toBe('closed');
     expect(run.agents[0]).toMatchObject({ resumeStatus: 'resumed' });
@@ -59,7 +59,7 @@ describe('resume happy path', () => {
     const { port, go } = await setup([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
     await go();
     expect(port.sends[0]?.text).toBe(
-      '[orca-pause] CONTINUE. The network is back. Continue your task from the note in your last pause reply.',
+      '[orca-pause] CONTINUE. The user asked you to continue. Continue your task from the note in your last pause reply.',
     );
     expect(port.sends[0]?.text).not.toContain('\n');
   });
@@ -359,4 +359,30 @@ describe('safety rails', () => {
     expect(failing.clock.slept).toBe(2000);
     expect(failing.port.sends).toHaveLength(0);
   });
+});
+
+describe('resume reasons', () => {
+  const cases: [Run['reason'], string][] = [
+    ['network', 'The network is back.'],
+    ['away', 'The user is back.'],
+    ['end-of-day', 'The user is back for a new session.'],
+    ['limit', 'The limit has reset.'],
+    [undefined, 'The user asked you to continue.'],
+  ];
+
+  for (const [reason, sentence] of cases) {
+    it(`sends the ${reason ?? 'neutral (no stored reason)'} continue sentence`, async () => {
+      const dir = await tempStateDir();
+      const store = createRecordStore(dir);
+      const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: [agentRecord('a:1')] };
+      if (reason) run.reason = reason;
+      await store.save(run);
+      await store.setCurrent(run.runId);
+      const port = new FakeOrca([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
+
+      await resume({ port, clock: fakeClock(), store: createRecordStore(dir) });
+
+      expect(port.sends.map((s) => s.text)).toEqual([`[orca-pause] CONTINUE. ${sentence} Continue your task from the note in your last pause reply.`]);
+    });
+  }
 });
