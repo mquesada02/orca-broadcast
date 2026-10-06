@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createOrcaAdapter, type Exec } from '../src/orca-adapter.js';
 import { pause, pauseMessage } from '../src/pause.js';
-import { CONTINUE_MESSAGE, resume } from '../src/resume.js';
+import { continueMessage, resume } from '../src/resume.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord, Run } from '../src/types.js';
 import { type Behavior, type FakeAgent, agentRecord, doneWithToken, fakeClock, FakeOrca, pausedDone, repliesWithToken, seedOpenRun, tempStateDir, working } from './helpers/fake-orca.js';
@@ -207,9 +207,9 @@ describe('coordinators in resume', () => {
     port.coordinatorsAt = () => ['c:1'];
     await go();
     expect(port.sends).toEqual([
-      { handle: 'term_w:2', text: CONTINUE_MESSAGE },
-      { handle: 'term_w:3', text: CONTINUE_MESSAGE },
-      { handle: 'term_c:1', text: CONTINUE_MESSAGE },
+      { handle: 'term_w:2', text: continueMessage() },
+      { handle: 'term_w:3', text: continueMessage() },
+      { handle: 'term_c:1', text: continueMessage() },
     ]);
   });
 

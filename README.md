@@ -1,6 +1,6 @@
 # orca-pause
 
-Pause every working Claude Code agent in the Orca IDE before your network drops, and resume all of them when you are back — with proof that none was missed.
+Pause every working Claude Code agent in the Orca IDE before you leave (your network drops, you step away, the day ends, a usage limit is close), and resume all of them when you are back — with proof that none was missed.
 
 `orca-pause pause` asks each agent to finish the step it is on, write a short "where I stopped" note, and wait. It then checks that every agent actually stopped. `orca-pause resume` tells every recorded agent to continue and checks that each one did.
 
@@ -35,6 +35,7 @@ Before you leave:
 ```sh
 orca-pause pause            # lists the agents, asks "Send to N agents? [y/N]", then waits
 orca-pause pause --timeout 3m
+orca-pause pause --reason end-of-day   # tell the agents why you are pausing
 ```
 
 When you are back:
@@ -54,9 +55,24 @@ orca-pause close
 | Option | Effect |
 |---|---|
 | `--timeout <n>s\|m\|h` | How long `pause` waits for confirmations. Default `10m`. `pause` only. |
+| `--reason <name>` | Why you are pausing. One of the presets below. `pause` only. Without it the message is neutral. |
 | `--yes` | Skip the confirmation prompt. Without an interactive terminal, `pause` and `resume` refuse to send unless you pass it. |
 | `--json` | Print one JSON object on stdout and nothing on stderr. It never prompts, so `pause` and `resume` need `--yes`. |
 | `--help` | Show help. |
+
+### Pause reasons
+
+`--reason` changes only the first sentence of the pause message and of the later continue message. Instructions, proof rules and safety rules are the same for every reason. The reason is saved in the run, so `resume` (which has no flag) sends the matching continue sentence.
+
+| `--reason` | Pause sentence | Continue sentence |
+|---|---|---|
+| `network` | The user is leaving and the network will drop. | The network is back. |
+| `away` | The user is stepping away for a while. | The user is back. |
+| `end-of-day` | The user is stopping work for the day. | The user is back for a new session. |
+| `limit` | The user is close to a usage or rate limit. | The limit has reset. |
+| *(no flag)* | The user asked all agents to pause. | The user asked you to continue. |
+
+An unknown name, or `--reason` on `resume` or `close`, is a usage error (exit 2). Running `pause` again on an open run keeps its reason; give the same `--reason` or none. A different one is refused (exit 2, nothing sent): use `close` first. The `reason` column in the output tables is a different thing: it says why one agent is not confirmed or not resumed.
 
 ### Exit codes
 
@@ -82,7 +98,7 @@ orca-pause close
 - Only Claude Code agents on the local Orca host. Remote hosts and other agent types are not supported.
 - Races remain between the last check and a send (an agent can open a dialog in between).
 - An agent kept `working` by a background shell never confirms.
-- Machine sleep or reboot is out of scope; the scenario is "machine stays on, network drops".
+- Machine sleep or reboot is out of scope; the scenario is "machine stays on, you are away" (network loss, a break, end of day or a usage limit).
 
 ## Development
 

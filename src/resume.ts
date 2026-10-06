@@ -1,4 +1,5 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
+import { continueSentence, type Preset } from './reasons.js';
 import { cancelled, failure, iso, listAgentsFresh, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, ContinueBaseline, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
@@ -19,8 +20,8 @@ interface Awaiting {
   sentAt: number;
 }
 
-export const CONTINUE_MESSAGE =
-  '[orca-pause] CONTINUE. The network is back. Continue your task from the note in your last pause reply.';
+export const continueMessage = (reason?: Preset): string =>
+  `[orca-pause] CONTINUE. ${continueSentence(reason)} Continue your task from the note in your last pause reply.`;
 
 function movedSince(row: AgentRow, baseline: ContinueBaseline): boolean {
   return row.stateStartedAt !== baseline.stateStartedAt || row.lastAssistantMessage !== baseline.lastAssistantMessage;
@@ -119,7 +120,7 @@ async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<str
     agent.continueBaseline = { stateStartedAt: row.stateStartedAt, lastAssistantMessage: row.lastAssistantMessage };
     delete agent.continueSentAt;
     await deps.store.save(run);
-    const result = await deps.port.send(handle, CONTINUE_MESSAGE).catch(() => ({ accepted: false as const }));
+    const result = await deps.port.send(handle, continueMessage(run.reason)).catch(() => ({ accepted: false as const }));
     if (!result.accepted) {
       agent.resumeReason = 'send-failed';
       continue;
