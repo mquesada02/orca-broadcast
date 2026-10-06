@@ -45,8 +45,8 @@ Commands:
 
 Options:
   --timeout <n>s|m|h   How long pause waits for confirmations (default 10m)
-  --reason <name>      Why you are pausing: network, away, end-of-day or limit. Only the first sentence of
-                       the pause and continue messages changes. Without it, the message is neutral. pause only
+  --reason <name>      Why you pause: network, away, end-of-day or limit. Changes only the first sentence
+                       of the pause and continue messages (default: neutral). pause only
   --yes                Skip the confirmation before pause or resume sends. Without a terminal
                        (a script, an agent's shell) they refuse to send unless you pass it
   --json               With a command, print one JSON object on stdout and nothing on stderr.

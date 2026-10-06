@@ -519,6 +519,12 @@ describe('--reason', () => {
     });
   }
 
+  it('ignores --reason when there is no open run and no working agent', async () => {
+    const { code, out } = await run(['pause', '--yes', '--reason', 'away']);
+    expect(code).toBe(0);
+    expect(out).toBe('nothing to pause\n');
+  });
+
   it('refuses a different reason on an open run with one JSON error object and sends nothing', async () => {
     const { code, out, err, port } = await run(['pause', '--yes', '--json', '--reason', 'limit'], agents(), false, () => {}, (store) =>
       seedOpenRun(store, [agentRecord('a:1')], { reason: 'away' }),
