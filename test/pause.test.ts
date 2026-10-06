@@ -113,7 +113,7 @@ describe('pause happy path', () => {
     const text = port.sends[0]?.text ?? '';
     expect(text).toBe(pauseMessage('abcd1234'));
     expect(text).toBe(
-      '[orca-pause] The user asked all agents to pause. Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. After that, do nothing until you get a message that starts with [orca-pause] CONTINUE.',
+      '[orca-broadcast] The user asked all agents to pause. Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. After that, do nothing until you get a message that starts with [orca-broadcast] CONTINUE.',
     );
     expect(text).not.toMatch(/[\r\n]/);
   });
@@ -700,7 +700,7 @@ describe('open run recovery', () => {
 
 describe('pause reasons', () => {
   const REST =
-    ' Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. After that, do nothing until you get a message that starts with [orca-pause] CONTINUE.';
+    ' Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. After that, do nothing until you get a message that starts with [orca-broadcast] CONTINUE.';
   const COORDINATOR_SENTENCE = ' Do not dispatch new workers or tasks.';
   const cases: [Preset | undefined, string][] = [
     ['network', 'The user is leaving and the network will drop.'],
@@ -722,8 +722,8 @@ describe('pause reasons', () => {
       await pause(TIMEOUT, { port, clock: fakeClock(), store: createRecordStore(dir), newToken: () => 'abcd1234', reason });
 
       const text = (key: string) => port.sends.find((s) => s.handle === port.handleOf(key))?.text;
-      expect(text('w:1')).toBe(`[orca-pause] ${sentence}${REST}`);
-      expect(text('c:2')).toBe(`[orca-pause] ${sentence}${REST}${COORDINATOR_SENTENCE}`);
+      expect(text('w:1')).toBe(`[orca-broadcast] ${sentence}${REST}`);
+      expect(text('c:2')).toBe(`[orca-broadcast] ${sentence}${REST}${COORDINATOR_SENTENCE}`);
       const [record] = await readRuns(dir);
       expect(record && 'reason' in record).toBe(reason !== undefined);
       expect(record?.reason).toBe(reason);

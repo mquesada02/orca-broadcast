@@ -31,9 +31,9 @@ export interface CliDeps {
   newToken?: PauseDeps['newToken'];
 }
 
-const USAGE = `Usage: orca-pause pause [--timeout <n>s|m|h] [--reason <name>] [--yes]
-       orca-pause resume [--yes]
-       orca-pause close
+const USAGE = `Usage: orca-broadcast pause [--timeout <n>s|m|h] [--reason <name>] [--yes]
+       orca-broadcast resume [--yes]
+       orca-broadcast close
 
 Commands:
   pause    Ask every working Claude Code agent to stop at a clean point and
@@ -72,7 +72,7 @@ export function parseTimeout(value: string): number {
 
 export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()): string {
   const base = env.XDG_STATE_HOME || join(home, '.local', 'state');
-  return join(base, 'orca-pause');
+  return join(base, 'orca-broadcast');
 }
 
 const COMMANDS = ['pause', 'resume', 'close'] as const;
@@ -144,7 +144,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
 
     if (summary.outcome === 'error') {
-      io.stderr(`orca-pause: ${summary.error}\n`);
+      io.stderr(`orca-broadcast: ${summary.error}\n`);
     } else if (summary.outcome === 'nothing-to-do') {
       const selfBlock = summary.self ? `${renderSelfBlock(summary.self)}\n` : '';
       io.stdout(`nothing to ${command}\n${selfBlock}`);
@@ -157,7 +157,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       io.stdout(jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
       return 2;
     }
-    io.stderr(`orca-pause: ${(error as Error).message}\n`);
+    io.stderr(`orca-broadcast: ${(error as Error).message}\n`);
     if (error instanceof UsageError) io.stderr(USAGE);
     return 2;
   }

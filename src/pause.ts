@@ -25,10 +25,10 @@ const COORDINATOR_SENTENCE = 'Do not dispatch new workers or tasks.';
 
 export function pauseMessage(token: string, role: Role = 'worker', reason?: Preset): string {
   const message =
-    `[orca-pause] ${pauseSentence(reason)} Finish the step you are on now. ` +
+    `[orca-broadcast] ${pauseSentence(reason)} Finish the step you are on now. ` +
     'Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, ' +
     `and your next step. The last line of your reply must be exactly: ORCA-PAUSED ${token}. ` +
-    'After that, do nothing until you get a message that starts with [orca-pause] CONTINUE.';
+    'After that, do nothing until you get a message that starts with [orca-broadcast] CONTINUE.';
   return role === 'coordinator' ? `${message} ${COORDINATOR_SENTENCE}` : message;
 }
 

@@ -1,10 +1,10 @@
 {
-  "name": "orca-pause",
+  "name": "orca-broadcast",
   "version": "0.1.0",
   "description": "Pause and resume every working Claude Code agent in Orca",
   "type": "module",
   "bin": {
-    "orca-pause": "dist/bin.js"
+    "orca-broadcast": "dist/bin.js"
   },
   "files": [
     "dist"

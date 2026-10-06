@@ -169,21 +169,21 @@ describe('--json errors outside the commands', () => {
   it('a held lock gives the error object with the command kept', async () => {
     const { code, out, err } = await runCli(['resume', '--yes', '--json'], [], {
       seed: async (_store, dir) => {
-        await mkdir(join(dir, 'orca-pause'), { recursive: true });
-        await writeFile(join(dir, 'orca-pause', 'lock'), `${process.pid}\n`);
+        await mkdir(join(dir, 'orca-broadcast'), { recursive: true });
+        await writeFile(join(dir, 'orca-broadcast', 'lock'), `${process.pid}\n`);
       },
     });
     expect(code).toBe(2);
     expect(err).toBe('');
     const object = onlyObject(out);
     expect(object).toMatchObject({ command: 'resume', outcome: 'error', exitCode: 2, run: null });
-    expect(object.error).toContain('another orca-pause is running');
+    expect(object.error).toContain('another orca-broadcast is running');
   });
 
   it('--help wins over --json when parsing succeeds, and the JSON error wins when it fails', async () => {
     const help = await runCli(['--help', '--json']);
     expect(help.code).toBe(0);
-    expect(help.out).toContain('Usage: orca-pause pause');
+    expect(help.out).toContain('Usage: orca-broadcast pause');
     expect(help.out).toContain('--json');
     const broken = await runCli(['--bogus', '--help', '--json']);
     expect(broken.code).toBe(2);

@@ -1,8 +1,8 @@
-# orca-pause
+# orca-broadcast
 
 Pause every working Claude Code agent in the Orca IDE before you leave (your network drops, you step away, the day ends, a usage limit is close), and resume all of them when you are back — with proof that none was missed.
 
-`orca-pause pause` asks each agent to finish the step it is on, write a short "where I stopped" note, and wait. It then checks that every agent actually stopped. `orca-pause resume` tells every recorded agent to continue and checks that each one did.
+`orca-broadcast pause` asks each agent to finish the step it is on, write a short "where I stopped" note, and wait. It then checks that every agent actually stopped. `orca-broadcast resume` tells every recorded agent to continue and checks that each one did.
 
 ## Requirements
 
@@ -13,8 +13,8 @@ Pause every working Claude Code agent in the Orca IDE before you leave (your net
 ## Install
 
 ```sh
-git clone git@github.com:mquesada02/orca-pause.git
-cd orca-pause
+git clone git@github.com:mquesada02/orca-broadcast.git
+cd orca-broadcast
 pnpm install
 pnpm build
 ```
@@ -22,8 +22,8 @@ pnpm build
 Then put the CLI on your `PATH`, either with `pnpm link --global` (needs pnpm's global bin directory on `PATH`, see `pnpm setup`) or with a small wrapper:
 
 ```sh
-printf '#!/bin/sh\nexec node %s/dist/bin.js "$@"\n' "$PWD" > ~/.local/bin/orca-pause
-chmod +x ~/.local/bin/orca-pause
+printf '#!/bin/sh\nexec node %s/dist/bin.js "$@"\n' "$PWD" > ~/.local/bin/orca-broadcast
+chmod +x ~/.local/bin/orca-broadcast
 ```
 
 ## Usage
@@ -33,21 +33,21 @@ Run the commands from a plain terminal, not from inside a Claude session. An age
 Before you leave:
 
 ```sh
-orca-pause pause            # lists the agents, asks "Send to N agents? [y/N]", then waits
-orca-pause pause --timeout 3m
-orca-pause pause --reason end-of-day   # tell the agents why you are pausing
+orca-broadcast pause            # lists the agents, asks "Send to N agents? [y/N]", then waits
+orca-broadcast pause --timeout 3m
+orca-broadcast pause --reason end-of-day   # tell the agents why you are pausing
 ```
 
 When you are back:
 
 ```sh
-orca-pause resume
+orca-broadcast resume
 ```
 
 If a run can never finish (for example an agent ignores the message), abandon it:
 
 ```sh
-orca-pause close
+orca-broadcast close
 ```
 
 ### Options
@@ -80,18 +80,18 @@ An unknown name, or `--reason` on `resume` or `close`, is a usage error (exit 2)
 |---|---|
 | `0` | `pause`: every agent confirmed. `resume`: the run closed. Also "nothing to do". |
 | `1` | `pause`: at least one agent is unconfirmed. `resume`: at least one agent is still pending. The table says why and what to do. |
-| `2` | Usage error, Orca listing failed, refused without `--yes`, or another `orca-pause` is running. |
+| `2` | Usage error, Orca listing failed, refused without `--yes`, or another `orca-broadcast` is running. |
 | `130` | Interrupted (Ctrl-C, SIGTERM, SIGHUP). The record is saved; run the command again. |
 
 ## How it works
 
 **Pause.** The tool lists agents with `orca-ide worktree ps` and selects every Claude agent in state `working`. Coordinators (found through `orca-ide orchestration run-list`) are messaged first and also told not to dispatch new work. Each agent gets one message with a random token and must end its reply with `ORCA-PAUSED <token>`. An agent counts as paused only when Orca shows it `done` and its new last reply ends with that exact line — send receipts are never taken as proof. The wait loop also sweeps up agents that start working later and re-pauses an agent that wakes up once.
 
-**Resume.** The tool finds each recorded agent again by its Orca pane key, skips agents on a permission prompt, and sends `[orca-pause] CONTINUE …`. An agent counts as resumed when its state or last reply changes after the message (or, if it was still working, once Orca accepts the queued message). Workers are continued before coordinators. Re-running `resume` retries only agents that are still pending.
+**Resume.** The tool finds each recorded agent again by its Orca pane key, skips agents on a permission prompt, and sends `[orca-broadcast] CONTINUE …`. An agent counts as resumed when its state or last reply changes after the message (or, if it was still working, once Orca accepts the queued message). Workers are continued before coordinators. Re-running `resume` retries only agents that are still pending.
 
-**Record.** Each run is stored as JSON in `$XDG_STATE_HOME/orca-pause/` (default `~/.local/state/orca-pause/`), written atomically before every send. Running `pause` again before `resume` extends the same run.
+**Record.** Each run is stored as JSON in `$XDG_STATE_HOME/orca-broadcast/` (default `~/.local/state/orca-broadcast/`), written atomically before every send. Running `pause` again before `resume` extends the same run.
 
-**Safety.** The tool never types into a terminal that is not a Claude agent, never sends to an agent on a permission prompt, holds a lock so two runs cannot overlap, and asks for confirmation before sending. The pane running `orca-pause` itself is never paused.
+**Safety.** The tool never types into a terminal that is not a Claude agent, never sends to an agent on a permission prompt, holds a lock so two runs cannot overlap, and asks for confirmation before sending. The pane running `orca-broadcast` itself is never paused.
 
 ## Known limits
 

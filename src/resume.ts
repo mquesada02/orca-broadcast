@@ -21,7 +21,7 @@ interface Awaiting {
 }
 
 export const continueMessage = (reason?: Preset): string =>
-  `[orca-pause] CONTINUE. ${continueSentence(reason)} Continue your task from the note in your last pause reply.`;
+  `[orca-broadcast] CONTINUE. ${continueSentence(reason)} Continue your task from the note in your last pause reply.`;
 
 function movedSince(row: AgentRow, baseline: ContinueBaseline): boolean {
   return row.stateStartedAt !== baseline.stateStartedAt || row.lastAssistantMessage !== baseline.lastAssistantMessage;

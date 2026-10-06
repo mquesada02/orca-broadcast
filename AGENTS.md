@@ -6,9 +6,9 @@ Behaviour: `README.md`. Full design: spec issue #14.
 
 ## Never touch real agents
 
-Do not run the built CLI (`node dist/bin.js`, `orca-pause`) or any command that sends to real Orca terminals — not even with a temporary `XDG_STATE_HOME`. It messages every working Claude session on the machine; this happened once during development. Verify behaviour only through tests. Copy this rule into the prompt of any subagent you start for this repo.
+Do not run the built CLI (`node dist/bin.js`, `orca-broadcast`) or any command that sends to real Orca terminals — not even with a temporary `XDG_STATE_HOME`. It messages every working Claude session on the machine; this happened once during development. Verify behaviour only through tests. Copy this rule into the prompt of any subagent you start for this repo.
 
-To capture a real `orca-ide` output shape, send only to a throwaway terminal you create yourself with `orca-ide terminal create`, never through `orca-pause`.
+To capture a real `orca-ide` output shape, send only to a throwaway terminal you create yourself with `orca-ide terminal create`, never through `orca-broadcast`.
 
 ## Gotchas
 
@@ -21,7 +21,7 @@ To capture a real `orca-ide` output shape, send only to a throwaway terminal you
 
 ### Issue tracker
 
-Issues and specs are GitHub issues in `mquesada02/orca-pause`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and specs are GitHub issues in `mquesada02/orca-broadcast`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
