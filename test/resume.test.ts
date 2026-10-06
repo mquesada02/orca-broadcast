@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { continueMessage, resume } from '../src/resume.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord, ResumeProgress, Run } from '../src/types.js';
-import { type FakeAgent, fakeClock, FakeOrca, PAUSED_REPLY, pausedDone, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
+import { type FakeAgent, fakeClock, FakeOrca, PAUSED_REPLY, pausedDone, seedOpenRun, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
 
 function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
   return {
@@ -373,11 +373,7 @@ describe('resume reasons', () => {
   for (const [reason, sentence] of cases) {
     it(`sends the ${reason ?? 'neutral (no stored reason)'} continue sentence`, async () => {
       const dir = await tempStateDir();
-      const store = createRecordStore(dir);
-      const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: [agentRecord('a:1')] };
-      if (reason) run.reason = reason;
-      await store.save(run);
-      await store.setCurrent(run.runId);
+      await seedOpenRun(createRecordStore(dir), [agentRecord('a:1')], reason ? { reason } : {});
       const port = new FakeOrca([{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }]);
 
       await resume({ port, clock: fakeClock(), store: createRecordStore(dir) });
