@@ -93,3 +93,5 @@ pnpm build
 ```
 
 Tests must never call a real Orca. Do not run the built CLI against real agents to test it: it sends real messages to every working session.
+
+After pulling changes, run `pnpm build`: the installed command runs `dist/`. Notes for coding agents are in `AGENTS.md`.
