@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { continueSentence, describeReason, isPreset, pauseSentence } from '../src/reasons.js';
+import { continueSentence, isPreset, mismatchMessage, pauseSentence } from '../src/reasons.js';
 
 describe('reasons', () => {
   it('accepts exactly the four preset names', () => {
@@ -21,8 +21,10 @@ describe('reasons', () => {
     }
   });
 
-  it('names a reason, and "no reason" for an absent one', () => {
-    expect(describeReason('end-of-day')).toBe('end-of-day');
-    expect(describeReason(undefined)).toBe('no reason');
+  it('words the refusal for a preset and for an absent or unknown reason', () => {
+    expect(mismatchMessage('end-of-day')).toBe('This run was paused with --reason end-of-day; use --reason end-of-day, or close it first.');
+    for (const value of [undefined, 'bogus']) {
+      expect(mismatchMessage(value)).toBe('This run was paused without --reason; run pause without --reason, or close it first.');
+    }
   });
 });

@@ -525,13 +525,27 @@ describe('--reason', () => {
     expect(out).toBe('nothing to pause\n');
   });
 
+  it('prints the refusal on stderr for a run without a reason', async () => {
+    const { code, out, err, port } = await run(['pause', '--yes', '--reason', 'network'], agents(), false, () => {}, (store) => seedOpenRun(store, [agentRecord('a:1')]));
+    expect(code).toBe(2);
+    expect(out).toBe('');
+    expect(err).toBe('orca-pause: This run was paused without --reason; run pause without --reason, or close it first.\n');
+    expect(port.sends).toHaveLength(0);
+  });
+
+  it('prints the refusal on stderr for a run with a reason', async () => {
+    const { code, err } = await run(['pause', '--yes', '--reason', 'limit'], agents(), false, () => {}, (store) => seedOpenRun(store, [agentRecord('a:1')], { reason: 'away' }));
+    expect(code).toBe(2);
+    expect(err).toBe('orca-pause: This run was paused with --reason away; use --reason away, or close it first.\n');
+  });
+
   it('refuses a different reason on an open run with one JSON error object and sends nothing', async () => {
     const { code, out, err, port } = await run(['pause', '--yes', '--json', '--reason', 'limit'], agents(), false, () => {}, (store) =>
       seedOpenRun(store, [agentRecord('a:1')], { reason: 'away' }),
     );
     expect(code).toBe(2);
     expect(err).toBe('');
-    expect(JSON.parse(out)).toMatchObject({ command: 'pause', outcome: 'error', exitCode: 2, error: 'This run was paused for away; use the same --reason, or close it first.' });
+    expect(JSON.parse(out)).toMatchObject({ command: 'pause', outcome: 'error', exitCode: 2, error: 'This run was paused with --reason away; use --reason away, or close it first.' });
     expect(port.sends).toHaveLength(0);
   });
 });

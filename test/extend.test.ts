@@ -498,10 +498,10 @@ describe('extending an open run with a reason', () => {
   });
 
   const refusals: [string, Run['reason'], Preset, string][] = [
-    ['a different reason', 'away', 'limit', 'away'],
-    ['an explicit reason on a run with no reason', undefined, 'network', 'no reason'],
+    ['a different reason', 'away', 'limit', 'This run was paused with --reason away; use --reason away, or close it first.'],
+    ['an explicit reason on a run without one', undefined, 'network', 'This run was paused without --reason; run pause without --reason, or close it first.'],
   ];
-  for (const [name, stored, flag, shown] of refusals) {
+  for (const [name, stored, flag, message] of refusals) {
     it(`refuses ${name}: exit 2, nothing sent, no prompt, record byte-identical`, async () => {
       const t = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
       await seed(t, stored);
@@ -514,7 +514,7 @@ describe('extending an open run with a reason', () => {
         return true;
       });
 
-      expect(summary).toMatchObject({ outcome: 'error', exitCode: 2, run: null, error: `This run was paused for ${shown}; use the same --reason, or close it first.` });
+      expect(summary).toMatchObject({ outcome: 'error', exitCode: 2, run: null, error: message });
       expect(t.port.sends).toHaveLength(0);
       expect(asked).toBe(0);
       expect(await readFile(file, 'utf8')).toBe(before);

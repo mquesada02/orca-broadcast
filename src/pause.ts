@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { describeReason, pauseSentence, type Preset } from './reasons.js';
+import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import type { RecordStore } from './store.js';
 import { cancelled, failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
@@ -193,7 +193,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
     throwIfAborted(deps.signal);
     loaded = (await store.findOpenRun())?.run ?? null;
     if (loaded && deps.reason !== undefined && deps.reason !== loaded.reason) {
-      throw new Error(`This run was paused for ${describeReason(loaded.reason)}; use the same --reason, or close it first.`);
+      throw new Error(mismatchMessage(loaded.reason));
     }
     [agents, terminals] = await listFresh(deps);
     throwIfAborted(deps.signal);

@@ -19,11 +19,14 @@ export function isPreset(value: unknown): value is Preset {
   return PRESET_NAMES.some((name) => name === value);
 }
 
-// Records are not validated on load: a value that is not a preset counts as no reason.
+// Records are not validated on load: a value that is not a preset counts as absent.
 const sentences = (preset?: string): Sentences => (isPreset(preset) ? PRESETS[preset] : NEUTRAL);
 
 export const pauseSentence = (preset?: string): string => sentences(preset).pause;
 
 export const continueSentence = (preset?: string): string => sentences(preset).continue;
 
-export const describeReason = (preset?: string): string => (isPreset(preset) ? preset : 'no reason');
+export const mismatchMessage = (preset?: string): string =>
+  isPreset(preset)
+    ? `This run was paused with --reason ${preset}; use --reason ${preset}, or close it first.`
+    : 'This run was paused without --reason; run pause without --reason, or close it first.';
