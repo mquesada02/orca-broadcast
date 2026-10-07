@@ -6,7 +6,7 @@ import { createRecordStore, LockHeldError, parseProcStartTime, type StoreOptions
 import type { BroadcastRecord, Run } from '../src/types.js';
 import { tempStateDir } from './helpers/fake-orca.js';
 
-const run = (runId: string, startedAt: string, status: Run['status'] = 'open'): Run => ({ runId, token: 'cafebabe', startedAt, status, agents: [] });
+const run = (runId: string, startedAt: string, status: Run['status'] = 'open'): Run => ({ runId, token: 'cafebabe', startedAt, status, scope: [{ typed: {} }], agents: [] });
 const DEAD = 4_000_000;
 const alive = (...pids: number[]) => (pid: number) => pids.includes(pid);
 const noStart = () => undefined;

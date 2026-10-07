@@ -38,6 +38,7 @@ export class FakeOrca implements OrcaPort {
   listTerminalsCalls = 0;
   listRunsCalls = 0;
   listWorkersCalls = 0;
+  listReposCalls = 0;
   /** Pane keys with an active worker row (run id optional), by worker-list call number. */
   workersAt: (workerListCall: number) => { paneKey: string; runId?: string | null }[] = () => [];
   /** Raw run-list rows by call number (a null or unknown handle is a stale one); used instead of coordinatorsAt when set. */
@@ -125,8 +126,12 @@ export class FakeOrca implements OrcaPort {
     return this.workersAt(this.listWorkersCalls).map((w) => ({ handle: this.handleOf(w.paneKey), runId: w.runId ?? null }));
   }
 
+  /** The repo list (`repo list`); a test that names repos sets it. */
+  repos: RepoRow[] = [];
+
   async listRepos(): Promise<RepoRow[]> {
-    return [];
+    this.listReposCalls += 1;
+    return this.repos;
   }
 
   async send(handle: string, text: string): Promise<SendResult> {
@@ -209,9 +214,11 @@ export const repliesAfter = (delay: number): Behavior => {
 export function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
   return {
     paneKey,
-    worktreeId: `wt-${paneKey}`,
-    worktree: `tree-${paneKey}`,
+    repoId: 'repo-repo',
     repo: 'repo',
+    worktreeId: `wt-${paneKey}`,
+    worktreePath: `/work/tree-${paneKey}`,
+    worktree: `tree-${paneKey}`,
     role: 'worker',
     orchestrationRunIds: [],
     lastHandle: null,
@@ -227,7 +234,7 @@ export function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): 
 }
 
 export async function seedOpenRun(store: RecordStore, agents: AgentRecord[], extra: Partial<Run> = {}): Promise<Run> {
-  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents, ...extra };
+  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', scope: [{ typed: {} }], agents, ...extra };
   await store.save(run);
   await store.setCurrent('pause', run.runId);
   return run;

@@ -92,6 +92,8 @@ export interface AgentRecord {
   worktreeId: string;
   worktree: string;
   repo: string;
+  repoId: string;
+  worktreePath: string;
   role: Role;
   orchestrationRunIds: string[];
   lastHandle: string | null;
@@ -134,12 +136,31 @@ export interface RunSummary {
   warning?: string;
 }
 
+// What the user typed for each filter kind, as stored for display.
+export interface FilterSpec {
+  repo: string[];
+  worktree: string[];
+  role: Role[];
+  run: string[];
+}
+
+// One resolved filter set: a kind that is absent does not filter. A set with no kind matches every agent.
+export interface FilterSet {
+  repoIds?: string[];
+  worktreeIds?: string[];
+  roles?: Role[];
+  runIds?: string[];
+  typed: Partial<FilterSpec>;
+}
+
 export interface Run {
   runId: string;
   token: string;
   startedAt: string;
   status: 'open' | 'closed';
   reason?: Preset;
+  /** The filter sets of every `pause` of this run, in order; a plain `pause` adds the empty set. */
+  scope: FilterSet[];
   agents: AgentRecord[];
 }
 
