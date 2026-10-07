@@ -192,6 +192,30 @@ describe('an idle worktree', () => {
     expect(filtered.port.listWorktreesCalls).toBe(1);
   });
 
+  it('resume and close list worktrees and repos once, and only with a filter', async () => {
+    const seed = async (store: ReturnType<typeof createRecordStore>) => {
+      await seedOpenRun(store, [agentRecord('a:1', { repoId: 'repo-alpha', repo: 'alpha' })]);
+    };
+    for (const command of ['resume', 'close']) {
+      const filtered = await runCli([command, ...(command === 'resume' ? ['--yes'] : []), '--worktree', '/work/idle'], [], withIdle({ seed }));
+      expect([command, filtered.port.listWorktreesCalls, filtered.port.listReposCalls]).toEqual([command, 1, 1]);
+      const plain = await runCli([command, ...(command === 'resume' ? ['--yes'] : [])], [], withIdle({ seed }));
+      expect([command, plain.port.listWorktreesCalls, plain.port.listReposCalls]).toEqual([command, 0, 0]);
+    }
+  });
+
+  it('fails resume when the worktree list fails, and names a worktree from the record alone when the list fails on close', async () => {
+    const seed = async (store: ReturnType<typeof createRecordStore>) => {
+      await seedOpenRun(store, [agentRecord('a:1', { repoId: 'repo-alpha', repo: 'alpha', worktreeId: 'repo-alpha::/work/saved', worktree: 'saved', worktreePath: '/work/saved' })]);
+    };
+    const resumed = await runCli(['resume', '--yes', '--worktree', '/work/saved'], [], withIdle({ seed, configure: (p) => (p.failWorktreeList = true) }));
+    expect(resumed.code).toBe(2);
+    expect(resumed.port.sends).toEqual([]);
+    const closed = await runCli(['close', '--worktree', '/work/saved'], [], withIdle({ seed, configure: (p) => (p.failWorktreeList = true) }));
+    expect(closed.code).toBe(0);
+    expect((await readRuns(closed.dir))[0]?.agents[0]?.resumeStatus).toBe('abandoned');
+  });
+
   it('fails pause when the worktree list fails, and a filtered close falls back to the saved record', async () => {
     const pausedRun = await runCli(['pause', '--yes', '--repo', 'alpha'], fleet(), withIdle({ configure: (p) => (p.failWorktreeList = true) }));
     expect(pausedRun.code).toBe(2);
