@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RecordStore } from '../../src/store.js';
-import type { AgentRecord, AgentRow, Clock, OrcaPort, Run, RunRow, SendResult, TerminalRow } from '../../src/types.js';
+import type { AgentRecord, AgentRow, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, TerminalRow, WorkerRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -18,6 +18,8 @@ export interface FakeAgent {
   agentType?: string;
   worktree?: string;
   repo?: string;
+  /** The pane of the agent that started this one (the parent link of worktree ps). */
+  parentPaneKey?: string | null;
   stateStartedAt?: number;
   hasTerminal?: boolean;
   agentIdentity?: string | null;
@@ -35,6 +37,13 @@ export class FakeOrca implements OrcaPort {
   listCalls = 0;
   listTerminalsCalls = 0;
   listRunsCalls = 0;
+  listWorkersCalls = 0;
+  /** Pane keys with an active worker row (run id optional), by worker-list call number. */
+  workersAt: (workerListCall: number) => { paneKey: string; runId?: string | null }[] = () => [];
+  /** Raw run-list rows by call number (a null or unknown handle is a stale one); used instead of coordinatorsAt when set. */
+  runsAt: ((runListCall: number) => RunRow[]) | null = null;
+  /** Make every worker-list call from this number on throw. */
+  failWorkerListsFrom: number | null = null;
   /** Pane keys whose terminal is a run's coordinator, by run-list call number (not the worktree ps listing number). */
   coordinatorsAt: (runListCall: number) => string[] = () => [];
   /** Make the run-list call with this number throw (one transient failure, which the retry path survives). */
@@ -86,6 +95,9 @@ export class FakeOrca implements OrcaPort {
         worktreeId: `wt-${a.paneKey}`,
         worktree: a.worktree ?? `tree-${a.paneKey}`,
         repo: a.repo ?? 'repo',
+        repoId: `repo-${a.repo ?? 'repo'}`,
+        path: `/work/${a.worktree ?? `tree-${a.paneKey}`}`,
+        parentPaneKey: a.parentPaneKey ?? null,
         agentType: a.agentType ?? 'claude',
         state: reply.state,
         stateStartedAt: a.stateStartedAt ?? 1,
@@ -103,7 +115,18 @@ export class FakeOrca implements OrcaPort {
   async listRuns(): Promise<RunRow[]> {
     this.listRunsCalls += 1;
     if (this.failRunListAt === this.listRunsCalls || (this.failRunListsFrom !== null && this.listRunsCalls >= this.failRunListsFrom)) throw new Error('orca-ide orchestration run-list failed: boom');
+    if (this.runsAt) return this.runsAt(this.listRunsCalls);
     return this.coordinatorsAt(this.listRunsCalls).map((paneKey, i) => ({ id: `run_${i}`, coordinatorHandle: this.handleOf(paneKey) }));
+  }
+
+  async listWorkers(): Promise<WorkerRow[]> {
+    this.listWorkersCalls += 1;
+    if (this.failWorkerListsFrom !== null && this.listWorkersCalls >= this.failWorkerListsFrom) throw new Error('orca-ide orchestration worker-list failed: boom');
+    return this.workersAt(this.listWorkersCalls).map((w) => ({ handle: this.handleOf(w.paneKey), runId: w.runId ?? null }));
+  }
+
+  async listRepos(): Promise<RepoRow[]> {
+    return [];
   }
 
   async send(handle: string, text: string): Promise<SendResult> {
@@ -190,6 +213,7 @@ export function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): 
     worktree: `tree-${paneKey}`,
     repo: 'repo',
     role: 'worker',
+    orchestrationRunIds: [],
     lastHandle: null,
     pauseStatus: 'confirmed',
     pauseReason: null,

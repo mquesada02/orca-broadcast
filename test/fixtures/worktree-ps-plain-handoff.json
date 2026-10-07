@@ -1,0 +1,68 @@
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "ok": true,
+  "result": {
+    "worktrees": [
+      {
+        "workspaceKind": "git",
+        "worktreeId": "00000000-0000-4000-8000-000000000003::/home/user/work/dir-2",
+        "repoId": "00000000-0000-4000-8000-000000000003",
+        "hostId": "local",
+        "terminalPlatform": "linux",
+        "repo": "orca-broadcast",
+        "path": "/home/user/work/dir-2",
+        "branch": "<redacted branch>",
+        "isArchived": false,
+        "isMainWorktree": false,
+        "hasHostSidebarActivity": true,
+        "worktreeInstanceId": "00000000-0000-4000-8000-000000000004",
+        "lineageWorktreeInstanceId": "00000000-0000-4000-8000-000000000004",
+        "parentWorktreeInstanceId": "00000000-0000-4000-8000-000000000005",
+        "parentWorktreeId": "00000000-0000-4000-8000-000000000003::/home/user/work/dir-6",
+        "childWorktreeIds": [],
+        "displayName": "<redacted displayName>",
+        "workspaceStatus": "in-progress",
+        "sortOrder": 1791331926207,
+        "lastActivityAt": 1791331940778,
+        "createdAt": 1791331940778,
+        "creatorProvenance": {
+          "kind": "host"
+        },
+        "linkedIssue": null,
+        "linkedPR": null,
+        "linkedLinearIssue": null,
+        "linkedGitLabMR": null,
+        "linkedGitLabIssue": null,
+        "comment": "",
+        "isPinned": false,
+        "isActive": false,
+        "unread": false,
+        "liveTerminalCount": 1,
+        "hasAttachedPty": true,
+        "lastOutputAt": 1791331954043,
+        "preview": "<redacted preview>",
+        "status": "active",
+        "agents": [
+          {
+            "paneKey": "00000000-0000-4000-8000-000000000007:00000000-0000-4000-8000-000000000008",
+            "parentPaneKey": null,
+            "state": "done",
+            "agentType": "claude",
+            "prompt": "",
+            "taskTitle": null,
+            "displayName": null,
+            "lastAssistantMessage": null,
+            "toolName": null,
+            "toolInput": null,
+            "interrupted": false,
+            "stateStartedAt": 1791331944712,
+            "updatedAt": 1791331944712
+          }
+        ]
+      }
+    ]
+  },
+  "_meta": {
+    "runtimeId": null
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "ok": true,
+  "result": {
+    "workers": [
+      {
+        "dispatchId": "ctx_000000000002",
+        "taskId": "task_000000000003",
+        "runId": "run_000000000004",
+        "workerState": "ready",
+        "dispatchStatus": "dispatched",
+        "agentTerminalHandle": "term_00000000-0000-4000-8000-000000000005",
+        "terminalState": "active",
+        "resource": {
+          "id": "wtr_000000000006",
+          "ownershipState": "owned",
+          "releaseState": "not_requested",
+          "retainedReason": null,
+          "terminalHandle": "term_00000000-0000-4000-8000-000000000005",
+          "worktreeId": "00000000-0000-4000-8000-000000000008::/home/user/work/dir-7",
+          "endpointId": "00000000-0000-4000-8000-000000000009",
+          "endpointIncarnation": "00000000-0000-4000-8000-000000000008::/home/user/work/dir-7@@00000000:00000000-0000-4000-8000-000000000010",
+          "originDispatchId": "ctx_000000000002",
+          "ownerDispatchId": "ctx_000000000002",
+          "releaseRequestedAt": null,
+          "releaseCompletedAt": null,
+          "releaseError": null,
+          "recoveryAttemptCount": 0,
+          "lastRecoveryAt": null,
+          "archive": {
+            "source": null,
+            "status": null
+          }
+        },
+        "projection": {
+          "id": "ctx_000000000002",
+          "dispatchId": "ctx_000000000002",
+          "taskId": "task_000000000003",
+          "runId": "run_000000000004",
+          "role": "worker",
+          "parent": null,
+          "provider": {
+            "id": "claude",
+            "model": null
+          },
+          "host": {
+            "kind": "local",
+            "id": "local"
+          },
+          "workspace": {
+            "id": "00000000-0000-4000-8000-000000000008::/home/user/work/dir-7",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "ready",
+            "dispatch": "dispatched",
+            "detail": "input_accepted",
+            "activity": "working"
+          },
+          "outcome": "in_progress",
+          "liveness": {
+            "verdict": "live",
+            "observedAt": 1791332010423,
+            "source": "agent_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "fresh",
+            "lastObservedAt": 1791332010423
+          },
+          "resource": {
+            "state": "owned"
+          },
+          "nextAction": {
+            "kind": "inspect",
+            "argv": [
+              "orchestration",
+              "worker-show",
+              "--dispatch",
+              "ctx_000000000002"
+            ]
+          },
+          "attention": {
+            "categories": [
+              "input"
+            ],
+            "requiresAction": true
+          }
+        }
+      }
+    ],
+    "counts": {
+      "active": 9
+    },
+    "page": {
+      "limit": 1,
+      "total": 9,
+      "hasMore": true,
+      "nextCursor": "<redacted cursor>"
+    },
+    "warnings": [
+      "Showing 1 of 9 Dispatches, newest first; more are on later pages. Follow page.nextCursor with --cursor."
+    ],
+    "scope": {
+      "source": "all"
+    }
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-4000-8000-000000000009"
+  }
+}

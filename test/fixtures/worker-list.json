@@ -1,0 +1,261 @@
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "ok": true,
+  "result": {
+    "workers": [
+      {
+        "dispatchId": "ctx_000000000002",
+        "taskId": "task_000000000003",
+        "runId": "run_000000000004",
+        "workerState": "ready",
+        "dispatchStatus": "dispatched",
+        "agentTerminalHandle": "term_00000000-0000-4000-8000-000000000005",
+        "terminalState": "active",
+        "resource": {
+          "id": "wtr_000000000006",
+          "ownershipState": "owned",
+          "releaseState": "not_requested",
+          "retainedReason": null,
+          "terminalHandle": "term_00000000-0000-4000-8000-000000000005",
+          "worktreeId": "00000000-0000-4000-8000-000000000008::/home/user/work/dir-7",
+          "endpointId": "00000000-0000-4000-8000-000000000009",
+          "endpointIncarnation": "00000000-0000-4000-8000-000000000008::/home/user/work/dir-7@@00000000:00000000-0000-4000-8000-000000000010",
+          "originDispatchId": "ctx_000000000002",
+          "ownerDispatchId": "ctx_000000000002",
+          "releaseRequestedAt": null,
+          "releaseCompletedAt": null,
+          "releaseError": null,
+          "recoveryAttemptCount": 0,
+          "lastRecoveryAt": null,
+          "archive": {
+            "source": null,
+            "status": null
+          }
+        },
+        "projection": {
+          "id": "ctx_000000000002",
+          "dispatchId": "ctx_000000000002",
+          "taskId": "task_000000000003",
+          "runId": "run_000000000004",
+          "role": "worker",
+          "parent": null,
+          "provider": {
+            "id": "claude",
+            "model": null
+          },
+          "host": {
+            "kind": "local",
+            "id": "local"
+          },
+          "workspace": {
+            "id": "00000000-0000-4000-8000-000000000008::/home/user/work/dir-7",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "ready",
+            "dispatch": "dispatched",
+            "detail": "input_accepted",
+            "activity": "working"
+          },
+          "outcome": "in_progress",
+          "liveness": {
+            "verdict": "live",
+            "observedAt": 1791331734193,
+            "source": "agent_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "fresh",
+            "lastObservedAt": 1791331734193
+          },
+          "resource": {
+            "state": "owned"
+          },
+          "nextAction": {
+            "kind": "none",
+            "argv": []
+          },
+          "attention": {
+            "categories": [],
+            "requiresAction": false
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_00000000000b",
+        "taskId": "task_00000000000c",
+        "runId": "run_00000000000d",
+        "workerState": "ready",
+        "dispatchStatus": "dispatched",
+        "agentTerminalHandle": "term_00000000-0000-4000-8000-000000000014",
+        "terminalState": "active",
+        "resource": {
+          "id": "wtr_00000000000f",
+          "ownershipState": "owned",
+          "releaseState": "not_requested",
+          "retainedReason": null,
+          "terminalHandle": "term_00000000-0000-4000-8000-000000000014",
+          "worktreeId": "00000000-0000-4000-8000-000000000017::/home/user/work/dir-16",
+          "endpointId": "00000000-0000-4000-8000-000000000009",
+          "endpointIncarnation": "00000000-0000-4000-8000-000000000017::/home/user/work/dir-16@@00000000:00000000-0000-4000-8000-000000000018",
+          "originDispatchId": "ctx_00000000000b",
+          "ownerDispatchId": "ctx_00000000000b",
+          "releaseRequestedAt": null,
+          "releaseCompletedAt": null,
+          "releaseError": null,
+          "recoveryAttemptCount": 0,
+          "lastRecoveryAt": null,
+          "archive": {
+            "source": null,
+            "status": null
+          }
+        },
+        "projection": {
+          "id": "ctx_00000000000b",
+          "dispatchId": "ctx_00000000000b",
+          "taskId": "task_00000000000c",
+          "runId": "run_00000000000d",
+          "role": "worker",
+          "parent": null,
+          "provider": {
+            "id": "claude",
+            "model": null
+          },
+          "host": {
+            "kind": "local",
+            "id": "local"
+          },
+          "workspace": {
+            "id": "00000000-0000-4000-8000-000000000017::/home/user/work/dir-16",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "ready",
+            "dispatch": "dispatched",
+            "detail": "input_accepted",
+            "activity": "working"
+          },
+          "outcome": "in_progress",
+          "liveness": {
+            "verdict": "live",
+            "observedAt": 1791331736141,
+            "source": "agent_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "fresh",
+            "lastObservedAt": 1791331736141
+          },
+          "resource": {
+            "state": "owned"
+          },
+          "nextAction": {
+            "kind": "none",
+            "argv": []
+          },
+          "attention": {
+            "categories": [],
+            "requiresAction": false
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_000000000013",
+        "taskId": "task_000000000014",
+        "runId": "run_000000000015",
+        "workerState": "ready",
+        "dispatchStatus": "dispatched",
+        "agentTerminalHandle": "term_00000000-0000-4000-8000-000000000022",
+        "terminalState": "active",
+        "resource": {
+          "id": "wtr_000000000017",
+          "ownershipState": "owned",
+          "releaseState": "not_requested",
+          "retainedReason": null,
+          "terminalHandle": "term_00000000-0000-4000-8000-000000000022",
+          "worktreeId": "00000000-0000-4000-8000-000000000025::/home/user/work/dir-24",
+          "endpointId": "00000000-0000-4000-8000-000000000009",
+          "endpointIncarnation": "00000000-0000-4000-8000-000000000025::/home/user/work/dir-24@@00000000:00000000-0000-4000-8000-000000000026",
+          "originDispatchId": "ctx_000000000013",
+          "ownerDispatchId": "ctx_000000000013",
+          "releaseRequestedAt": null,
+          "releaseCompletedAt": null,
+          "releaseError": null,
+          "recoveryAttemptCount": 0,
+          "lastRecoveryAt": null,
+          "archive": {
+            "source": null,
+            "status": null
+          }
+        },
+        "projection": {
+          "id": "ctx_000000000013",
+          "dispatchId": "ctx_000000000013",
+          "taskId": "task_000000000014",
+          "runId": "run_000000000015",
+          "role": "worker",
+          "parent": null,
+          "provider": {
+            "id": "claude",
+            "model": null
+          },
+          "host": {
+            "kind": "local",
+            "id": "local"
+          },
+          "workspace": {
+            "id": "00000000-0000-4000-8000-000000000025::/home/user/work/dir-24",
+            "kind": "folder_or_worktree"
+          },
+          "stage": {
+            "worker": "ready",
+            "dispatch": "dispatched",
+            "detail": "input_accepted",
+            "activity": "working"
+          },
+          "outcome": "in_progress",
+          "liveness": {
+            "verdict": "live",
+            "observedAt": 1791331735332,
+            "source": "agent_status"
+          },
+          "evidence": {
+            "durable": true,
+            "liveStatus": "fresh",
+            "lastObservedAt": 1791331735332
+          },
+          "resource": {
+            "state": "owned"
+          },
+          "nextAction": {
+            "kind": "none",
+            "argv": []
+          },
+          "attention": {
+            "categories": [],
+            "requiresAction": false
+          }
+        }
+      }
+    ],
+    "counts": {
+      "active": 8,
+      "reclaimable": 26,
+      "retained": 243,
+      "release_unknown": 24,
+      "released": 647
+    },
+    "page": {
+      "limit": 100,
+      "total": 8,
+      "hasMore": false,
+      "nextCursor": null
+    },
+    "scope": {
+      "source": "all"
+    }
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-4000-8000-000000000009"
+  }
+}

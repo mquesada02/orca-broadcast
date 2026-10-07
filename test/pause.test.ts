@@ -258,7 +258,7 @@ describe('discovery', () => {
   it('applies the newest-row rule to every poll, not only to discovery', async () => {
     const { port, run } = await setup([{ paneKey: 'a:1', stateStartedAt: 20, behavior: working }]);
     port.extraRows = [
-      { paneKey: 'a:1', worktreeId: 'w', worktree: 'w', repo: 'r', agentType: 'claude', state: 'done', stateStartedAt: 5, lastAssistantMessage: 'old\nORCA-PAUSED abcd1234' },
+      { paneKey: 'a:1', parentPaneKey: null, repoId: 'r', path: '/w', worktreeId: 'w', worktree: 'w', repo: 'r', agentType: 'claude', state: 'done', stateStartedAt: 5, lastAssistantMessage: 'old\nORCA-PAUSED abcd1234' },
     ];
     const summary = await run(10_000, () => 'abcd1234');
     expect(summary.rows[0]).toMatchObject({ pauseStatus: 'unconfirmed', pauseReason: 'still-working' });
@@ -562,7 +562,7 @@ describe('robust wait loop', () => {
       const summary = await pause(TIMEOUT, { port, clock: fakeClock(), store: createRecordStore(await tempStateDir()), onProgress: (p) => progress.push(p) });
 
       expect(progress.at(-1)).toMatchObject({ confirmed: 1, total: 1, reasons: {} });
-      expect(renderTable(summary.rows)).toMatch(/tree-a:1\s+worker\s+unconfirmed\s+terminal-closed/);
+      expect(renderTable(summary.rows)).toMatch(/tree-a:1\s+session\s+run: unknown\s+unconfirmed\s+terminal-closed/);
     });
   });
 

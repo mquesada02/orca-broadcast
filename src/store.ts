@@ -118,8 +118,13 @@ async function readRecord<T>(path: string): Promise<T | null> {
   }
 }
 
+// A record written before run ids existed has none.
+function backfillRunIds(run: Run): void {
+  for (const agent of run.agents) agent.orchestrationRunIds ??= [];
+}
+
 // A missing folder counts as empty.
-async function readOpen<T extends { status: string }>(folder: string, sortKey: (record: T) => string, idOf: (record: T) => string): Promise<OpenEntry<T> | null> {
+async function readOpen<T extends { status: string }>(folder: string, sortKey: (record: T) => string, idOf: (record: T) => string, normalise: (record: T) => void = () => {}): Promise<OpenEntry<T> | null> {
   let names: string[];
   try {
     names = await readdir(folder);
@@ -128,7 +133,9 @@ async function readOpen<T extends { status: string }>(folder: string, sortKey: (
     throw error;
   }
   const records: (T | null)[] = await Promise.all<T | null>(names.filter((n) => n.endsWith('.json')).map((n) => readRecord<T>(join(folder, n))));
-  const open = records.filter((r): r is T => r?.status === 'open').sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || idOf(b).localeCompare(idOf(a)));
+  const open = records.filter((r): r is T => r?.status === 'open');
+  open.forEach(normalise);
+  open.sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || idOf(b).localeCompare(idOf(a)));
   const [record, ...others] = open;
   return record ? { record, others } : null;
 }
@@ -229,7 +236,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
 
   async function peekOpen(): Promise<OpenRecords> {
     const [pause, broadcast] = await Promise.all([
-      readOpen<Run>(pausesDir, (r) => r.startedAt, (r) => r.runId),
+      readOpen<Run>(pausesDir, (r) => r.startedAt, (r) => r.runId, backfillRunIds),
       readOpen<BroadcastRecord>(broadcastsDir, (r) => r.createdAt, (r) => r.id),
     ]);
     return { pause, broadcast };

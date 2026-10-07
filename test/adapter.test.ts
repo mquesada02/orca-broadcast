@@ -77,6 +77,72 @@ describe('orca adapter mapping', () => {
     expect(runs.at(-1)?.coordinatorHandle).toBe('term_second');
   });
 
+  it('maps the repo, path and parent link of every agent, and a null parent link of a plain handoff child', async () => {
+    const { exec } = fakeExec({ 'worktree ps': fixture('worktree-ps') });
+    const rows = await createOrcaAdapter(exec).listAgents();
+    const worktrees = json('worktree-ps').result.worktrees as any[];
+    const withParent = worktrees.find((w) => w.agents?.some((a: any) => a.parentPaneKey));
+    const agent = withParent.agents.find((a: any) => a.parentPaneKey);
+    expect(rows.find((r) => r.paneKey === agent.paneKey)).toMatchObject({ parentPaneKey: agent.parentPaneKey, repoId: withParent.repoId, path: withParent.path });
+
+    const plain = createOrcaAdapter(fakeExec({ 'worktree ps': fixture('worktree-ps-plain-handoff') }).exec);
+    const [child] = await plain.listAgents();
+    expect(child).toMatchObject({ parentPaneKey: null, agentType: 'claude' });
+    expect(child?.repoId).toBe(json('worktree-ps-plain-handoff').result.worktrees[0].repoId);
+  });
+
+  it('maps a run-list row with a null coordinator_handle to a null coordinator handle', async () => {
+    const { exec } = fakeExec({ 'orchestration run-list': fixture('run-list-null-handle') });
+    const runs = await createOrcaAdapter(exec).listRuns();
+    expect(runs.map((r) => r.coordinatorHandle === null)).toEqual([true, false]);
+  });
+
+  it('maps worker-list rows to a terminal handle and a run id, and asks for active workers only', async () => {
+    const { exec, calls } = fakeExec({ 'orchestration worker-list': fixture('worker-list') });
+    const workers = await createOrcaAdapter(exec).listWorkers();
+    const source = json('worker-list').result.workers;
+    expect(workers).toEqual(source.map((w: any) => ({ handle: w.agentTerminalHandle, runId: w.runId })));
+    expect(workers).toHaveLength(3);
+    expect(calls[0]?.args).toEqual(['orchestration', 'worker-list', '--terminal-state', 'active', '--json']);
+  });
+
+  it('follows the worker-list cursor while hasMore is true', async () => {
+    const page1 = json('worker-list-page1');
+    const page2 = json('worker-list');
+    page2.result.workers = [{ ...page2.result.workers[1], runId: 'run_page_two', agentTerminalHandle: 'term_page_two' }];
+    const { exec, calls } = fakeExec({ 'orchestration worker-list': (args) => JSON.stringify(args.includes('--cursor') ? page2 : page1) });
+    const workers = await createOrcaAdapter(exec).listWorkers();
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.args).toEqual(['orchestration', 'worker-list', '--terminal-state', 'active', '--json', '--cursor', page1.result.page.nextCursor]);
+    expect(workers.map((w) => w.runId)).toEqual([json('worker-list-page1').result.workers[0].runId, 'run_page_two']);
+  });
+
+  it('skips a worker-list row with a null terminal handle, and keeps a row with a null run id', async () => {
+    const body = json('worker-list');
+    body.result.workers = [
+      { ...body.result.workers[0], agentTerminalHandle: null },
+      { ...body.result.workers[1], runId: null },
+    ];
+    const workers = await createOrcaAdapter(fakeExec({ 'orchestration worker-list': JSON.stringify(body) }).exec).listWorkers();
+    expect(workers).toEqual([{ handle: body.result.workers[1].agentTerminalHandle, runId: null }]);
+  });
+
+  it('fails when worker-list says hasMore with no cursor or the same cursor again', async () => {
+    const noCursor = json('worker-list-page1');
+    noCursor.result.page.nextCursor = null;
+    await expect(createOrcaAdapter(fakeExec({ 'orchestration worker-list': JSON.stringify(noCursor) }).exec).listWorkers()).rejects.toThrow('worker-list paging');
+    await expect(createOrcaAdapter(fakeExec({ 'orchestration worker-list': fixture('worker-list-page1') }).exec).listWorkers()).rejects.toThrow('worker-list paging');
+  });
+
+  it('maps repo list to id, path and display name', async () => {
+    const { exec, calls } = fakeExec({ 'repo list': fixture('repo-list') });
+    const repos = await createOrcaAdapter(exec).listRepos();
+    const source = json('repo-list').result.repos;
+    expect(repos).toEqual(source.map((r: any) => ({ id: r.id, path: r.path, displayName: r.displayName })));
+    expect(repos).toHaveLength(2);
+    expect(calls[0]?.args).toEqual(['repo', 'list', '--json']);
+  });
+
   it('maps a send result to accepted or not accepted', async () => {
     const accepted = fakeExec({ 'terminal send': fixture('terminal-send-accepted') });
     expect(await createOrcaAdapter(accepted.exec).send('term_x', 'hello')).toEqual({ accepted: true });

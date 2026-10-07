@@ -31,8 +31,8 @@ export function renderResumeProgress(progress: ResumeProgress): string {
 }
 
 function table(rows: AgentRecord[], statusOf: (a: AgentRecord) => string, reasonOf: (a: AgentRecord) => string | null | undefined): string[] {
-  const header = ['repo', 'worktree', 'role', 'status', 'reason'];
-  const body = rows.map((a) => [a.repo, a.worktree, a.role, statusOf(a), reasonOf(a) ?? '-']);
+  const header = ['repo', 'worktree', 'role', 'run', 'status', 'reason'];
+  const body = rows.map((a) => [a.repo, a.worktree, a.role, a.orchestrationRunIds.length > 0 ? a.orchestrationRunIds.join(', ') : 'run: unknown', statusOf(a), reasonOf(a) ?? '-']);
   const widths = header.map((h, i) => Math.max(h.length, ...body.map((r) => (r[i] as string).length)));
   const line = (cells: string[]) => `  ${cells.map((c, i) => c.padEnd(widths[i] as number)).join('  ').trimEnd()}`;
   return [line(header), ...body.map(line)];
@@ -53,6 +53,12 @@ function renderGroups<S extends string>(
     out.push(`${status} (${group.length})${hint ? ` - ${hint}` : ''}`, ...table(group, statusOf, reasonOf), '');
   }
   return out.join('\n');
+}
+
+// The agents of an output that have a role but no known run. A session with no run is normal and is not counted.
+export function renderUnknownRuns(agents: AgentRecord[]): string {
+  const count = agents.filter((a) => a.resumeStatus !== 'gone' && a.role !== 'session' && a.orchestrationRunIds.length === 0).length;
+  return count > 0 ? `${count} agents have a role but no known run\n` : '';
 }
 
 const SELF_HEADING = 'self (not paused) — this session must stop by itself';
