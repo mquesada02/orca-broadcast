@@ -35,7 +35,7 @@ async function setup(agents: FakeAgent[]) {
   const runPause = (selfPaneKey?: string, timeoutMs = TIMEOUT) =>
     pause(timeoutMs, { port, clock, store: store(), newToken: () => TOKEN, selfPaneKey });
   const runResume = () => resume({ port, clock, store: store() });
-  const readRun = async (runId = 'run-1'): Promise<Run> => JSON.parse(await readFile(join(dir, `${runId}.json`), 'utf8')) as Run;
+  const readRun = async (runId = 'run-1'): Promise<Run> => JSON.parse(await readFile(join(dir, 'pauses', `${runId}.json`), 'utf8')) as Run;
   return { dir, port, clock, store, runPause, runResume, readRun };
 }
 
@@ -91,9 +91,9 @@ describe('extending an open run', () => {
 
   it('extends an open run that only the newest status: open file reveals', async () => {
     const t = await setup([{ paneKey: 'a:1', behavior: () => ({ state: 'done', message: OLD_REPLY }) }]);
-    await mkdir(t.dir, { recursive: true });
+    await mkdir(join(t.dir, 'pauses'), { recursive: true });
     const run: Run = { runId: 'run-1', token: TOKEN, startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: [confirmedRecord('a:1')] };
-    await writeFile(join(t.dir, 'run-1.json'), JSON.stringify(run));
+    await writeFile(join(t.dir, 'pauses', 'run-1.json'), JSON.stringify(run));
 
     const summary = await t.runPause();
 
@@ -509,7 +509,7 @@ describe('extending an open run with a reason', () => {
     it(`refuses ${name}: exit 2, nothing sent, no prompt, record byte-identical`, async () => {
       const t = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
       await seed(t, stored);
-      const file = join(t.dir, 'run-1.json');
+      const file = join(t.dir, 'pauses', 'run-1.json');
       const before = await readFile(file, 'utf8');
       let asked = 0;
 

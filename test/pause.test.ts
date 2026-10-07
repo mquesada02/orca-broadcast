@@ -20,8 +20,9 @@ async function setup(agents: FakeAgent[]) {
 }
 
 async function readRuns(dir: string): Promise<Run[]> {
-  const names = (await readdir(dir)).filter((n) => n.endsWith('.json'));
-  return Promise.all(names.map(async (n) => JSON.parse(await readFile(join(dir, n), 'utf8')) as Run));
+  const folder = join(dir, 'pauses');
+  const names = (await readdir(folder)).filter((n) => n.endsWith('.json'));
+  return Promise.all(names.map(async (n) => JSON.parse(await readFile(join(folder, n), 'utf8')) as Run));
 }
 
 describe('pause happy path', () => {
@@ -95,7 +96,7 @@ describe('pause happy path', () => {
     const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
     let seen: { pointer: string; runs: Run[] } | null = null;
     port.onSend = async () => {
-      seen ??= { pointer: (await readFile(join(dir, 'current'), 'utf8')).trim(), runs: await readRuns(dir) };
+      seen ??= { pointer: (JSON.parse(await readFile(join(dir, 'current'), 'utf8')) as { id: string }).id, runs: await readRuns(dir) };
     };
 
     await run();
@@ -317,13 +318,13 @@ describe('earlier runs', () => {
     const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
     const store = createRecordStore(dir);
     await store.save({ ...openRun, status: 'closed' });
-    await store.setCurrent('old-run');
+    await store.setCurrent('pause', 'old-run');
 
     const summary = await run();
 
     expect(summary.exitCode).toBe(0);
     expect(port.sends).toHaveLength(1);
-    expect((await readFile(join(dir, 'current'), 'utf8')).trim()).toBe(summary.run?.runId);
+    expect(JSON.parse(await readFile(join(dir, 'current'), 'utf8'))).toEqual({ kind: 'pause', id: summary.run?.runId });
   });
 });
 
@@ -734,13 +735,13 @@ describe('open run recovery', () => {
     expect(summary.run?.runId).toBe('r-new');
     expect(summary.run?.token).toBe('cafebabe');
     expect(port.sends).toHaveLength(1);
-    expect(JSON.parse(await readFile(join(dir, 'r-old.json'), 'utf8')).agents).toEqual([]);
+    expect(JSON.parse(await readFile(join(dir, 'pauses', 'r-old.json'), 'utf8')).agents).toEqual([]);
   });
 
   it('exits 2 naming the file when a record is unreadable', async () => {
     const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'broken.json'), '{');
+    await mkdir(join(dir, 'pauses'), { recursive: true });
+    await writeFile(join(dir, 'pauses', 'broken.json'), '{');
     const summary = await run();
     expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
     expect(summary.error).toMatch(/unreadable record .*broken\.json/);

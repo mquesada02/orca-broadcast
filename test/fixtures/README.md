@@ -15,3 +15,7 @@ background `sleep` task wakes after its `ORCA-PAUSED` reply. Each file holds one
 - `-working-token`: the agent is `working` while the background task runs, and its last reply already ends with the token line.
 - `-midturn`: after the wake-up, mid-turn, the agent is `working` and `lastAssistantMessage` is `null` (not an empty string).
 - `-done-token`: the woken agent is `done` and its new reply ends with the same token line (it followed the new pause sentence).
+
+`proc-stat.txt` is a real `/proc/<pid>/stat` line, read from a throwaway `cat` process (`cat /proc/self/stat`), with the pids
+and the address fields replaced by placeholders. Field 22, the start time, is `3601991`. `proc-stat-odd-name.txt` is the same line with the
+command name replaced by `(my (odd) cmd)`: synthetic, to cover a command name that contains spaces and parentheses.

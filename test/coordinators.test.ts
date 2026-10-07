@@ -20,8 +20,8 @@ async function setupPause(agents: FakeAgent[]) {
   const clock = fakeClock();
   const run = (timeoutMs = 60_000) => pause(timeoutMs, { port, clock, store: createRecordStore(dir), newToken: () => TOKEN });
   const readRun = async (): Promise<Run> => {
-    const file = (await readdir(dir)).find((n) => n.endsWith('.json')) ?? '';
-    return JSON.parse(await readFile(join(dir, file), 'utf8')) as Run;
+    const file = (await readdir(join(dir, 'pauses'))).find((n) => n.endsWith('.json')) ?? '';
+    return JSON.parse(await readFile(join(dir, 'pauses', file), 'utf8')) as Run;
   };
   return { port, run, readRun };
 }
@@ -195,7 +195,7 @@ async function setupResume(agents: FakeAgent[], records: AgentRecord[]) {
   await seedOpenRun(createRecordStore(dir), records);
   const port = new FakeOrca(agents);
   const go = (signal?: AbortSignal) => resume({ port, clock: fakeClock(), store: createRecordStore(dir), signal });
-  const file = join(dir, 'run-1.json');
+  const file = join(dir, 'pauses', 'run-1.json');
   return { port, go, file, readRun: async (): Promise<Run> => JSON.parse(await readFile(file, 'utf8')) as Run };
 }
 

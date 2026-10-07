@@ -89,7 +89,7 @@ describe('orca-broadcast pause', () => {
     expect(out).toContain('confirmed (2)');
     expect(out).toMatch(/alpha\s+wt-a\s+worker\s+confirmed/);
     expect(out).not.toContain('unconfirmed');
-    expect((await readdir(`${dir}/orca-broadcast`)).sort()).toHaveLength(2);
+    expect((await readdir(`${dir}/orca-broadcast`)).sort()).toEqual(['current', 'pauses']);
   });
 
   it('exits 1 and lists unconfirmed agents first with an action hint', async () => {
@@ -151,7 +151,7 @@ const seedRun = (agents: Partial<AgentRecord>[]) => async (store: ReturnType<typ
       ...a,
     })) as AgentRecord[],
   });
-  await store.setCurrent('run-1');
+  await store.setCurrent('pause', 'run-1');
 };
 
 describe('orca-broadcast resume', () => {
@@ -166,7 +166,7 @@ describe('orca-broadcast resume', () => {
     expect(code).toBe(0);
     expect(out).toContain('resumed (1)');
     expect(out).toMatch(/alpha\s+wt-a\s+worker\s+resumed/);
-    expect(await readdir(`${dir}/orca-broadcast`)).toEqual(['run-1.json']);
+    expect(await readdir(`${dir}/orca-broadcast/pauses`)).toEqual(['run-1.json']);
   });
 
   it('exits 1 and lists pending and gone groups first with hints', async () => {
@@ -241,7 +241,7 @@ describe('orca-broadcast close', () => {
     expect(out).not.toContain('tree-d:4');
     expect(port.sends).toHaveLength(0);
     expect([port.listCalls, port.listTerminalsCalls, port.listRunsCalls]).toEqual([0, 0, 0]);
-    const runFile = JSON.parse(await readFile(`${dir}/orca-broadcast/run-1.json`, 'utf8'));
+    const runFile = JSON.parse(await readFile(`${dir}/orca-broadcast/pauses/run-1.json`, 'utf8'));
     expect(runFile.status).toBe('closed');
     expect(await readdir(`${dir}/orca-broadcast`)).not.toContain('current');
   });
@@ -260,8 +260,8 @@ describe('orca-broadcast close', () => {
 
   it('exits 2 and prints the error on stderr when a record is unreadable', async () => {
     const { code, err, out } = await run(['close'], [], false, () => {}, async (store) => {
-      await mkdir(store.dir, { recursive: true });
-      await writeFile(`${store.dir}/bad.json`, '{nope');
+      await mkdir(`${store.dir}/pauses`, { recursive: true });
+      await writeFile(`${store.dir}/pauses/bad.json`, '{nope');
     });
     expect(code).toBe(2);
     expect(err).toContain('unreadable record');
@@ -280,9 +280,9 @@ describe('orca-broadcast close', () => {
     expect(await main(['close'], { XDG_STATE_HOME: dir }, io, { port, clock })).toBe(0);
     expect(await main(['pause', '--yes'], { XDG_STATE_HOME: dir }, io, { port, clock, newToken: () => tokens[0] as string })).toBe(0);
 
-    const current = (await readFile(`${dir}/orca-broadcast/current`, 'utf8')).trim();
+    const current = (JSON.parse(await readFile(`${dir}/orca-broadcast/current`, 'utf8')) as { id: string }).id;
     expect(current).not.toBe('run-1');
-    const fresh = JSON.parse(await readFile(`${dir}/orca-broadcast/${current}.json`, 'utf8'));
+    const fresh = JSON.parse(await readFile(`${dir}/orca-broadcast/pauses/${current}.json`, 'utf8'));
     expect(fresh.token).toBe('11111111');
     expect(fresh.token).not.toBe('abcd1234');
   });
@@ -347,9 +347,9 @@ describe('safety rails', () => {
     });
     expect(first.code).toBe(130);
     expect(first.err).toContain('interrupted by SIGTERM');
-    expect(await readdir(first.stateDir)).toHaveLength(2);
-    const [name] = (await readdir(first.stateDir)).filter((n) => n.endsWith('.json'));
-    const record = JSON.parse(await readFile(join(first.stateDir, name as string), 'utf8'));
+    expect((await readdir(first.stateDir)).sort()).toEqual(['current', 'pauses']);
+    const [name] = await readdir(join(first.stateDir, 'pauses'));
+    const record = JSON.parse(await readFile(join(first.stateDir, 'pauses', name as string), 'utf8'));
     expect(record).toMatchObject({ status: 'open' });
     expect(record.agents).toHaveLength(1);
     expect(emitter.listenerCount('SIGTERM')).toBe(0);
@@ -357,7 +357,7 @@ describe('safety rails', () => {
     const second = await invoke(['pause', '--yes'], [{ paneKey: 'a:1', behavior: working }], dir);
     expect(second.code).toBe(1);
     expect(second.port.sends).toHaveLength(0);
-    expect((await readdir(second.stateDir)).filter((n) => n.endsWith('.json'))).toEqual([name]);
+    expect(await readdir(join(second.stateDir, 'pauses'))).toEqual([name]);
   });
 
   it.each(['SIGINT', 'SIGHUP'] as const)('treats %s like SIGTERM', async (name) => {
@@ -379,7 +379,7 @@ describe('safety rails', () => {
       const { code, err, stateDir } = await invoke(['close'], [], dir);
       expect(code).toBe(2);
       expect(err).toContain('another orca-broadcast is running');
-      expect(JSON.parse(await readFile(join(stateDir, 'run-1.json'), 'utf8')).status).toBe('open');
+      expect(JSON.parse(await readFile(join(stateDir, 'pauses', 'run-1.json'), 'utf8')).status).toBe('open');
     });
 
     it('on a signal exits 130, leaves the run open and releases the lock', async () => {
@@ -394,8 +394,8 @@ describe('safety rails', () => {
       const { code, err, stateDir } = await invoke(['close'], [], dir, { signals });
       expect(code).toBe(130);
       expect(err).toContain('interrupted by SIGTERM');
-      expect(JSON.parse(await readFile(join(stateDir, 'run-1.json'), 'utf8')).status).toBe('open');
-      expect((await readdir(stateDir)).sort()).toEqual(['current', 'run-1.json']);
+      expect(JSON.parse(await readFile(join(stateDir, 'pauses', 'run-1.json'), 'utf8')).status).toBe('open');
+      expect((await readdir(stateDir)).sort()).toEqual(['current', 'pauses']);
     });
 
     it('closes the run under the lock and releases it', async () => {
@@ -403,8 +403,8 @@ describe('safety rails', () => {
       await seedClose(dir);
       const { code, stateDir } = await invoke(['close'], [], dir);
       expect(code).toBe(0);
-      expect(JSON.parse(await readFile(join(stateDir, 'run-1.json'), 'utf8')).status).toBe('closed');
-      expect(await readdir(stateDir)).toEqual(['run-1.json']);
+      expect(JSON.parse(await readFile(join(stateDir, 'pauses', 'run-1.json'), 'utf8')).status).toBe('closed');
+      expect(await readdir(stateDir)).toEqual(['pauses']);
     });
   });
 
@@ -423,7 +423,7 @@ describe('safety rails', () => {
           },
         ],
       });
-      await store.setCurrent('run-1');
+      await store.setCurrent('pause', 'run-1');
     };
 
     it('exits 2 while a live process holds the lock and sends nothing', async () => {
@@ -447,9 +447,9 @@ describe('safety rails', () => {
       expect(code).toBe(130);
       expect(err).toContain('interrupted by SIGTERM');
       expect(port.sends).toHaveLength(1);
-      expect((await readdir(stateDir)).sort()).toEqual(['current', 'run-1.json']);
+      expect((await readdir(stateDir)).sort()).toEqual(['current', 'pauses']);
       expect(emitter.listenerCount('SIGTERM')).toBe(0);
-      expect(JSON.parse(await readFile(join(stateDir, 'run-1.json'), 'utf8')).status).toBe('open');
+      expect(JSON.parse(await readFile(join(stateDir, 'pauses', 'run-1.json'), 'utf8')).status).toBe('open');
     });
   });
 
@@ -475,8 +475,8 @@ describe('safety rails', () => {
     const { code, err, stateDir } = await invoke(['pause', '--yes'], [], dir, { port: createOrcaAdapter(exec) });
     expect(code).toBe(2);
     expect(err).toContain('incomplete');
-    const [name] = (await readdir(stateDir)).filter((n) => n.endsWith('.json'));
-    const record = JSON.parse(await readFile(join(stateDir, name as string), 'utf8'));
+    const [name] = await readdir(join(stateDir, 'pauses'));
+    const record = JSON.parse(await readFile(join(stateDir, 'pauses', name as string), 'utf8'));
     expect(record.agents[0]).toMatchObject({ paneKey: 'a:1', messagePending: true });
   });
 });
@@ -493,7 +493,7 @@ describe('--reason', () => {
     const { code, port, dir } = await run(['pause', '--yes', '--reason', 'end-of-day'], agents());
     expect(code).toBe(0);
     expect(port.sends[0]?.text).toContain('[orca-broadcast] The user is stopping work for the day. Finish');
-    expect(JSON.parse(await readFile(`${dir}/orca-broadcast/${(await readdir(`${dir}/orca-broadcast`)).find((n) => n.endsWith('.json'))}`, 'utf8')).reason).toBe('end-of-day');
+    expect(JSON.parse(await readFile(`${dir}/orca-broadcast/pauses/${(await readdir(`${dir}/orca-broadcast/pauses`)).find((n) => n.endsWith('.json'))}`, 'utf8')).reason).toBe('end-of-day');
   });
 
   const bad: [string, string[], string][] = [

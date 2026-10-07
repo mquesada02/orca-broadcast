@@ -205,6 +205,6 @@ export function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): 
 export async function seedOpenRun(store: RecordStore, agents: AgentRecord[], extra: Partial<Run> = {}): Promise<Run> {
   const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents, ...extra };
   await store.save(run);
-  await store.setCurrent(run.runId);
+  await store.setCurrent('pause', run.runId);
   return run;
 }

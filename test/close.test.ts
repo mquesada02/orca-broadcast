@@ -10,7 +10,7 @@ async function setup(agents: AgentRecord[], extra: Partial<Run> = {}) {
   const dir = await tempStateDir();
   const store = createRecordStore(dir);
   await seedOpenRun(store, agents, extra);
-  const readRun = async (id = 'run-1'): Promise<Run> => JSON.parse(await readFile(join(dir, `${id}.json`), 'utf8')) as Run;
+  const readRun = async (id = 'run-1'): Promise<Run> => JSON.parse(await readFile(join(dir, 'pauses', `${id}.json`), 'utf8')) as Run;
   return { dir, store, readRun };
 }
 
@@ -66,7 +66,7 @@ describe('close', () => {
 
   it('finds the open run when the pointer is missing', async () => {
     const { store, readRun } = await setup([agentRecord('a:1')]);
-    await store.clearCurrent();
+    await store.clearCurrent('pause', 'run-1');
     expect((await close(store)).outcome).toBe('done');
     expect((await readRun()).status).toBe('closed');
   });
@@ -74,7 +74,7 @@ describe('close', () => {
   it('finds the open run when the pointer names a closed run, and clears the pointer', async () => {
     const { dir, store, readRun } = await setup([agentRecord('a:1')]);
     await store.save({ runId: 'old', token: 'cafebabe', startedAt: '2025-01-01T00:00:00.000Z', status: 'closed', agents: [] });
-    await store.setCurrent('old');
+    await store.setCurrent('pause', 'old');
     expect((await close(store)).outcome).toBe('done');
     expect((await readRun()).status).toBe('closed');
     expect(await readdir(dir)).not.toContain('current');
@@ -82,7 +82,7 @@ describe('close', () => {
 
   it('closes only the newest open run when the pointer is missing and several are open', async () => {
     const { store, readRun } = await setup([agentRecord('a:1')]);
-    await store.clearCurrent();
+    await store.clearCurrent('pause', 'run-1');
     await store.save({ runId: 'newer', token: 'cafebabe', startedAt: '2026-02-01T00:00:00.000Z', status: 'open', agents: [agentRecord('z:9')] });
     await close(store);
     expect((await readRun('newer')).status).toBe('closed');
@@ -91,7 +91,7 @@ describe('close', () => {
 
   it('exits 2 when a record is unreadable', async () => {
     const { dir, store } = await setup([agentRecord('a:1')]);
-    await writeFile(join(dir, 'run-1.json'), '{not json');
+    await writeFile(join(dir, 'pauses', 'run-1.json'), '{not json');
     const summary = await close(store);
     expect(summary).toMatchObject({ outcome: 'error', exitCode: 2, run: null });
     expect(summary.error).toContain('unreadable record');
