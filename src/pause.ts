@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import type { RecordStore } from './store.js';
-import { cancelled, failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
+import { cancelled, endsWithLine, failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
@@ -28,6 +28,7 @@ export function pauseMessage(token: string, role: Role = 'worker', reason?: Pres
     `[orca-broadcast] ${pauseSentence(reason)} Finish the step you are on now. ` +
     'Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, ' +
     `and your next step. The last line of your reply must be exactly: ORCA-PAUSED ${token}. ` +
+    'If a background task or notification wakes you before that, do not act on it: reply with one short line, and end that reply with the same last line. ' +
     'After that, do nothing until you get a message that starts with [orca-broadcast] CONTINUE.';
   return role === 'coordinator' ? `${message} ${COORDINATOR_SENTENCE}` : message;
 }
@@ -36,19 +37,21 @@ function randomToken(): string {
   return randomBytes(4).toString('hex');
 }
 
-function lastLine(message: string | null): string | null {
-  const last = message?.trimEnd().split(/\r?\n/).at(-1)?.trim();
-  if (!last) return null;
-  return last.length >= 2 && last.startsWith('`') && last.endsWith('`') ? last.slice(1, -1) : last;
-}
+const pausedLine = (token: string) => `ORCA-PAUSED ${token}`;
 
 function provesPause(agent: AgentRecord, row: AgentRow, token: string): boolean {
   return (
     !agent.messagePending &&
-    row.state === 'done' &&
+    !isWaitingLike(row.state) &&
     row.lastAssistantMessage !== agent.pauseBaseline &&
-    lastLine(row.lastAssistantMessage) === `ORCA-PAUSED ${token}`
+    endsWithLine(row.lastAssistantMessage, pausedLine(token))
   );
+}
+
+// A confirmed agent is woken only by a newer reply that does not end with the token line; state alone never wakes it,
+// and a null reply (Orca shows null mid-turn) is not a reply.
+function isWoken(agent: AgentRecord, row: AgentRow, token: string): boolean {
+  return row.lastAssistantMessage !== null && row.lastAssistantMessage !== agent.pauseBaseline && !endsWithLine(row.lastAssistantMessage, pausedLine(token));
 }
 
 function isGone(agent: AgentRecord): boolean {
@@ -320,7 +323,7 @@ function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string,
   }
 
   for (const { agent, row } of live.filter(({ agent }) => agent.pauseStatus === 'confirmed')) {
-    if (row.state === 'done' && row.lastAssistantMessage === agent.pauseBaseline) continue;
+    if (!isWoken(agent, row, run.token)) continue;
     agent.wakeCount += 1;
     if (agent.wakeCount === 1) {
       requestPause(agent, row);

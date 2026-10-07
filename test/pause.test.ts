@@ -113,7 +113,7 @@ describe('pause happy path', () => {
     const text = port.sends[0]?.text ?? '';
     expect(text).toBe(pauseMessage('abcd1234'));
     expect(text).toBe(
-      '[orca-broadcast] The user asked all agents to pause. Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. After that, do nothing until you get a message that starts with [orca-broadcast] CONTINUE.',
+      '[orca-broadcast] The user asked all agents to pause. Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. If a background task or notification wakes you before that, do not act on it: reply with one short line, and end that reply with the same last line. After that, do nothing until you get a message that starts with [orca-broadcast] CONTINUE.',
     );
     expect(text).not.toMatch(/[\r\n]/);
   });
@@ -152,11 +152,70 @@ describe('proof of pause line matching', () => {
     });
   }
 
-  it('does not accept a message while the agent is still working', async () => {
+  it('accepts a token reply while the agent is still working, as a background task keeps Orca in working', async () => {
     const behavior: Behavior = ({ received }) =>
       received.length ? { state: 'working', message: `note\nORCA-PAUSED ${tokenOf(received[0] as string)}` } : { state: 'working', message: null };
     const { run } = await setup([{ paneKey: 'a:1', behavior }]);
-    expect((await run(10_000)).rows[0]).toMatchObject({ pauseStatus: 'unconfirmed', pauseReason: 'still-working' });
+    expect((await run(10_000)).rows[0]).toMatchObject({ pauseStatus: 'confirmed', pauseReason: null });
+  });
+
+  for (const state of ['waiting', 'blocked']) {
+    it(`does not accept a token reply while the agent is in state ${state}`, async () => {
+      const behavior: Behavior = ({ received }) =>
+        received.length ? { state, message: `note\nORCA-PAUSED ${tokenOf(received[0] as string)}` } : { state: 'working', message: null };
+      const { run } = await setup([{ paneKey: 'a:1', behavior }]);
+      expect((await run(10_000)).rows[0]).toMatchObject({ pauseStatus: 'unconfirmed', pauseReason: 'waiting-permission' });
+    });
+  }
+});
+
+describe('staying paused', () => {
+  /** Confirms with the token, then (from the third listing after the message) shows what `after` returns. */
+  const confirmsThen = (after: (received: string[], n: number) => { state: string; message: string | null }): Behavior => {
+    let n = 0;
+    return ({ received }) => {
+      if (received.length === 0) return { state: 'working', message: null };
+      n += 1;
+      return n <= 2 ? doneWithToken(received, 'Stopped.') : after(received, n);
+    };
+  };
+  const runLong = async (behavior: Behavior) => {
+    const t = await setup([
+      { paneKey: 'a:1', behavior },
+      { paneKey: 'b:2', behavior: repliesAfter(20) }, // keeps the wait loop running
+    ]);
+    return { ...t, summary: await t.run() };
+  };
+
+  it('keeps a confirmed agent confirmed when it is woken and its new reply still ends with the token line', async () => {
+    const { port, summary } = await runLong(
+      confirmsThen((received, n) => (n < 6 ? { state: 'working', message: null } : { state: 'done', message: `Still paused.\nORCA-PAUSED ${tokenOf(received[0] as string)}` })),
+    );
+    expect(port.sendsTo('a:1')).toBe(1);
+    expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', pauseReason: null, wakeCount: 0 });
+    expect(summary.exitCode).toBe(0);
+  });
+
+  it('does not wake a confirmed agent because of its state alone, or because its reply is null mid-turn', async () => {
+    for (const state of ['working', 'waiting', 'done']) {
+      const { port, summary } = await runLong(confirmsThen(() => ({ state, message: null })));
+      expect(port.sendsTo('a:1')).toBe(1);
+      expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', wakeCount: 0 });
+    }
+  });
+
+  it('does not wake a confirmed agent that is working or waiting with its unchanged token reply', async () => {
+    for (const state of ['working', 'waiting']) {
+      const { port, summary } = await runLong(confirmsThen((received) => ({ state, message: `Stopped.\nORCA-PAUSED ${tokenOf(received[0] as string)}` })));
+      expect(port.sendsTo('a:1')).toBe(1);
+      expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', wakeCount: 0 });
+    }
+  });
+
+  it('re-pauses a confirmed agent once when its newer reply has no token line', async () => {
+    const { port, summary } = await runLong(confirmsThen(() => ({ state: 'done', message: 'I started a new task.' })));
+    expect(port.sendsTo('a:1')).toBe(2);
+    expect(summary.rows[0]).toMatchObject({ wakeCount: 1 });
   });
 });
 
@@ -364,29 +423,20 @@ describe('robust wait loop', () => {
     expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', pauseReason: null, wakeCount: 2 });
   });
 
-  it('treats a confirmed agent that turns waiting as a wake and re-messages it only after it leaves waiting', async () => {
-    let calls = 0;
-    const behavior: Behavior = ({ received }) => {
+  it('does not treat a confirmed agent that turns waiting as a wake: state alone never wakes it', async () => {
+    const behavior: Behavior = ({ listCalls, received }) => {
       if (received.length === 0) return { state: 'working', message: null };
-      calls += 1;
-      if (received.length === 2) return doneWithToken(received, 'second');
-      if (calls <= 2) return doneWithToken(received);
-      return calls <= 5 ? { state: 'waiting', message: null } : { state: 'done', message: 'back from the prompt' };
+      return listCalls > 6 ? { state: 'waiting', message: null } : doneWithToken(received);
     };
     const { port, run } = await setup([
       { paneKey: 'a:1', behavior },
       { paneKey: 'b:2', behavior: repliesAfter(40) },
     ]);
-    const callsAtSend: number[] = [];
-    port.onSend = () => {
-      callsAtSend.push(calls);
-    };
 
     const summary = await run();
 
-    expect(port.sendsTo('a:1')).toBe(2);
-    expect(callsAtSend.filter((c) => c > 2 && c <= 5)).toEqual([]); // nothing was sent while it was waiting
-    expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', wakeCount: 1 });
+    expect(port.sendsTo('a:1')).toBe(1);
+    expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', wakeCount: 0 });
   });
 
   for (const state of ['waiting', 'blocked']) {
@@ -700,7 +750,7 @@ describe('open run recovery', () => {
 
 describe('pause reasons', () => {
   const REST =
-    ' Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. After that, do nothing until you get a message that starts with [orca-broadcast] CONTINUE.';
+    ' Finish the step you are on now. Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, and your next step. The last line of your reply must be exactly: ORCA-PAUSED abcd1234. If a background task or notification wakes you before that, do not act on it: reply with one short line, and end that reply with the same last line. After that, do nothing until you get a message that starts with [orca-broadcast] CONTINUE.';
   const COORDINATOR_SENTENCE = ' Do not dispatch new workers or tasks.';
   const cases: [Preset | undefined, string][] = [
     ['network', 'The user is leaving and the network will drop.'],

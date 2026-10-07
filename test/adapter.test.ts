@@ -35,6 +35,17 @@ describe('orca adapter mapping', () => {
     expect(rows.every((r) => r.lastAssistantMessage === null || typeof r.lastAssistantMessage === 'string')).toBe(true);
   });
 
+  it('maps the woken-agent captures: a token reply while working, a null reply mid-turn, a token reply when done', async () => {
+    const mapped = async (name: string) => {
+      const { exec } = fakeExec({ 'worktree ps': fixture(`worktree-ps-woken-${name}`) });
+      return (await createOrcaAdapter(exec).listAgents())[0];
+    };
+
+    expect(await mapped('working-token')).toMatchObject({ state: 'working', lastAssistantMessage: expect.stringMatching(/\nORCA-PAUSED 0a1b2c3d$/) });
+    expect(await mapped('midturn')).toMatchObject({ state: 'working', lastAssistantMessage: null });
+    expect(await mapped('done-token')).toMatchObject({ state: 'done', lastAssistantMessage: expect.stringMatching(/\nORCA-PAUSED 0a1b2c3d$/) });
+  });
+
   it('maps terminal list and joins to agents by tabId:leafId', async () => {
     const { exec } = fakeExec({ 'worktree ps': fixture('worktree-ps'), 'terminal list': fixture('terminal-list') });
     const port = createOrcaAdapter(exec);
