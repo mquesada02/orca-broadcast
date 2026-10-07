@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RecordStore } from '../../src/store.js';
-import type { AgentRecord, AgentRow, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, TerminalRow, WorkerRow, WorktreeRow } from '../../src/types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, BroadcastTarget, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, TerminalRow, WorkerRow, WorktreeRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -256,3 +256,16 @@ export async function seedOpenRun(store: RecordStore, agents: AgentRecord[], ext
   await store.setCurrent('pause', run.runId);
   return run;
 }
+
+/** A pending target of a broadcast record, for seeding. */
+export function broadcastTarget(paneKey: string, extra: Partial<BroadcastTarget> = {}): BroadcastTarget {
+  return {
+    paneKey, repoId: 'repo-repo', repo: 'repo', worktreeId: `wt-${paneKey}`, worktreePath: `/work/tree-${paneKey}`, worktree: `tree-${paneKey}`,
+    role: 'session', orchestrationRunIds: [], lastHandle: null, baseline: null, messagePending: false, status: 'pending', reason: 'still-working', ...extra,
+  };
+}
+
+/** An open broadcast record with the id `b-1` and the token `abcd1234`. */
+export const openBroadcastRecord = (targets: BroadcastTarget[], extra: Partial<BroadcastRecord> = {}): BroadcastRecord => ({
+  id: 'b-1', token: 'abcd1234', text: 'earlier text', createdAt: '2026-01-01T00:00:00.000Z', status: 'open', targets, ...extra,
+});

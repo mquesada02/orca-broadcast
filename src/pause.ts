@@ -1,9 +1,9 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
-import type { RecordStore } from './store.js';
+import { abandonPending, type RecordStore } from './store.js';
 import { ALL_AGENTS, hasFilters, matches, NO_FILTERS, type Subject } from './filters.js';
-import { assertCurrentFormat, BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, resolveFilterSet, roleInfoOf, type RoleInfo, type Roles } from './shared.js';
-import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
+import { assertCurrentFormat, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, resolveFilterSet, roleInfoOf, withWarnings, type RoleInfo, type Roles, type Snapshot } from './shared.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
 
@@ -86,6 +86,11 @@ interface Scope {
 
 const subjectOfRow = (row: AgentRow, roles: Roles): Subject => ({ ...identityOf(row), ...roleInfoOf(roles, row.paneKey) });
 
+// The agents a new pause run is built from: the one selection, used by `pause` and by the check that runs before a broadcast is stopped.
+function discoverAgents(agents: Map<string, AgentRow>, selfKey: string | undefined, matchesRow: (row: AgentRow) => boolean): AgentRow[] {
+  return [...agents.values()].filter((row) => isSweepable(row) && row.paneKey !== selfKey && matchesRow(row));
+}
+
 function newAgent(row: AgentRow, info: RoleInfo): AgentRecord {
   const agent: AgentRecord = {
     paneKey: row.paneKey,
@@ -148,9 +153,7 @@ function prepare(loaded: Run | null, startedAt: number, newToken: () => string, 
   scope.selected.clear();
   scope.swept.clear();
   const matchesRow = (row: AgentRow) => matches(scope.set, subjectOfRow(row, roles));
-  const selfFound = selfKey ? locate(selfKey, agents, terminals) : null;
-  // Self is recorded only when it matches the filters.
-  const self = selfFound && !('gone' in selfFound) && selfFound.row.agentType === 'claude' && matchesRow(selfFound.row) ? selfFound : null;
+  const self = locateSelf(selfKey, agents, terminals, matchesRow);
 
   if (loaded) {
     const run = structuredClone(loaded);
@@ -159,12 +162,9 @@ function prepare(loaded: Run | null, startedAt: number, newToken: () => string, 
     extend(run, selfKey, agents, terminals, scope);
     return { run, extending: true };
   }
-  const discovered = [...agents.values()].filter((row) => isSweepable(row) && row.paneKey !== selfKey && matchesRow(row));
+  const discovered = discoverAgents(agents, selfKey, matchesRow);
   for (const row of discovered) scope.selected.add(row.paneKey);
-  if (discovered.length === 0) {
-    const onlySelf = self?.row.state === 'working' ? markSelf(undefined, self.row, self.handle, roleInfoOf(roles, self.row.paneKey)) : null;
-    return { summary: { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], self: onlySelf } };
-  }
+  if (discovered.length === 0) return { summary: nothingToPause(self, roles) };
   const token = newToken();
   const run: Run = {
     runId: recordId(startedAt, token),
@@ -179,7 +179,46 @@ function prepare(loaded: Run | null, startedAt: number, newToken: () => string, 
   return { run, extending: false };
 }
 
-export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSummary> {
+// Self is recorded only when it matches the filters.
+function locateSelf(selfKey: string | undefined, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, matchesRow: (row: AgentRow) => boolean): Found | null {
+  const found = selfKey ? locate(selfKey, agents, terminals) : null;
+  return found && !('gone' in found) && found.row.agentType === 'claude' && matchesRow(found.row) ? found : null;
+}
+
+// Self shows up in the summary only when it is working: it would be recorded for resume.
+function nothingToPause(self: Found | null, roles: Roles): RunSummary {
+  const onlySelf = self?.row.state === 'working' ? markSelf(undefined, self.row, self.handle, roleInfoOf(roles, self.row.paneKey)) : null;
+  return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], self: onlySelf };
+}
+
+type ScopeDeps = Pick<PauseDeps, 'port' | 'clock' | 'signal' | 'filters' | 'cwd'>;
+
+// The listings and the filter set an invocation selects with. Read-only: `pause`, the pre-lock check and the pre-check share it.
+async function readScope(deps: ScopeDeps): Promise<{ snapshot: Snapshot; set: FilterSet }> {
+  const snapshot = await listSnapshot(deps);
+  const filters = deps.filters ?? NO_FILTERS;
+  return { snapshot, set: resolveFilterSet(filters, hasFilters(filters) ? await liveSources(snapshot, deps) : null, [], deps.cwd) };
+}
+
+// Before the lock: a filter value that matches nothing fails here, before any broadcast is stopped. #66 adds group validation here.
+export async function prelockPause(deps: ScopeDeps): Promise<void> {
+  if (hasFilters(deps.filters ?? NO_FILTERS)) await readScope(deps);
+}
+
+// Before a waiting broadcast is stopped: would a pause select anybody? Fresh listings, the same selection as `pause`, nothing written.
+export async function precheckPause(deps: ScopeDeps & Pick<PauseDeps, 'selfPaneKey'>): Promise<RunSummary | null> {
+  const selfKey = deps.selfPaneKey || undefined;
+  const { snapshot: { agents, terminals, roles }, set } = await readScope(deps);
+  throwIfAborted(deps.signal);
+  const matchesRow = (row: AgentRow) => matches(set, subjectOfRow(row, roles));
+  return discoverAgents(agents, selfKey, matchesRow).length > 0 ? null : nothingToPause(locateSelf(selfKey, agents, terminals, matchesRow), roles);
+}
+
+export function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSummary> {
+  return withWarnings((warnings) => runPause(timeoutMs, deps, warnings));
+}
+
+async function runPause(timeoutMs: number, deps: PauseDeps, warnings: string[]): Promise<RunSummary> {
   const { clock, store } = deps;
   const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
   let startedAt = clock.now();
@@ -194,6 +233,8 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   let prepared: Prepared;
   let confirmed = false;
   const scope: Scope = { set: ALL_AGENTS, selected: new Set(), swept: new Set() };
+  // A broadcast that is open when this pause starts (no pause run is open then): the first "yes" is the commit point that abandons it.
+  let broadcastRecord: BroadcastRecord | null = null;
   // The answer may have taken minutes: look again and start the clock now.
   const afterYes = async () => {
     confirmed = true;
@@ -203,22 +244,22 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   try {
     throwIfAborted(deps.signal);
     const open = await store.loadOpen();
-    // Temporary: ticket #70 replaces this refusal with the hand-over that stops a waiting broadcast. Until then one record at a time stays open.
-    if (open.broadcast) throw new Error(BROADCAST_OPEN_MESSAGE);
+    warnings.push(...open.notes);
+    broadcastRecord = open.broadcast?.record ?? null;
     loaded = open.pause?.record ?? null;
     if (loaded) assertCurrentFormat(loaded);
     if (loaded && deps.reason !== undefined && deps.reason !== loaded.reason) {
       throw new Error(mismatchMessage(loaded.reason));
     }
-    const snapshot = await listSnapshot(deps);
+    const { snapshot, set } = await readScope(deps);
     ({ agents, terminals, roles } = snapshot);
     throwIfAborted(deps.signal);
-    const filters = deps.filters ?? NO_FILTERS;
-    scope.set = resolveFilterSet(filters, hasFilters(filters) ? await liveSources(snapshot, deps) : null, [], deps.cwd);
+    scope.set = set;
     prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, roles, selfKey, scope);
     if (deps.confirm && 'run' in prepared) {
       const targets = planSends(prepared.run, agents, terminals, roles, deps, selfKey, scope);
-      if (targets.length > 0) {
+      // With an open broadcast the first prompt always runs, so the commit point below is always a "yes".
+      if (targets.length > 0 || broadcastRecord) {
         if (!(await deps.confirm(targets, deps.signal))) return withSelf(cancelled(), selfKey);
         throwIfAborted(deps.signal);
         await afterYes();
@@ -233,6 +274,16 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   const { run, extending } = prepared;
   await store.save(run);
   if (!extending) await store.setCurrent('pause', run.runId); // findOpenRun already points at an open run
+  if (broadcastRecord) {
+    // The commit point: from here the pause owns the agents the broadcast was still waiting for.
+    try {
+      const unacked = abandonPending(broadcastRecord, 'paused');
+      await store.saveBroadcast(broadcastRecord);
+      warnings.push(`broadcast ${broadcastRecord.id} was closed by this pause: ${unacked} ${unacked === 1 ? 'agent' : 'agents'} had not acknowledged it and will not be waited for`);
+    } catch (error) {
+      return withSelf(failure(error, run), selfKey);
+    }
+  }
 
   // Before the first send pass that was not confirmed at the start: a "no" or a failure leaves the records as they were before this invocation.
   const confirmLate = async (confirm: Confirm): Promise<RunSummary | null> => {
@@ -246,6 +297,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
         return null;
       }
       if (loaded) await store.save(loaded);
+      else await store.removeRun(run.runId); // a new run that nobody confirmed leaves nothing behind
       return withSelf(cancelled(), selfKey);
     } catch (error) {
       if (loaded) await store.save(loaded);

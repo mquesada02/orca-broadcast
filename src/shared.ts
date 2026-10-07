@@ -213,6 +213,13 @@ export function nothingToDo(): RunSummary {
   return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [] };
 }
 
+// Runs a command that may collect warning lines on the way (recovery notes, an abandoned broadcast) and adds them to its summary.
+export async function withWarnings(run: (warnings: string[]) => Promise<RunSummary>): Promise<RunSummary> {
+  const warnings: string[] = [];
+  const summary = await run(warnings);
+  return warnings.length > 0 ? { ...summary, warnings } : summary;
+}
+
 export function cancelled(): RunSummary {
   return { outcome: 'error', exitCode: 2, run: null, error: 'cancelled: nothing was sent', rows: [] };
 }

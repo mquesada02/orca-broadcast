@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Interrupted } from '../../src/abort.js';
 import { PromptInterrupted } from '../../src/ask.js';
 import { main } from '../../src/cli.js';
-import { createRecordStore, type RecordStore } from '../../src/store.js';
+import { createRecordStore, type RecordStore, type StoreOptions } from '../../src/store.js';
 import { fakeClock, FakeOrca, tempStateDir, type FakeAgent } from './fake-orca.js';
 
 export type Seed = (store: RecordStore, dir: string) => Promise<unknown>;
@@ -23,6 +23,10 @@ export interface RunCliOptions {
   clock?: ReturnType<typeof fakeClock>;
   newToken?: () => string;
   cwd?: string;
+  /** The process-kill fake. A test that does not give one fails if the CLI tries to signal a process: it must never reach a real one. */
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+  /** The pid, liveness and start-time fakes of the CLI's own store. */
+  storeOptions?: StoreOptions;
 }
 
 /** Runs the CLI shell once with a fake Orca port, a fake clock and a fresh state directory. */
@@ -50,6 +54,6 @@ export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: Run
         return Promise.resolve(typeof answer === 'function' ? answer() : answer);
       }
     : undefined;
-  const code = await main(argv, { XDG_STATE_HOME: dir, ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken, cwd: opts.cwd });
+  const code = await main(argv, { XDG_STATE_HOME: dir, ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken, kill: opts.kill ?? ((pid) => { throw new Error(`test gave no kill, but the CLI tried to signal ${pid}`); }), storeOptions: opts.storeOptions, cwd: opts.cwd });
   return { code, out: out.join(''), err: err.join(''), port, questions, dir };
 }

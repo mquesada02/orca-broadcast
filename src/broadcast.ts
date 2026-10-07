@@ -1,5 +1,5 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, roleInfoOf, type Roles, type Snapshot } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, roleInfoOf, withWarnings, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastTarget, Clock, Confirm, ConfirmTarget, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
@@ -72,8 +72,9 @@ function selfLine(selfKey: string | undefined, { agents, terminals, roles }: Sna
 const nothingToBroadcast = (self: ConfirmTarget | null): RunSummary => ({ outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], record: null, broadcastSelf: self });
 
 // Interim rules, replaced by ticket #69: an open broadcast refuses every `broadcast`; the re-run that continues it comes with #69.
-async function textOrRefuse(store: RecordStore, text: string | undefined): Promise<string> {
+async function textOrRefuse(store: RecordStore, text: string | undefined, warnings: string[]): Promise<string> {
   const open = await store.loadOpen();
+  warnings.push(...open.notes);
   if (open.pause) throw new Error(PAUSE_OPEN_MESSAGE);
   if (open.broadcast) throw new Error(BROADCAST_OPEN_MESSAGE);
   if (text === undefined) throw new Error(NO_BROADCAST_MESSAGE);
@@ -81,7 +82,11 @@ async function textOrRefuse(store: RecordStore, text: string | undefined): Promi
 }
 
 // `text` is already normalised, or undefined when the command line had none.
-export async function broadcast(givenText: string | undefined, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
+export function broadcast(givenText: string | undefined, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
+  return withWarnings((warnings) => runBroadcast(givenText, timeoutMs, deps, warnings));
+}
+
+async function runBroadcast(givenText: string | undefined, timeoutMs: number, deps: BroadcastDeps, warnings: string[]): Promise<RunSummary> {
   const { clock, store } = deps;
   const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
   let snapshot: Snapshot;
@@ -89,7 +94,7 @@ export async function broadcast(givenText: string | undefined, timeoutMs: number
   let self: ConfirmTarget | null;
   try {
     throwIfAborted(deps.signal);
-    const text = await textOrRefuse(store, givenText);
+    const text = await textOrRefuse(store, givenText, warnings);
     snapshot = await listSnapshot(deps);
     throwIfAborted(deps.signal);
 
