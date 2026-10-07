@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -181,6 +181,19 @@ describe('broadcast: the targets', () => {
     expect(out).toContain('nothing to broadcast');
     expect(port.sends).toEqual([]);
     expect(await records(dir)).toEqual([]);
+  });
+
+  it('clears the pid from the record and sends nothing when the pointer cannot be written', async () => {
+    const { code, port, dir } = await send('hello', [{ paneKey: 'a:1', behavior: acks }], {
+      seed: async (_store, base) => {
+        await mkdir(join(base, 'orca-broadcast', 'current.tmp'), { recursive: true }); // makes the atomic pointer write fail
+      },
+    });
+    expect(code).toBe(2);
+    expect(port.sends).toEqual([]);
+    const [record] = await records(dir);
+    expect(record).toMatchObject({ status: 'open' });
+    expect(record).not.toHaveProperty('pid');
   });
 
   it('exits 2 and writes nothing when the listing after the yes fails', async () => {

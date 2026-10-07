@@ -114,7 +114,15 @@ export async function broadcast(text: string | undefined, timeoutMs: number, dep
     const createdAt = iso(clock.now());
     record = { id: `${createdAt.replace(/[-:.]/g, '')}-${token}`, token, text: text as string, createdAt, status: 'open', pid: store.pid, ...(store.startTime === undefined ? {} : { startTime: store.startTime }), targets };
     await store.saveBroadcast(record);
-    await store.setCurrent('broadcast', record.id);
+    try {
+      await store.setCurrent('broadcast', record.id);
+    } catch (error) {
+      // The record exists, so the pid must not stay in it: nothing was sent yet.
+      delete record.pid;
+      delete record.startTime;
+      await store.saveBroadcast(record).catch(() => {});
+      return { ...failure(error, null), record };
+    }
   } catch (error) {
     return failure(error, null);
   }
