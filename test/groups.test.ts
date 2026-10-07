@@ -342,6 +342,17 @@ describe('--group on pause, resume and close', () => {
     expect(json(asJson.out)).toMatchObject({ command: 'pause', exitCode: 0 });
   });
 
+  it.each<[string, string[]]>([['resume', ['--yes']], ['close', []]])('skips the state kind on %s with the same stderr line, in text and in --json', async (command, extra) => {
+    const line = `orca-broadcast: group frontend: state filter skipped (${command} does not use it)\n`;
+    const argv = [command, ...extra, '--group', 'frontend'];
+    const text = await runCli(argv, fleet(), withRepos({ seed: web }));
+    expect(text.code).toBe(0);
+    expect(text.err).toBe(line);
+    const asJson = await runCli([...argv, '--json'], fleet(), withRepos({ seed: web }));
+    expect(asJson.err).toBe(line);
+    expect(json(asJson.out)).toMatchObject({ command, exitCode: 0 });
+  });
+
   it('prints the skipped line before "nothing to pause", and also when the command then fails', async () => {
     const nothing = await runCli(['pause', '--yes', '--group', 'frontend', '--role', 'coordinator'], fleet(), withRepos({ seed: web }));
     expect(nothing.code).toBe(0);
