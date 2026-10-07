@@ -140,9 +140,17 @@ export interface RunSummary {
   /** The broadcast record that `broadcast` or `close` worked on; absent or null for the pause commands. */
   record?: BroadcastRecord | null;
   /** This session as `broadcast` shows it on its own line. */
-  broadcastSelf?: ConfirmTarget | null;
+  broadcastSelf?: BroadcastSelf | null;
+  /** How many targets `close` abandoned in a broadcast. */
+  abandoned?: number;
   /** Lines printed on stderr in text mode (never in `--json`): recovery notes and the broadcast a pause abandoned. */
   warnings?: string[];
+}
+
+// This session on the self line: the saved status when it is a recorded target of the open broadcast.
+export interface BroadcastSelf extends ConfirmTarget {
+  status?: BroadcastStatus;
+  reason?: BroadcastReason | null;
 }
 
 // What the user typed for each filter kind, as stored for display.
@@ -151,6 +159,8 @@ export interface FilterSpec {
   worktree: string[];
   role: Role[];
   run: string[];
+  /** Only `broadcast` and its groups use it; the kinds above are the ones every command knows. */
+  state?: ('working' | 'done')[];
 }
 
 // One resolved filter set: a kind that is absent does not filter. A set with no kind matches every agent.
@@ -159,6 +169,8 @@ export interface FilterSet {
   worktreeIds?: string[];
   roles?: Role[];
   runIds?: string[];
+  /** The live states a broadcast selects (`--state`). */
+  states?: ('working' | 'done')[];
   typed: Partial<FilterSpec>;
   /** The saved group this set came from, for display only. */
   group?: string;
@@ -182,7 +194,7 @@ export interface Run {
 }
 
 export type BroadcastStatus = 'pending' | 'acked' | 'gone' | 'abandoned';
-export type BroadcastReason = LocateReason | 'waiting-permission' | 'still-working' | 'send-failed' | 'closed' | 'paused';
+export type BroadcastReason = LocateReason | 'waiting-permission' | 'still-working' | 'no-ack' | 'send-failed' | 'closed' | 'paused';
 
 export interface BroadcastTarget {
   paneKey: string;

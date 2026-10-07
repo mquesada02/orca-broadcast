@@ -12,7 +12,7 @@ import { systemClock } from './clock.js';
 import { DEFAULT_TIMEOUT_MS, pause, precheckPause, prelockPause, type PauseDeps } from './pause.js';
 import { describeFilters, hasFilters, isFiltered } from './filters.js';
 import { isGroupSubcommand, runGroup, type GroupResult } from './group-cmd.js';
-import { GROUP_STATES, isGroupState, loadGroups, lookupGroup, resolveGroupsPath, toGroupFilter, type GroupSpec } from './groups.js';
+import { GROUP_STATES, isGroupState, loadGroups, lookupGroup, resolveGroupsPath, toBroadcastGroupFilter, toGroupFilter, type GroupSpec } from './groups.js';
 import { isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, type Command, type FlagValues } from './flags.js';
 import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
@@ -43,7 +43,7 @@ export interface CliDeps {
   storeOptions?: StoreOptions;
 }
 
-const USAGE = `Usage: orca-broadcast broadcast "<text>" | --file <path> [--timeout <n>s|m|h] [--yes]
+const USAGE = `Usage: orca-broadcast broadcast ["<text>" | --file <path>] [filters] [--timeout <n>s|m|h] [--yes]
        orca-broadcast pause [filters] [--timeout <n>s|m|h] [--reason <name>] [--yes]
        orca-broadcast resume [filters] [--yes]
        orca-broadcast close [filters]
@@ -53,6 +53,8 @@ Commands:
   broadcast  Send one line of text to every working or done Claude Code agent and prove each
            one handled it: its new last reply must end with ORCA-ACK <token>. Exit 0 if all
            acked, 1 if any did not, 2 on a refusal. The text is one line of at most 1000 characters.
+           With no text, or the same text, it continues the open broadcast: same token, a fresh
+           --timeout, and it sends again only to agents that never got the message.
   pause    Ask every working Claude Code agent to stop at a clean point and
            prove it did. Exit 0 if all confirmed, 1 if any is unconfirmed.
   resume   Tell every paused agent to continue and prove it did. Exit 0 if the
@@ -62,14 +64,16 @@ Commands:
   group    Save, list, show and remove named filters. add checks that every value resolves now;
            show lists the agents the group matches now. They only read Orca and send nothing.
 
-Filters (pause, resume and close; repeat a flag for several values; kinds are ANDed, values of one kind ORed):
+Filters (broadcast, pause, resume and close; repeat a flag for several values; kinds are ANDed, values of one kind ORed):
   --repo <id|path|name>          Agents in that repo
   --worktree <path|id|name>      Agents in that worktree (a name is looked up in the --repo values)
   --role <role>                  coordinator, worker or session
   --run <id>                     Agents of that orchestration run
+  --state <working|done>         Agents in that state (broadcast only)
   --group <name>                 A saved group; one per command. Other filters narrow it. Its state
-                                 kind is skipped here (one line on stderr); a state-only group is refused
-  Without filters a command acts on every agent. resume and close act only on recorded agents.
+                                 kind is skipped on pause, resume and close (one line on stderr); a
+                                 state-only group is refused there
+  Without filters a command acts on every agent. resume, close and a broadcast re-run act only on recorded agents.
 
 Options:
   --timeout <n>s|m|h   How long pause waits for confirmations, or broadcast waits for acks (default 10m)
@@ -106,7 +110,7 @@ export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()
 // What the user typed for each filter kind.
 const filterSpecOf = (values: FlagValues): FilterSpec => {
   const list = (kind: keyof FilterSpec) => (values[kind] as string[] | undefined) ?? [];
-  return { repo: list('repo'), worktree: list('worktree'), role: list('role') as Role[], run: list('run') };
+  return { repo: list('repo'), worktree: list('worktree'), role: list('role') as Role[], run: list('run'), state: list('state') as GroupSpec['state'] };
 };
 
 // The JSON object of a group command: the groups it touched, and no run or record.
@@ -148,12 +152,14 @@ async function readTextFile(path: string): Promise<string> {
   }
 }
 
-// What `broadcast` prints, and what `close` prints when it closed a broadcast.
-function renderBroadcastOutput(command: Command | null, summary: RunSummary): string {
+// What `broadcast` prints, and what `close` prints when it closed or narrowed a broadcast. The session that runs `broadcast` shows only on the self line.
+function renderBroadcastOutput(command: Command | null, summary: RunSummary, filterLine: string, selfPaneKey: string | undefined): string {
   const self = summary.broadcastSelf ? `${renderBroadcastSelfBlock(summary.broadcastSelf)}\n` : '';
-  if (summary.outcome === 'nothing-to-do') return `nothing to ${command === 'broadcast' ? 'broadcast' : 'close'}\n${self}`;
-  const targets = summary.record?.targets ?? [];
-  const heading = command === 'close' ? `closed broadcast ${summary.record?.id}\n` : '';
+  if (summary.outcome === 'nothing-to-do') return `nothing to ${command === 'broadcast' ? 'broadcast' : 'close'}\n${filterLine}${self}`;
+  const record = summary.record;
+  const closeHeading = record?.status === 'closed' ? `closed broadcast ${record.id}` : `broadcast ${record?.id} stays open: ${summary.abandoned} ${summary.abandoned === 1 ? 'target' : 'targets'} abandoned`;
+  const heading = command === 'close' ? `${closeHeading}\n` : '';
+  const targets = (record?.targets ?? []).filter((t) => command === 'close' || t.paneKey !== selfPaneKey);
   return `${heading}${renderBroadcastTable(targets)}${self}`;
 }
 
@@ -212,7 +218,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
         : {};
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
       if (!port || command === 'close') return close(store, signal, port && filtered ? { filters: filterSpec, group: groupFilter, port, clock, cwd } : undefined);
-      if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal });
+      if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal, filters, group: groupFilter, cwd });
       return command === 'pause'
         ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, group: groupFilter, cwd, onProgress: progressLine(renderProgress), confirm, signal })
         : resume({ port, clock, store, filters, group: groupFilter, cwd, onProgress: progressLine(renderResumeProgress), confirm, signal });
@@ -223,16 +229,16 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     }
     if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
 
+    const filterLine = filtered ? `filters: ${[groupFilter && `--group ${groupFilter.name}`, filters && describeFilters(filters)].filter(Boolean).join(' ')}\n` : '';
     // The agents of this output: the rows, and self where the output has a self block.
     const shown = summary.self ? [...summary.rows, summary.self] : summary.rows;
     for (const warning of summary.warnings ?? []) io.stderr(`orca-broadcast: ${warning}\n`);
     if (summary.outcome === 'error') {
       io.stderr(`orca-broadcast: ${summary.error}\n`);
     } else if (command === 'broadcast' || summary.record) {
-      io.stdout(renderBroadcastOutput(command, summary));
+      io.stdout(renderBroadcastOutput(command, summary, filterLine, env.ORCA_PANE_KEY));
     } else if (summary.outcome === 'nothing-to-do') {
       const selfBlock = summary.self ? `${renderSelfBlock(summary.self)}\n` : '';
-      const filterLine = filtered ? `filters: ${[groupFilter && `--group ${groupFilter.name}`, filters && describeFilters(filters)].filter(Boolean).join(' ')}\n` : '';
       io.stdout(`nothing to ${command}\n${filterLine}${selfBlock}${renderUnknownRuns(shown)}`);
     } else {
       const table = command === 'pause' ? renderTable(summary.rows, summary.self) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows);
@@ -250,11 +256,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
   }
 }
 
-// Loads the group a send command names. The `state` kind is skipped with one stderr line, in text and in --json mode; a state-only group is refused.
+// Loads the group a command names. For `broadcast` every kind applies. Elsewhere the `state` kind is skipped with one stderr line, in text and in --json mode, and a state-only group is refused.
 async function loadGroupFilter(names: string[] | undefined, command: Command, env: NodeJS.ProcessEnv, io: CliIo): Promise<GroupFilter | undefined> {
   const name = names?.[0];
   if (name === undefined) return undefined;
   const spec = lookupGroup(await loadGroups(resolveGroupsPath(env)), name);
+  if (command === 'broadcast') return toBroadcastGroupFilter(name, spec);
   const filter = toGroupFilter(name, spec);
   if (!hasFilters(filter.spec)) throw new Error(`Group ${name} only filters by state, which ${command} does not use.`);
   if (spec.state.length > 0) io.stderr(`orca-broadcast: group ${name}: state filter skipped (${command} does not use it)\n`);

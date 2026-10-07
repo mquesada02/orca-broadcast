@@ -7,7 +7,7 @@ import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSp
 export const POLL_INTERVAL_MS = 2000;
 
 export const PAUSE_OPEN_MESSAGE = 'A pause run is open; resume or close it first.';
-export const BROADCAST_OPEN_MESSAGE = 'A broadcast is open; close it first.';
+export const BROADCAST_OPEN_MESSAGE = 'A broadcast is open; run broadcast with no text to keep waiting, or close it first.';
 
 export function randomToken(): string {
   return randomBytes(4).toString('hex');
@@ -175,8 +175,11 @@ export async function liveSources({ runIds }: Pick<Snapshot, 'runIds'>, { port, 
   return { runIds, repos, worktrees };
 }
 
+// What a saved record keeps of an agent's identity, which filter values resolve against.
+export type RecordedIdentity = Pick<AgentRecord, 'repoId' | 'repo' | 'worktreeId' | 'worktreePath' | 'worktree' | 'orchestrationRunIds'>;
+
 // Resolves once per invocation. Without filters or a group the set matches every agent. A group is resolved on its own, then narrowed by the ad-hoc filters.
-export function resolveFilterSet(spec: FilterSpec, live: LiveSources | null, recorded: AgentRecord[], cwd: string = process.cwd(), group?: GroupFilter): FilterSet {
+export function resolveFilterSet(spec: FilterSpec, live: LiveSources | null, recorded: RecordedIdentity[], cwd: string = process.cwd(), group?: GroupFilter): FilterSet {
   if (!isFiltered(spec, group)) return ALL_AGENTS;
   const sources: FilterSources = {
     repos: [...(live?.repos ?? []).map((repo) => ({ id: repo.id, path: repo.path, name: repo.displayName })), ...recorded.map((agent) => ({ id: agent.repoId, name: agent.repo }))],

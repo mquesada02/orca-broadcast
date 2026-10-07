@@ -12,7 +12,7 @@ export const ALL_AGENTS: FilterSet = { typed: {} };
 
 export const NO_FILTERS: FilterSpec = { repo: [], worktree: [], role: [], run: [] };
 
-export const hasFilters = (spec: FilterSpec): boolean => FILTER_KINDS.some((kind) => spec[kind].length > 0);
+export const hasFilters = (spec: FilterSpec): boolean => FILTER_KINDS.some((kind) => spec[kind].length > 0) || (spec.state?.length ?? 0) > 0;
 
 // A command is filtered by ad-hoc filters, by a group, or by both.
 export const isFiltered = (spec: FilterSpec, group?: GroupFilter): boolean => hasFilters(spec) || group !== undefined;
@@ -23,6 +23,8 @@ export interface Subject {
   worktreeId: string;
   role: Role;
   orchestrationRunIds: string[];
+  /** The live Orca state; only a broadcast filters on it. Absent when the agent cannot be located now. */
+  state?: string;
 }
 
 // AND across kinds, OR within a kind.
@@ -31,7 +33,8 @@ export function matches(set: FilterSet, subject: Subject): boolean {
     (!set.repoIds || set.repoIds.includes(subject.repoId)) &&
     (!set.worktreeIds || set.worktreeIds.includes(subject.worktreeId)) &&
     (!set.roles || set.roles.includes(subject.role)) &&
-    (!set.runIds || subject.orchestrationRunIds.some((id) => set.runIds?.includes(id)))
+    (!set.runIds || subject.orchestrationRunIds.some((id) => set.runIds?.includes(id))) &&
+    (!set.states || (subject.state !== undefined && (set.states as string[]).includes(subject.state)))
   );
 }
 
@@ -80,6 +83,10 @@ export function resolveFilters(spec: FilterSpec, sources: FilterSources, cwd: st
   }
 
   if (spec.role.length > 0) set.roles = [...new Set(spec.role)];
+  if (spec.state && spec.state.length > 0) {
+    set.states = [...new Set(spec.state)];
+    typed.state = [...spec.state];
+  }
 
   if (spec.run.length > 0) {
     const known = new Map(sources.runIds.map((id) => [id, id]));
@@ -96,8 +103,9 @@ export function combineSets(group: FilterSet, adhoc: FilterSet, name: string): F
     const values = [...(group.typed[kind] ?? []), ...(adhoc.typed[kind] ?? [])];
     return values.length > 0 ? [[kind, values]] : [];
   }));
-  const set: FilterSet = { typed, group: name };
-  for (const key of ['repoIds', 'worktreeIds', 'roles', 'runIds'] as const) {
+  const states = [...(group.typed.state ?? []), ...(adhoc.typed.state ?? [])];
+  const set: FilterSet = { typed: states.length > 0 ? { ...typed, state: states } : typed, group: name };
+  for (const key of ['repoIds', 'worktreeIds', 'roles', 'runIds', 'states'] as const) {
     const values = both<string>(group[key], adhoc[key]);
     if (values) Object.assign(set, { [key]: values });
   }
@@ -105,5 +113,5 @@ export function combineSets(group: FilterSet, adhoc: FilterSet, name: string): F
 }
 
 export function describeFilters(spec: FilterSpec): string {
-  return FILTER_KINDS.flatMap((kind) => spec[kind].map((value) => `--${kind} ${value}`)).join(' ');
+  return [...FILTER_KINDS.flatMap((kind) => spec[kind].map((value) => `--${kind} ${value}`)), ...(spec.state ?? []).map((value) => `--state ${value}`)].join(' ');
 }

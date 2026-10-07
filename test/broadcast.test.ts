@@ -263,9 +263,11 @@ describe('broadcast: the record and the sending', () => {
     expect(port.listCalls).toBeGreaterThanOrEqual(5);
   });
 
-  it('marks a rejected send send-failed and keeps it pending until the timeout, exit 1', async () => {
-    const { code, port, dir, out } = await send('hello', [{ paneKey: 'a:1', behavior: acks }], { configure: (p) => (p.sendResult = () => ({ accepted: false, reason: 'nope' })) });
+  it('marks a rejected send send-failed and stops early, with the record open and exit 1', async () => {
+    const clock = fakeClock();
+    const { code, port, dir, out } = await send('hello', [{ paneKey: 'a:1', behavior: acks }], { clock, configure: (p) => (p.sendResult = () => ({ accepted: false, reason: 'nope' })) });
     expect(code).toBe(1);
+    expect(clock.slept).toBe(0); // nothing can progress, so the loop does not wait for the 10 s timeout
     expect(port.sendsTo('a:1')).toBe(1); // sticky: never retried within the invocation
     const [record] = await records(dir);
     expect(record).toMatchObject({ status: 'open' });
@@ -406,14 +408,10 @@ describe('broadcast and the other record', () => {
     expect(port.sends).toEqual([]);
   });
 
-  it.each<[string, string[]]>([
-    ['a text', ['broadcast', 'other', '--yes']],
-    ['the same text', ['broadcast', 'earlier text', '--yes']],
-    ['no text', ['broadcast', '--yes']],
-  ])('is refused with %s while a broadcast is open, and the record stays', async (_name, argv) => {
-    const { code, err, port, dir } = await run(argv, [{ paneKey: 'a:1', behavior: acks }], { seed: seedBroadcast([broadcastTarget('a:1')]) });
+  it('is refused with another text while a broadcast is open, with the hint, and the record stays', async () => {
+    const { code, err, port, dir } = await run(['broadcast', 'other', '--yes'], [{ paneKey: 'a:1', behavior: acks }], { seed: seedBroadcast([broadcastTarget('a:1')]) });
     expect(code).toBe(2);
-    expect(err).toContain('A broadcast is open; close it first.');
+    expect(err).toContain('A broadcast is open; run broadcast with no text to keep waiting, or close it first.');
     expect(port.sends).toEqual([]);
     expect((await records(dir))[0]).toMatchObject({ id: 'b-1', status: 'open' });
   });

@@ -27,7 +27,7 @@ export const hasGroupKinds = (spec: GroupSpec): boolean => GROUP_KINDS.some((kin
 
 // What a group is called in output: its kinds as flags.
 export function describeGroup(spec: GroupSpec): string {
-  return [describeFilters(spec), ...spec.state.map((state) => `--state ${state}`)].filter(Boolean).join(' ');
+  return describeFilters(spec);
 }
 
 // The kinds that are set, as the file and the JSON output write them.
@@ -43,6 +43,11 @@ export function absoluteWorktrees(spec: GroupSpec, cwd: string): GroupSpec {
 // A group for pause, resume and close: the `state` kind is not used there.
 export function toGroupFilter(name: string, spec: GroupSpec): GroupFilter {
   return { name, spec: { repo: spec.repo, worktree: spec.worktree, role: spec.role, run: spec.run } };
+}
+
+// A group for broadcast: every kind applies, `state` included.
+export function toBroadcastGroupFilter(name: string, spec: GroupSpec): GroupFilter {
+  return { name, spec };
 }
 
 // Reads the file on every call. A missing file is no groups; anything invalid is an error that names the file.

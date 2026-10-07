@@ -238,7 +238,7 @@ describe('flag table', () => {
     [['resume', '--timeout', '5s'], '--timeout applies only to pause'],
     [['close', '--reason', 'away'], '--reason applies only to pause'],
     [['pause', '--role', 'boss'], 'invalid --role "boss"'],
-    [['broadcast', 'hi', '--repo', 'alpha'], '--repo applies only to pause, resume and close'],
+    [['broadcast', 'hi', '--state', 'busy'], 'invalid --state "busy": use one of working, done'],
   ])('%j exits 2 with a message from the table', async (argv, message) => {
     const { code, err, port } = await runCli(argv as string[], fleet(), withRepos());
     expect(code).toBe(2);

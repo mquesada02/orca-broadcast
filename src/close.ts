@@ -2,7 +2,7 @@ import { Interrupted, throwIfAborted } from './abort.js';
 import { isFiltered, matches } from './filters.js';
 import { assertCurrentFormat, failure, listSnapshot, liveSources, nothingToDo, resolveFilterSet, withWarnings, type LiveSources } from './shared.js';
 import { abandonPending, type RecordStore } from './store.js';
-import type { BroadcastRecord, Clock, FilterSpec, GroupFilter, OrcaPort, RunSummary } from './types.js';
+import type { BroadcastRecord, BroadcastTarget, Clock, FilterSpec, GroupFilter, OrcaPort, RunSummary } from './types.js';
 
 // Present only when a filter is given: a plain close never uses the port.
 export interface CloseFilters {
@@ -30,8 +30,7 @@ async function runClose(store: RecordStore, warnings: string[], signal?: AbortSi
   }
   const run = open.pause?.record;
   const broadcast = open.broadcast?.record;
-  // Filters on a broadcast record belong to #69: a filtered close with only a broadcast open has nothing to close.
-  if (!run && broadcast && !filtered) return closeBroadcast(store, broadcast);
+  if (!run && broadcast) return closeBroadcast(store, broadcast, signal, filtered);
   if (!run) return { ...nothingToDo(), record: null };
 
   try {
@@ -39,14 +38,7 @@ async function runClose(store: RecordStore, warnings: string[], signal?: AbortSi
     if (filtered && isFiltered(filtered.filters, filtered.group)) {
       assertCurrentFormat(run);
       // The values resolve against the saved record, and against the live listings when Orca answers.
-      const { port, clock, cwd } = filtered;
-      let live: LiveSources | null = null;
-      try {
-        live = await liveSources(await listSnapshot({ port, clock, signal }), { port, clock, signal });
-      } catch (error) {
-        if (error instanceof Interrupted) throw error;
-      }
-      const set = resolveFilterSet(filtered.filters, live, run.agents, cwd, filtered.group);
+      const set = resolveFilterSet(filtered.filters, await liveSourcesIfAnswered(filtered, signal), run.agents, filtered.cwd, filtered.group);
       abandoned = abandoned.filter((a) => matches(set, a));
       if (abandoned.length === 0) return { ...nothingToDo(), record: null };
     }
@@ -66,13 +58,36 @@ async function runClose(store: RecordStore, warnings: string[], signal?: AbortSi
   return { outcome: 'done', exitCode: 0, run, error: null, rows: abandoned, record: null };
 }
 
-async function closeBroadcast(store: RecordStore, record: BroadcastRecord): Promise<RunSummary> {
-  abandonPending(record, 'closed');
+// A plain close abandons every pending target. With filters it abandons the matching ones, resolved against the live listings
+// (when Orca answers) and the identity saved in the record; the record closes itself when nothing is pending.
+async function closeBroadcast(store: RecordStore, record: BroadcastRecord, signal?: AbortSignal, filtered?: CloseFilters): Promise<RunSummary> {
+  let select: (target: BroadcastTarget) => boolean = () => true;
+  try {
+    if (filtered && isFiltered(filtered.filters, filtered.group)) {
+      const live = await liveSourcesIfAnswered(filtered, signal);
+      const set = resolveFilterSet(filtered.filters, live, record.targets, filtered.cwd, filtered.group);
+      select = (target) => matches(set, target);
+      if (!record.targets.some((t) => t.status === 'pending' && select(t))) return { ...nothingToDo(), record: null };
+    }
+  } catch (error) {
+    return failure(error, null);
+  }
+  const abandoned = abandonPending(record, 'closed', select);
   try {
     await store.saveBroadcast(record);
-    await store.clearCurrent('broadcast', record.id);
+    if (record.status === 'closed') await store.clearCurrent('broadcast', record.id);
   } catch (error) {
     return { ...failure(error, null), record };
   }
-  return { outcome: 'done', exitCode: 0, run: null, error: null, rows: [], record };
+  return { outcome: 'done', exitCode: 0, run: null, error: null, rows: [], record, abandoned };
+}
+
+// The live listings, or null when Orca does not answer: a close sends nothing, so the saved identity is enough.
+async function liveSourcesIfAnswered({ port, clock }: CloseFilters, signal?: AbortSignal): Promise<LiveSources | null> {
+  try {
+    return await liveSources(await listSnapshot({ port, clock, signal }), { port, clock, signal });
+  } catch (error) {
+    if (error instanceof Interrupted) throw error;
+    return null;
+  }
 }
