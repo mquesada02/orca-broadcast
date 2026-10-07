@@ -128,7 +128,7 @@ const FLAGS: Record<string, FlagSpec> = {
   },
 };
 
-const GENERIC_FLAGS = ['help', 'json'];
+export const GENERIC_FLAGS = ['help', 'json'];
 
 /** The flags a command accepts, or the flags `group add` accepts: the command's own in table order, then `json` and `help`. */
 export const flagsOf = (target: Command | 'group add'): [string, FlagSpec][] => {
@@ -168,7 +168,7 @@ function checkRoles(values: FlagValues): void {
 
 // The flags of the `group` subcommands: their own table, so the messages of the four send commands do not change.
 export function validateGroupArgs(sub: string, rest: string[], values: FlagValues): void {
-  const allowed = sub === 'add' ? flagsOf('group add').map(([name]) => name) : ['help', 'json'];
+  const allowed = sub === 'add' ? flagsOf('group add').map(([name]) => name) : GENERIC_FLAGS;
   for (const name of Object.keys(FLAGS)) {
     if (values[name] !== undefined && !allowed.includes(name)) throw new UsageError(`--${name} does not apply to group ${sub}`);
   }

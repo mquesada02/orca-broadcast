@@ -1,4 +1,4 @@
-import { flagsOf, isCommand, type Command, type FlagSpec } from './flags.js';
+import { flagsOf, GENERIC_FLAGS, isCommand, type Command, type FlagSpec } from './flags.js';
 
 /** What a help request or a usage error is about: one command, the `group` commands, or nothing known. */
 export type HelpTopic = Command | 'group' | null;
@@ -39,7 +39,7 @@ const GROUP_PURPOSE = 'Save, list, show and remove named filters';
 const flagUsage = ([name, spec]: [string, FlagSpec]) => `[--${name}${spec.arg ? ` ${spec.arg}` : ''}]`;
 
 function usageOf(command: Command): string {
-  const flags = flagsOf(command).filter(([name]) => name !== 'help' && name !== 'json');
+  const flags = flagsOf(command).filter(([name]) => !GENERIC_FLAGS.includes(name));
   const parts = ['orca-broadcast', command];
   if (command === 'broadcast') parts.push('["<text>" | --file <path>]');
   if (flags.some(([, spec]) => spec.filter)) parts.push('[filters]');
@@ -69,12 +69,11 @@ export function commandHelp(command: Command): string {
 }
 
 export function groupHelp(): string {
-  const note = 'list, show and remove take only --json and --help.\n';
-  return `${usageLine('group')}\n${GROUP_PURPOSE}. add checks that every value resolves now; show lists the agents the group matches now. They only read Orca and send nothing.\n${note}\nFlags of group add:\n${flagLines('group add')}`;
+  return `${usageLine('group')}\n${GROUP_PURPOSE}. add checks that every value resolves now; show lists the agents the group matches now. They only read Orca and send nothing.\nlist, show and remove take only --json and --help.\n\nFlags of group add:\n${flagLines('group add')}`;
 }
 
 export function topHelp(): string {
-  const commands = [...Object.entries(PURPOSE), ['group', GROUP_PURPOSE]].map(([name, text]) => `  ${name!.padEnd(11)}${text}\n`).join('');
+  const commands = Object.entries({ ...PURPOSE, group: GROUP_PURPOSE }).map(([name, text]) => `  ${name.padEnd(11)}${text}\n`).join('');
   return `Usage: orca-broadcast <command> [flags]\n\nCommands:\n${commands}\nOptions differ per command: run \`orca-broadcast <command> --help\` for its options.\n`;
 }
 

@@ -35,11 +35,11 @@ describe('per-command help', () => {
   });
 
   it('matches what the parser accepts, flag by flag', async () => {
-    const value: Record<string, string[]> = { role: ['worker'], state: ['working'], timeout: ['5s'], reason: ['end-of-day'], group: ['x'], file: ['x'] };
+    const value: Record<string, string[]> = { role: ['worker'], state: ['working'], timeout: ['5s'], reason: ['end-of-day'], yes: [] };
     for (const command of COMMANDS) {
       const accepted = flagsOf(command).map(([name]) => name);
       for (const name of ['file', 'timeout', 'reason', 'yes', 'repo', 'worktree', 'role', 'run', 'state', 'group']) {
-        const { err } = await runCli([command, `--${name}`, ...(value[name] ?? (['yes'].includes(name) ? [] : ['x']))], agents);
+        const { err } = await runCli([command, `--${name}`, ...(value[name] ?? ['x'])], agents);
         expect(err.includes('applies only to'), `${command} --${name}`).toBe(!accepted.includes(name));
       }
     }
@@ -58,10 +58,9 @@ describe('per-command help', () => {
   });
 
   it('notes where a flag means something different', async () => {
-    expect((await runCli(['resume', '--help'])).out).toContain('Only narrows the recorded agents of the open run.');
-    expect((await runCli(['close', '--help'])).out).toContain('Only narrows the recorded agents of the open run.');
-    expect((await runCli(['pause', '--help'])).out).toContain('Waits for confirmations.');
-    expect((await runCli(['broadcast', '--help'])).out).toContain('Waits for acks');
+    for (const [command, note] of [['resume', 'Only narrows the recorded agents of the open run.'], ['close', 'Only narrows the recorded agents of the open run.'], ['pause', 'Waits for confirmations.'], ['broadcast', 'Waits for acks']]) {
+      expect((await runCli([command!, '--help'])).out, command).toContain(note);
+    }
   });
 
   it('wins over other flags and over --json', async () => {
