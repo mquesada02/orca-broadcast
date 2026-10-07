@@ -50,7 +50,7 @@ export function validateFlags(command: Command, values: FlagValues): void {
   checkStates(values);
 }
 
-function checkStates(values: FlagValues): void {
+export function checkStates(values: FlagValues): void {
   for (const state of (values.state as string[] | undefined) ?? []) {
     if (!isGroupState(state)) throw new UsageError(`invalid --state "${state}": use one of ${GROUP_STATES.join(', ')}`);
   }

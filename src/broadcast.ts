@@ -158,10 +158,9 @@ async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDe
 }
 
 // Continues the open broadcast: same token, only the in-scope targets, and a send only to targets that never got the message.
-async function rerun(loaded: BroadcastRecord, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
+async function rerun(saved: BroadcastRecord, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
   const { store } = deps;
   // `saved` is the record as loaded. Every exit before the working copy's first save writes it back with only the pid fields changed.
-  const saved = loaded;
   setPid(saved, store);
   try {
     await store.saveBroadcast(saved);
