@@ -184,7 +184,7 @@ An unknown name, or `--reason` on `resume`, `close` or `broadcast`, is a usage e
 
 Each record is written atomically before every send. At most one record, of either kind, is open. If a crash leaves more than one open, the newest wins and the command reports the others. Running `pause` again before `resume` extends the same run.
 
-**Safety.** The tool never types into a terminal that is not a Claude agent. It never sends to an agent on a permission prompt. It asks for confirmation before it sends. The pane that runs `orca-broadcast` is never paused or messaged.
+**Safety.** The tool never types into a terminal that is not a Claude agent. It never sends to an agent on a permission prompt. It asks for confirmation before it sends. The pane that runs `orca-broadcast` itself is never paused.
 
 One lock covers `broadcast`, `pause`, `resume` and `close`, for the whole run of each command, so two runs cannot overlap. A second command fails at once with "another orca-broadcast is running". `group` commands take no lock. The one exception is the hand-over above, where `pause` stops a broadcast it has proven to be the lock holder.
 
