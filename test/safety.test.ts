@@ -73,8 +73,8 @@ describe('refusing without a terminal', () => {
     expect(err).toContain('Usage:');
   });
 
-  it('--help documents --yes and wins over it', async () => {
-    const { code, out } = await runCli(['--help', '--yes']);
+  it('pause --help documents --yes and wins over it', async () => {
+    const { code, out } = await runCli(['pause', '--help', '--yes']);
     expect(code).toBe(0);
     expect(out).toContain('--yes');
   });

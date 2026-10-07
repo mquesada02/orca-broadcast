@@ -15,6 +15,7 @@ import { isGroupSubcommand, runGroup, type GroupResult } from './group-cmd.js';
 import { loadGroups, lookupGroup, resolveGroupsPath, toGroupFilter, type GroupSpec } from './groups.js';
 import { checkStates, isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, type Command, type FlagValues } from './flags.js';
 import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
+import { helpFor, helpTopicOf, usageLine, type HelpTopic } from './help.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
 import { resume } from './resume.js';
 import { createRecordStore, type StoreOptions } from './store.js';
@@ -42,51 +43,6 @@ export interface CliDeps {
   /** The store's pid, liveness and start-time readers; the real ones when omitted. */
   storeOptions?: StoreOptions;
 }
-
-const USAGE = `Usage: orca-broadcast broadcast ["<text>" | --file <path>] [filters] [--timeout <n>s|m|h] [--yes]
-       orca-broadcast pause [filters] [--timeout <n>s|m|h] [--reason <name>] [--yes]
-       orca-broadcast resume [filters] [--yes]
-       orca-broadcast close [filters]
-       orca-broadcast group add <name> [filters] [--state working|done] | list | show <name> | remove <name>
-
-Commands:
-  broadcast  Send one line of text to every working or done Claude Code agent and prove each
-           one handled it: its new last reply must end with ORCA-ACK <token>. Exit 0 if all
-           acked, 1 if any did not, 2 on a refusal. The text is one line of at most 1000 characters.
-           With no text, or the same text, it continues the open broadcast: same token, a fresh
-           --timeout, and it sends again only to agents that never got the message.
-  pause    Ask every working Claude Code agent to stop at a clean point and
-           prove it did. Exit 0 if all confirmed, 1 if any is unconfirmed.
-  resume   Tell every paused agent to continue and prove it did. Exit 0 if the
-           run closed (or there was nothing to resume), 1 if any is pending.
-  close    Abandon the open run without resuming it: pending agents become
-           abandoned, nothing is sent. Exit 0 (also when there is nothing to close).
-  group    Save, list, show and remove named filters. add checks that every value resolves now;
-           show lists the agents the group matches now. They only read Orca and send nothing.
-
-Filters (broadcast, pause, resume and close; repeat a flag for several values; kinds are ANDed, values of one kind ORed):
-  --repo <id|path|name>          Agents in that repo
-  --worktree <path|id|name>      Agents in that worktree (a name is looked up in the --repo values)
-  --role <role>                  coordinator, worker or session
-  --run <id>                     Agents of that orchestration run
-  --state <working|done>         Agents in that state (broadcast only)
-  --group <name>                 A saved group; one per command. Other filters narrow it. Its state
-                                 kind is skipped on pause, resume and close (one line on stderr); a
-                                 state-only group is refused there
-  Without filters a command acts on every agent. resume, close and a broadcast re-run act only on recorded agents.
-
-Options:
-  --timeout <n>s|m|h   How long pause waits for confirmations, or broadcast waits for acks (default 10m)
-  --reason <name>      Why you pause: network, away, end-of-day or limit. Changes only the first sentence
-                       of the pause and continue messages (default: neutral). pause only
-  --file <path>        Read the broadcast text from a file instead of the command line. broadcast only
-  --yes                Skip the confirmation before broadcast, pause or resume sends. Without a terminal
-                       (a script, an agent's shell) they refuse to send unless you pass it
-  --json               With a command, print one JSON object on stdout and nothing on stderr (except
-                       the one line about a skipped group state kind). It never asks for confirmation,
-                       so broadcast, pause and resume need --yes
-  --help               Show this help
-`;
 
 function parseUsage(argv: string[]) {
   try {
@@ -168,10 +124,13 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
   let command: Command | null = null;
   // The first words of argv until the parser has run: enough to answer a failed parse of a group call in the group shape.
   let group = groupLabel(argv.filter((arg) => !arg.startsWith('-')));
+  // What a usage error prints under its message; refined once the parser has run.
+  let topic: HelpTopic = helpTopicOf(argv.filter((arg) => !arg.startsWith('-')));
   try {
     const { values, positionals } = parseUsage(argv);
+    topic = helpTopicOf(positionals);
     if (values.help) {
-      io.stdout(USAGE);
+      io.stdout(helpFor(topic));
       return 0;
     }
     const [name, ...rest] = positionals;
@@ -250,7 +209,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       return 2;
     }
     io.stderr(`orca-broadcast: ${(error as Error).message}\n`);
-    if (error instanceof UsageError) io.stderr(USAGE);
+    if (error instanceof UsageError) io.stderr(`\n${usageLine(topic)}`);
     return 2;
   }
 }
