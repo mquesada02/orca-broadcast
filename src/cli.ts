@@ -174,11 +174,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     // A plain close never uses the port; only a filtered one needs live listings.
     const port = command === 'close' && !filters ? null : (deps.port ?? createOrcaAdapter());
     // Only `pause` may stop a broadcast that holds the lock: it is the one urgent command. Its filter values are checked before the lock.
+    const scope = { port, clock, filters, cwd };
     const guardOptions: GuardOptions =
       command === 'pause' && port
         ? {
-            prelock: (signal) => prelockPause({ port, clock, filters, cwd, signal }),
-            handOver: { clock, kill: deps.kill ?? process.kill.bind(process), precheck: (signal) => precheckPause({ port, clock, filters, cwd, selfPaneKey: env.ORCA_PANE_KEY, signal }) },
+            prelock: (signal) => prelockPause({ ...scope, port, signal }),
+            handOver: { clock, kill: deps.kill ?? process.kill.bind(process), precheck: (signal) => precheckPause({ ...scope, port, selfPaneKey: env.ORCA_PANE_KEY, signal }) },
           }
         : {};
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
