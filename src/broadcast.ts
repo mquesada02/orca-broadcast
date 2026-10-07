@@ -123,6 +123,7 @@ export async function broadcast(text: string | undefined, timeoutMs: number, dep
   const startedAt = clock.now();
   let summary: RunSummary;
   try {
+    // Temporary: ticket #69 stops this loop early when every pending target is send-failed. Until then it waits for the timeout.
     while (true) {
       throwIfAborted(deps.signal);
       await poll(record, snapshot, deps);
@@ -182,6 +183,7 @@ async function poll(record: BroadcastRecord, snapshot: Snapshot, deps: Broadcast
       target.reason = null;
       continue;
     }
+    // Temporary: ticket #69 adds the reason no-ack for a target that replied without the ack line. Until then it shows still-working.
     if (target.reason !== 'send-failed') target.reason = isWaitingLike(found.row.state) ? 'waiting-permission' : 'still-working';
     live.push({ target, row: found.row });
   }
@@ -208,5 +210,6 @@ async function poll(record: BroadcastRecord, snapshot: Snapshot, deps: Broadcast
     } else {
       target.reason = 'send-failed';
     }
+    await deps.store.saveBroadcast(record);
   }
 }

@@ -231,6 +231,15 @@ describe('broadcast: the record and the sending', () => {
     expect((await records(dir))[0]?.targets[0]?.status).toBe('acked');
   });
 
+  it('checks a fresh row right before the send, not only the poll snapshot', async () => {
+    const { code, port } = await send('hello', [
+      { paneKey: 'a:1', behavior: ({ received, listCalls }) => (received.length > 0 ? { state: 'done', message: `Done.\n${ACK}` } : listCalls === 3 ? { state: 'waiting', message: null } : { state: 'working', message: null }) },
+    ]);
+    expect(code).toBe(0);
+    expect(port.sendsTo('a:1')).toBe(1); // listing 3 is the fresh read before the first send; the skipped send was retried at the next poll
+    expect(port.listCalls).toBeGreaterThanOrEqual(5);
+  });
+
   it('marks a rejected send send-failed and keeps it pending until the timeout, exit 1', async () => {
     const { code, port, dir, out } = await send('hello', [{ paneKey: 'a:1', behavior: acks }], { configure: (p) => (p.sendResult = () => ({ accepted: false, reason: 'nope' })) });
     expect(code).toBe(1);
@@ -267,6 +276,12 @@ describe('broadcast: the ack proof', () => {
   ])('when %s the exit code is %i', async (_name, behavior, exitCode) => {
     const { code } = await send('hello', [{ paneKey: 'a:1', behavior }]);
     expect(code).toBe(exitCode);
+  });
+
+  it('does not ack while the message is still pending, even if the reply already ends with the ack line', async () => {
+    const { code, dir } = await send('hello', [{ paneKey: 'a:1', behavior: () => ({ state: 'done', message: `Done.\n${ACK}` }) }], { configure: (p) => (p.sendResult = () => ({ accepted: false, reason: 'nope' })) });
+    expect(code).toBe(1);
+    expect((await records(dir))[0]?.targets[0]).toMatchObject({ status: 'pending', reason: 'send-failed', messagePending: true });
   });
 
   it('keeps an ack permanent when the agent replies differently later', async () => {
@@ -461,6 +476,19 @@ describe('close and a broadcast', () => {
     expect(out).not.toContain('closed broadcast');
     expect(err).toContain('broadcast b-1 is also open');
     expect((await records(dir))[0]).toMatchObject({ status: 'open' });
+  });
+
+  it('gives JSON with the pause run and no record when both kinds are open, and no warning field', async () => {
+    const { out, err } = await run(['close', '--json'], [], {
+      seed: async (store) => {
+        await seedBroadcast([target('a:1')])(store);
+        await seedOpenRun(store, [agentRecord('a:1')]);
+      },
+    });
+    const object = JSON.parse(out) as Record<string, unknown>;
+    expect(Object.keys(object).sort()).toEqual(['command', 'error', 'exitCode', 'outcome', 'record', 'run']);
+    expect(object).toMatchObject({ command: 'close', outcome: 'done', record: null, run: { status: 'closed' } });
+    expect(err).toBe('');
   });
 
   it('keeps the pause run JSON and adds record null', async () => {
