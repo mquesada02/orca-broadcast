@@ -1,9 +1,9 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import { abandonPending, type RecordStore } from './store.js';
-import { ALL_AGENTS, hasFilters, matches, NO_FILTERS, type Subject } from './filters.js';
-import { assertCurrentFormat, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, resolveFilterSet, roleInfoOf, withWarnings, type RoleInfo, type Roles, type Snapshot } from './shared.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
+import { ALL_AGENTS, isFiltered, matches, NO_FILTERS } from './filters.js';
+import { assertCurrentFormat, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, resolveFilterSet, roleInfoOf, subjectOfRow, withWarnings, type RoleInfo, type Roles, type Snapshot } from './shared.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
 
@@ -17,6 +17,7 @@ export interface PauseDeps {
   selfPaneKey?: string;
   reason?: Preset;
   filters?: FilterSpec;
+  group?: GroupFilter;
   cwd?: string;
   onProgress?: (progress: Progress) => void;
   confirm?: Confirm;
@@ -83,8 +84,6 @@ interface Scope {
   selected: Set<string>;
   swept: Set<string>;
 }
-
-const subjectOfRow = (row: AgentRow, roles: Roles): Subject => ({ ...identityOf(row), ...roleInfoOf(roles, row.paneKey) });
 
 // The agents a new pause run is built from: the one selection, used by `pause` and by the check that runs before a broadcast is stopped.
 function discoverAgents(agents: Map<string, AgentRow>, selfKey: string | undefined, matchesRow: (row: AgentRow) => boolean): AgentRow[] {
@@ -191,18 +190,18 @@ function nothingToPause(self: Found | null, roles: Roles): RunSummary {
   return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], self: onlySelf };
 }
 
-type ScopeDeps = Pick<PauseDeps, 'port' | 'clock' | 'signal' | 'filters' | 'cwd'>;
+type ScopeDeps = Pick<PauseDeps, 'port' | 'clock' | 'signal' | 'filters' | 'group' | 'cwd'>;
 
 // The listings and the filter set an invocation selects with. Read-only: `pause`, the pre-lock check and the pre-check share it.
 async function readScope(deps: ScopeDeps): Promise<{ snapshot: Snapshot; set: FilterSet }> {
   const snapshot = await listSnapshot(deps);
   const filters = deps.filters ?? NO_FILTERS;
-  return { snapshot, set: resolveFilterSet(filters, hasFilters(filters) ? await liveSources(snapshot, deps) : null, [], deps.cwd) };
+  return { snapshot, set: resolveFilterSet(filters, isFiltered(filters, deps.group) ? await liveSources(snapshot, deps) : null, [], deps.cwd, deps.group) };
 }
 
-// Before the lock: a filter value that matches nothing fails here, before any broadcast is stopped. #66 adds group validation here.
+// Before the lock: a filter or group value that no longer resolves fails here, before any broadcast is stopped.
 export async function prelockPause(deps: ScopeDeps): Promise<void> {
-  if (hasFilters(deps.filters ?? NO_FILTERS)) await readScope(deps);
+  if (isFiltered(deps.filters ?? NO_FILTERS, deps.group)) await readScope(deps);
 }
 
 // Before a waiting broadcast is stopped: would a pause select anybody? Fresh listings, the same selection as `pause`, nothing written.

@@ -1,7 +1,9 @@
 import { isAbsolute, resolve } from 'node:path';
-import type { FilterSet, FilterSpec, Role } from './types.js';
+import type { FilterSet, FilterSpec, GroupFilter, Role } from './types.js';
 
 export const ROLES: readonly Role[] = ['coordinator', 'worker', 'session'];
+
+export const isRole = (value: string): value is Role => (ROLES as readonly string[]).includes(value);
 
 export const FILTER_KINDS = ['repo', 'worktree', 'role', 'run'] as const;
 
@@ -11,6 +13,9 @@ export const ALL_AGENTS: FilterSet = { typed: {} };
 export const NO_FILTERS: FilterSpec = { repo: [], worktree: [], role: [], run: [] };
 
 export const hasFilters = (spec: FilterSpec): boolean => FILTER_KINDS.some((kind) => spec[kind].length > 0);
+
+// A command is filtered by ad-hoc filters, by a group, or by both.
+export const isFiltered = (spec: FilterSpec, group?: GroupFilter): boolean => hasFilters(spec) || group !== undefined;
 
 // The values an agent is matched on: live from a row and its computed roles, or saved in a record.
 export interface Subject {
@@ -79,6 +84,22 @@ export function resolveFilters(spec: FilterSpec, sources: FilterSources, cwd: st
   if (spec.run.length > 0) {
     const known = new Map(sources.runIds.map((id) => [id, id]));
     set.runIds = [...new Set(spec.run.map((value) => pick('run', value, new Map(known.has(value) ? [[value, value]] : []), knownList(known))))];
+  }
+  return set;
+}
+
+const both = <T>(a: T[] | undefined, b: T[] | undefined): T[] | undefined => (a && b ? a.filter((value) => b.includes(value)) : (a ?? b));
+
+// A group's resolved set narrowed by the ad-hoc set: kinds are ANDed, the same kind is intersected, and a kind left with no value matches nobody.
+export function combineSets(group: FilterSet, adhoc: FilterSet, name: string): FilterSet {
+  const typed = Object.fromEntries(FILTER_KINDS.flatMap((kind) => {
+    const values = [...(group.typed[kind] ?? []), ...(adhoc.typed[kind] ?? [])];
+    return values.length > 0 ? [[kind, values]] : [];
+  }));
+  const set: FilterSet = { typed, group: name };
+  for (const key of ['repoIds', 'worktreeIds', 'roles', 'runIds'] as const) {
+    const values = both<string>(group[key], adhoc[key]);
+    if (values) Object.assign(set, { [key]: values });
   }
   return set;
 }

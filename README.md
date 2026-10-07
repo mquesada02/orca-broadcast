@@ -80,6 +80,23 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
 3. With an open broadcast `pause` always shows its first prompt. Your "yes" (or `--yes`) is the commit point. At that point `pause` writes its run, then abandons the broadcast's unacked targets (reason `paused`), closes the broadcast and prints one warning line on stderr (not in `--json`). A decline, an interrupt or an error before it leaves the broadcast open, stopped, with no pid. `close` abandons it; continuing it is planned.
 4. If a pause run and a broadcast are both open (a crash between the writes), every command that loads records abandons the broadcast with reason `paused` and prints a line on stderr. If several records of one kind are open, the newest wins and the others are reported.
 
+### Groups
+
+A group is a saved, named filter. `pause`, `resume` and `close` take one `--group <name>`; other filters (`--repo`, `--worktree`, `--role`, `--run`) narrow it.
+
+```sh
+orca-broadcast group add web --repo alpha --role worker   # every value must resolve to one thing now
+orca-broadcast group list
+orca-broadcast group show web      # the filters, and the agents that match now; sends nothing
+orca-broadcast group remove web
+orca-broadcast pause --group web --role worker
+```
+
+- **File.** `$XDG_CONFIG_HOME/orca-broadcast/groups.json` (default `~/.config/orca-broadcast/groups.json`), `{"version": 1, "groups": {"<name>": {"repo": [], "worktree": [], "role": [], "state": [], "run": []}}}`. Omit a kind to leave it unfiltered; a group needs at least one kind. You may edit the file by hand. An invalid file exits 2 and names the path. A missing file means no groups. Writes are atomic and take no lock.
+- **Names.** Lowercase letters, digits and `-`, starting with a letter, at most 40 characters. `group add` refuses a name that exists: `group remove` it first.
+- **Use.** Values are resolved again at each use; a value that no longer resolves exits 2 and names the group and the value. A kind in both the group and the ad-hoc flags gives the intersection (an empty one prints "nothing to <command>", except that `pause` on an open run still adds the empty set). `pause` copies the resolved group into the run, so editing the file does not change an open run until your next `pause`.
+- **State.** `group add --state working|done` is for `broadcast`, which does not take `--group` yet. `pause`, `resume` and `close` skip a group's `state` kind with one line on stderr, and refuse (exit 2) a group that has only a `state` kind.
+
 ### Options
 
 | Option | Effect |
@@ -88,7 +105,8 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
 | `--file <path>` | Read the `broadcast` text from a file. `broadcast` only. |
 | `--reason <name>` | Why you are pausing. One of the presets below. `pause` only. Without it the message is neutral. |
 | `--yes` | Skip the confirmation prompt. Without an interactive terminal, `broadcast`, `pause` and `resume` refuse to send unless you pass it. |
-| `--json` | Print one JSON object on stdout and nothing on stderr. It never prompts, so `broadcast`, `pause` and `resume` need `--yes`. |
+| `--json` | Print one JSON object on stdout and nothing on stderr (except the one line about a skipped group `state` kind). It never prompts, so `broadcast`, `pause` and `resume` need `--yes`. |
+| `--group <name>` | Use a saved group. One per command. `pause`, `resume` and `close` only. |
 | `--help` | Show help. |
 
 ### Pause reasons

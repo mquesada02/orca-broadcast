@@ -1,12 +1,13 @@
 import { Interrupted, throwIfAborted } from './abort.js';
-import { hasFilters, matches } from './filters.js';
+import { isFiltered, matches } from './filters.js';
 import { assertCurrentFormat, failure, listSnapshot, liveSources, nothingToDo, resolveFilterSet, withWarnings, type LiveSources } from './shared.js';
 import { abandonPending, type RecordStore } from './store.js';
-import type { BroadcastRecord, Clock, FilterSpec, OrcaPort, RunSummary } from './types.js';
+import type { BroadcastRecord, Clock, FilterSpec, GroupFilter, OrcaPort, RunSummary } from './types.js';
 
 // Present only when a filter is given: a plain close never uses the port.
 export interface CloseFilters {
   filters: FilterSpec;
+  group?: GroupFilter;
   port: OrcaPort;
   clock: Clock;
   cwd?: string;
@@ -35,7 +36,7 @@ async function runClose(store: RecordStore, warnings: string[], signal?: AbortSi
 
   try {
     abandoned = run.agents.filter((a) => a.resumeStatus === 'pending');
-    if (filtered && hasFilters(filtered.filters)) {
+    if (filtered && isFiltered(filtered.filters, filtered.group)) {
       assertCurrentFormat(run);
       // The values resolve against the saved record, and against the live listings when Orca answers.
       const { port, clock, cwd } = filtered;
@@ -45,7 +46,7 @@ async function runClose(store: RecordStore, warnings: string[], signal?: AbortSi
       } catch (error) {
         if (error instanceof Interrupted) throw error;
       }
-      const set = resolveFilterSet(filtered.filters, live, run.agents, cwd);
+      const set = resolveFilterSet(filtered.filters, live, run.agents, cwd, filtered.group);
       abandoned = abandoned.filter((a) => matches(set, a));
       if (abandoned.length === 0) return { ...nothingToDo(), record: null };
     }
