@@ -11,7 +11,7 @@ export interface BroadcastProgress {
   total: number;
 }
 
-export interface BroadcastDeps {
+interface BroadcastDeps {
   port: OrcaPort;
   clock: Clock;
   store: RecordStore;
