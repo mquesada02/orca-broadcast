@@ -103,12 +103,16 @@ describe('group add', () => {
     expect((await readGroups(dir)).groups.idle).toEqual({ state: ['done'] });
   });
 
-  it('saves a worktree path absolute and a worktree name as typed', async () => {
-    const byPath = await runCli(['group', 'add', 'p', '--worktree', './feature'], fleet(), withRepos({ cwd: '/work' }));
-    expect(byPath.code).toBe(0);
-    expect((await readGroups(byPath.dir)).groups.p.worktree).toEqual(['/work/feature']);
-    const byName = await runCli(['group', 'add', 'n', '--repo', 'beta', '--worktree', 'main'], fleet(), withRepos());
-    expect((await readGroups(byName.dir)).groups.n.worktree).toEqual(['main']);
+  // Each value holds a `/` or starts with `.`, and names the worktree /work/feature of an agent from the folder given.
+  it.each([['./feature', '/work'], ['.', '/work/feature'], ['../feature', '/work/other'], ['x/../feature', '/work']])('saves the worktree path %s from %s absolute', async (value, cwd) => {
+    const { code, dir } = await runCli(['group', 'add', 'p', '--worktree', value], fleet(), withRepos({ cwd }));
+    expect(code).toBe(0);
+    expect((await readGroups(dir)).groups.p.worktree).toEqual(['/work/feature']);
+  });
+
+  it('saves a worktree name as typed', async () => {
+    const { dir } = await runCli(['group', 'add', 'n', '--repo', 'beta', '--worktree', 'main'], fleet(), withRepos());
+    expect((await readGroups(dir)).groups.n.worktree).toEqual(['main']);
   });
 
   it('reports the group in --json', async () => {
@@ -227,6 +231,12 @@ describe('group usage', () => {
     expect(err).toContain(message);
   });
 
+  it('answers a failed parse of a group call in --json with the group shape', async () => {
+    const { code, out } = await runCli(['group', 'list', '--bogus', '--json'], fleet(), withRepos());
+    expect(code).toBe(2);
+    expect(json(out)).toMatchObject({ command: 'group list', outcome: 'error', exitCode: 2, groups: null });
+  });
+
   it('answers a group error in --json with the group command and no run', async () => {
     const { code, out } = await runCli(['group', 'show', 'nope', '--json'], fleet(), withRepos());
     expect(code).toBe(2);
@@ -260,6 +270,12 @@ describe('groups.json', () => {
     ['a bad role', { version: 1, groups: { web: { role: ['boss'] } } }],
     ['a bad state', { version: 1, groups: { web: { state: ['paused'] } } }],
     ['an empty group', { version: 1, groups: { web: { repo: [] } } }],
+    ['a file that is not an object', '[]'],
+    ['"groups" that is null', { version: 1, groups: null }],
+    ['"groups" that is a list', { version: 1, groups: [] }],
+    ['a group that is not an object', { version: 1, groups: { web: 'alpha' } }],
+    ['a value that is not a string', { version: 1, groups: { web: { repo: [1] } } }],
+    ['an empty string value', { version: 1, groups: { web: { repo: [''] } } }],
   ])('%s exits 2 naming the file', async (_label, content) => {
     const seed: Seed = (_store, dir) => writeGroups(dir, content);
     for (const argv of [['group', 'list'], ['pause', '--yes', '--group', 'web']]) {
