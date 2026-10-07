@@ -55,6 +55,8 @@ To give the same instruction to every working or done agent, and prove each one 
 ```sh
 orca-broadcast broadcast "back up the /tmp files you need"
 orca-broadcast broadcast --file message.txt --timeout 5m
+orca-broadcast broadcast "stop and push" --repo alpha --role worker   # only some agents
+orca-broadcast broadcast                  # after a timeout: keep waiting on the open broadcast
 ```
 
 ### Broadcast
@@ -66,9 +68,13 @@ orca-broadcast broadcast --file message.txt --timeout 5m
 - **Message.** `[orca-broadcast] The user sends you this message: "<text>" Handle it now. …`, ending with the instruction that the last line of the reply must be exactly `ORCA-ACK <token>`.
 - **Proof.** An agent counts as acked when no message is pending for it, its last reply is new since the send, and the last line is exactly `ORCA-ACK <token>`, in a `working` or `done` state. An ack is permanent. Send receipts are never proof.
 - **Record.** The record is written in `broadcasts/` before the first send, with the targets fixed at the confirmation. It closes itself when every target is acked, gone or abandoned. After a timeout it stays open; `close` abandons the targets that did not ack (reason `closed`). The pid of the running `broadcast` is stored in the record and removed on every exit.
-- **Wait.** Up to `--timeout` (default `10m`). Exit `0` when every target acked, `1` otherwise (a `gone` target counts as not acked), `2` on a refusal, `130` when interrupted.
-- **One record at a time.** `broadcast` is refused (exit 2) while a pause run is open. While a broadcast is open, `broadcast` is refused (exit 2) until you run `close`; `resume` says "nothing to resume". This rule is temporary: continuing an open broadcast is planned. `pause` is not refused because a broadcast is open: it stops a waiting broadcast (see "Pause stops a waiting broadcast"). Also not built yet: the wait does not stop early when every pending target is `send-failed`, and a target that replied without the ack line shows `still-working`, not `no-ack`.
-- **JSON.** `--json` prints the usual object with `record` (the broadcast record) in place of `run`; `run` is `null`.
+- **Wait.** Up to `--timeout` (default `10m`). It ends early when every target still pending is `send-failed`, because nothing can progress. Exit `0` when every target acked, `1` otherwise (a `gone` target counts as not acked), `2` on a refusal, `130` when interrupted.
+- **Reasons.** A pending target shows one reason: `send-failed` (the send was rejected), `waiting-permission`, `no-ack` (it replied since the send, but the last line is not the ack line; it is not sent the message again, and a later ack still counts) or `still-working`.
+- **Re-run.** `broadcast` with no text, or with the same text, continues the open broadcast: same token, a fresh `--timeout`. It never adds targets and never includes the session that runs it. It sends again only to targets that never got the message or whose send failed, and asks first whenever there is one (even if that target is `waiting` now). When nothing needs a send it only waits, with no prompt; without a terminal it still needs `--yes`. A different text is refused (exit 2); `close` the broadcast first. A late ack on an abandoned target is ignored.
+- **Filters.** `--repo`, `--worktree`, `--role`, `--run`, `--state working|done` and one `--group` select the agents of a first broadcast. Kinds are ANDed, values of one kind are ORed. A group's `state` kind applies to `broadcast`. On a re-run they narrow the recorded targets: role, runs, repo and worktree match the values saved in the record, `--state` matches the live state (a `gone` target never matches). The scope is the matching targets that are `pending`, `acked` or `gone`. Targets outside it keep their status and are not waited on, so the exit code covers only the scope, and the record stays open while others are pending. `abandoned` targets are shown but never in scope. A filter that leaves nothing in scope prints "nothing to broadcast" and the filters, exit 0.
+- **One record at a time.** `broadcast` is refused (exit 2) while a pause run is open. `resume` says "nothing to resume" while only a broadcast is open. `pause` is not refused because a broadcast is open: it stops a waiting broadcast (see "Pause stops a waiting broadcast").
+- **JSON.** `--json` prints the usual object with `record` (the broadcast record) in place of `run`; `run` is `null`. When nothing is in scope, `outcome` is `nothing-to-do` and `record` is `null`.
+- **Close.** `close` abandons every pending target. `close <filters>` (or `--group`) abandons only the matching pending targets, resolved against Orca and the identity saved in the record; the record closes itself when nothing is pending and otherwise stays open ("broadcast <id> stays open: N targets abandoned"). Acked and gone targets are untouched. Nothing matching prints "nothing to close", exit 0.
 - **Limit.** A message that is queued can still be carried out by the agent just before a `close` or a `pause` abandons it.
 
 ### Pause stops a waiting broadcast
@@ -77,12 +83,12 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
 
 1. It checks its arguments before the lock, and with filters it resolves the filter values with read-only calls to Orca, so a typo in a filter value fails with exit 2 before any broadcast is stopped. When the lock is held by the process that the open broadcast record names (same pid and same start time, and that process is alive with that start time), it checks that fresh listings select at least one agent that matches the filters, then sends that process SIGTERM and waits up to 5 seconds for the lock. The broadcast treats SIGTERM like Ctrl-C: it saves its record, clears its pid and exits 130.
 2. Any other lock holder, a pid or start time that does not match, or a signal that is not allowed (EPERM) makes `pause` exit 2 at once, with no signal. A lock still held after 5 seconds also exits 2. A process that is already gone (ESRCH) is not an error.
-3. With an open broadcast `pause` always shows its first prompt. Your "yes" (or `--yes`) is the commit point. At that point `pause` writes its run, then abandons the broadcast's unacked targets (reason `paused`), closes the broadcast and prints one warning line on stderr (not in `--json`). A decline, an interrupt or an error before it leaves the broadcast open, stopped, with no pid. `close` abandons it; continuing it is planned.
+3. With an open broadcast `pause` always shows its first prompt. Your "yes" (or `--yes`) is the commit point. At that point `pause` writes its run, then abandons the broadcast's unacked targets (reason `paused`), closes the broadcast and prints one warning line on stderr (not in `--json`). A decline, an interrupt or an error before it leaves the broadcast open, stopped, with no pid. `close` abandons it; `broadcast` with no text continues it.
 4. If a pause run and a broadcast are both open (a crash between the writes), every command that loads records abandons the broadcast with reason `paused` and prints a line on stderr. If several records of one kind are open, the newest wins and the others are reported.
 
 ### Groups
 
-A group is a saved, named filter. `pause`, `resume` and `close` take one `--group <name>`; other filters (`--repo`, `--worktree`, `--role`, `--run`) narrow it.
+A group is a saved, named filter. `broadcast`, `pause`, `resume` and `close` take one `--group <name>`; other filters (`--repo`, `--worktree`, `--role`, `--run`, and `--state` on `broadcast`) narrow it.
 
 ```sh
 orca-broadcast group add web --repo alpha --role worker   # every value must resolve to one thing now
@@ -95,7 +101,7 @@ orca-broadcast pause --group web --role worker
 - **File.** `$XDG_CONFIG_HOME/orca-broadcast/groups.json` (default `~/.config/orca-broadcast/groups.json`), `{"version": 1, "groups": {"<name>": {"repo": [], "worktree": [], "role": [], "state": [], "run": []}}}`. Omit a kind to leave it unfiltered; a group needs at least one kind. You may edit the file by hand. An invalid file exits 2 and names the path. A missing file means no groups. Writes are atomic and take no lock.
 - **Names.** Lowercase letters, digits and `-`, starting with a letter, at most 40 characters. `group add` refuses a name that exists: `group remove` it first.
 - **Use.** Values are resolved again at each use; a value that no longer resolves exits 2 and names the group and the value. A kind in both the group and the ad-hoc flags gives the intersection (an empty one prints "nothing to <command>", except that `pause` on an open run still adds the empty set). `pause` copies the resolved group into the run, so editing the file does not change an open run until your next `pause`.
-- **State.** `group add --state working|done` is for `broadcast`, which does not take `--group` yet. `pause`, `resume` and `close` skip a group's `state` kind with one line on stderr, and refuse (exit 2) a group that has only a `state` kind.
+- **State.** `group add --state working|done` is for `broadcast`, where the `state` kind applies. `pause`, `resume` and `close` skip a group's `state` kind with one line on stderr, and refuse (exit 2) a group that has only a `state` kind.
 
 ### Options
 
@@ -106,7 +112,8 @@ orca-broadcast pause --group web --role worker
 | `--reason <name>` | Why you are pausing. One of the presets below. `pause` only. Without it the message is neutral. |
 | `--yes` | Skip the confirmation prompt. Without an interactive terminal, `broadcast`, `pause` and `resume` refuse to send unless you pass it. |
 | `--json` | Print one JSON object on stdout and nothing on stderr (except the one line about a skipped group `state` kind). It never prompts, so `broadcast`, `pause` and `resume` need `--yes`. |
-| `--group <name>` | Use a saved group. One per command. `pause`, `resume` and `close` only. |
+| `--group <name>` | Use a saved group. One per command. `broadcast`, `pause`, `resume` and `close`. |
+| `--state working\|done` | Select agents by their live state. Repeatable. `broadcast` only. |
 | `--help` | Show help. |
 
 ### Pause reasons
