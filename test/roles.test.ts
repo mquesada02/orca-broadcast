@@ -142,7 +142,7 @@ describe('role rules', () => {
     expect(rolesOf(await t.readRun())).toEqual({ 'w:1': 'worker', 's:1': 'coordinator' });
   });
 
-  it('gives a new entry that fails the locate step role session and no run ids, and keeps them when it is gone', async () => {
+  it('gives a new entry that fails the locate step role session and no run ids, though run-list names its pane', async () => {
     const t = await setupPause([{ paneKey: 'a:1', hasTerminal: false, behavior: working }]);
     t.port.coordinatorsAt = () => ['a:1'];
     await t.run(5000);
@@ -225,14 +225,33 @@ describe('the passes of listings', () => {
   it('recomputes roles from a new pass of all four listings after a "yes" on pause', async () => {
     const { err, port } = await runCli(['pause'], [{ paneKey: 'a:1', behavior: repliesWithToken() }], {
       ...answer('y'),
+      newToken: () => TOKEN,
       configure: (p) => {
         p.coordinatorsAt = (call) => (call < 2 ? [] : ['a:1']);
       },
     });
     expect(err).toContain('(session)');
-    expect(port.sends.map((s) => s.text)).toEqual([`${pauseMessage(TOKEN_OF(port), 'coordinator')}`]);
+    expect(port.sends.map((s) => s.text)).toEqual([pauseMessage(TOKEN, 'coordinator')]);
     expect(port.listWorkersCalls).toBe(port.listRunsCalls);
     expect(port.listRunsCalls).toBeGreaterThanOrEqual(2);
+  });
+
+  it('recomputes roles from a new pass of all four listings after a late "yes" on an extended pause', async () => {
+    // a:1 is unconfirmed and already messaged, so the first plan is empty; b:2 starts working at the third listing.
+    const seed = async (store: ReturnType<typeof createRecordStore>) =>
+      seedOpenRun(store, [agentRecord('a:1', { pauseStatus: 'unconfirmed', pauseReason: 'still-working', pauseBaseline: null, confirmedAt: null })]);
+    const late = ({ listCalls }: { listCalls: number }) => (listCalls >= 3 ? { state: 'working', message: null } : { state: 'done', message: 'x' });
+    const { err, port } = await runCli(['pause', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: working }, { paneKey: 'b:2', behavior: late }], {
+      ...answer('y'),
+      seed,
+      newToken: () => TOKEN,
+      configure: (p) => {
+        // The late prompt comes after the third pass; the pass after its "yes" is the fourth.
+        p.coordinatorsAt = (call) => (call >= 4 ? ['b:2'] : []);
+      },
+    });
+    expect(err).toContain('repo/tree-b:2 (session)');
+    expect(port.sends.map((s) => s.text)).toEqual([pauseMessage(TOKEN, 'coordinator')]);
   });
 
   it('takes one pass on resume with --yes, and a second one after a "yes"', async () => {
@@ -243,10 +262,6 @@ describe('the passes of listings', () => {
     expect([asked.port.listRunsCalls, asked.port.listWorkersCalls]).toEqual([2, 2]);
   });
 });
-
-function TOKEN_OF(port: FakeOrca): string {
-  return /ORCA-PAUSED ([0-9a-f]+)\./.exec(port.sends[0]?.text ?? '')?.[1] ?? 'no-token';
-}
 
 describe('roles in resume', () => {
   const idle = (paneKey: string, extra: Partial<FakeAgent> = {}): FakeAgent => ({ paneKey, behavior: pausedDone(), ...extra });
@@ -337,6 +352,22 @@ describe('output of roles and run ids', () => {
     expect(out.startsWith('nothing to pause\n')).toBe(true);
     expect(out).toMatch(/tree-s:1\s+coordinator\s+run: unknown\s+self/);
     expect(out.endsWith('\n1 agents have a role but no known run\n')).toBe(true);
+  });
+
+  it('shows the run column and the count line in the close table', async () => {
+    const seed = async (store: ReturnType<typeof createRecordStore>) =>
+      seedOpenRun(store, [agentRecord('w:1', { orchestrationRunIds: ['run_x'], pauseStatus: 'unconfirmed' }), agentRecord('c:2', { role: 'coordinator', pauseStatus: 'unconfirmed' })]);
+    const { out, port } = await runCli(['close'], [], { seed });
+    expect(out).toMatch(/tree-w:1\s+worker\s+run_x\s+unconfirmed/);
+    expect(out).toMatch(/tree-c:2\s+coordinator\s+run: unknown\s+unconfirmed/);
+    expect(out.endsWith('\n1 agents have a role but no known run\n')).toBe(true);
+    expect(port.listRunsCalls).toBe(0);
+  });
+
+  it('keeps a plain handoff child with a null parent link a session, so its run is never guessed', async () => {
+    const { out } = await runCli(['pause', '--yes'], [{ paneKey: 'p:1', behavior: pausedDone() }, { paneKey: 'k:1', parentPaneKey: null, behavior: repliesWithToken() }]);
+    expect(out).not.toContain('coordinator');
+    expect(out).toMatch(/tree-k:1\s+session\s+run: unknown/);
   });
 
   it('keeps the count line out of --json and carries the run ids in each agent entry', async () => {

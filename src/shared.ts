@@ -57,9 +57,7 @@ export function endsWithLine(message: string | null, line: string): boolean {
 // Role and run ids of every live agent, by pane key. An agent that is not live has no entry.
 export type Roles = Map<string, RoleInfo>;
 
-const NO_ROLE: RoleInfo = { role: 'session', orchestrationRunIds: [] };
-
-export const roleInfoOf = (roles: Roles, paneKey: string): RoleInfo => roles.get(paneKey) ?? NO_ROLE;
+export const roleInfoOf = (roles: Roles, paneKey: string): RoleInfo => roles.get(paneKey) ?? { role: 'session', orchestrationRunIds: [] };
 
 // Roles come from the parent links of the live agents, which survive an Orca restart, and from the handles in run-list and worker-list,
 // which a restart makes stale. The handles are used only inside this one pass, never stored.
