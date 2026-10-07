@@ -252,6 +252,27 @@ describe('pause stops a waiting broadcast', () => {
     expect(world.kills).toEqual([]);
   });
 
+  it('sends no signal for a typo in a filter value, and leaves the broadcast and its lock alone', async () => {
+    const world = scenario();
+    const { code, err, port } = await runCli(['pause', '--yes', '--repo', 'no-such-repo'], [worker()], world.opts);
+    expect(code).toBe(2);
+    expect(err).toContain('no-such-repo');
+    expect(world.kills).toEqual([]);
+    expect(port.sends).toEqual([]);
+    expect(world.files()).toContain('lock');
+    expect(world.record()).toMatchObject({ status: 'open', pid: BROADCAST_PID });
+    expect(world.pauseRuns()).toEqual([]);
+  });
+
+  it('does not signal when the filters select nobody, and leaves the broadcast alone', async () => {
+    const world = scenario();
+    const { code, out } = await runCli(['pause', '--yes', '--role', 'coordinator'], [worker()], world.opts);
+    expect(code).toBe(0);
+    expect(out).toContain('nothing to pause');
+    expect(world.kills).toEqual([]);
+    expect(world.record()).toMatchObject({ status: 'open', pid: BROADCAST_PID });
+  });
+
   it('exits 130 with pause writing nothing when interrupted during the lock wait', async () => {
     const world = scenario({ killMode: 'ignored' });
     const signals = new EventEmitter();

@@ -184,12 +184,12 @@ describe('an idle worktree', () => {
     expect(closed.out).toContain('nothing to close');
   });
 
-  it('is listed once per invocation and only when a filter is given', async () => {
+  it('is listed once before the lock and once for the run, and only when a filter is given', async () => {
     const plain = await runCli(['pause', '--yes'], fleet(), withIdle());
     expect(plain.port.listWorktreesCalls).toBe(0);
     expect(plain.port.listReposCalls).toBe(0);
     const filtered = await runCli(['pause', '--yes', '--role', 'worker'], fleet(), withIdle());
-    expect(filtered.port.listWorktreesCalls).toBe(1);
+    expect(filtered.port.listWorktreesCalls).toBe(2);
   });
 
   it('resume and close list worktrees and repos once, and only with a filter', async () => {
@@ -590,10 +590,10 @@ describe('filters beside an open broadcast record', () => {
     expect(record.status).toBe('open');
   });
 
-  it('a plain close still closes the broadcast, and pause is still refused', async () => {
-    const refused = await runCli(['pause', '--yes', '--repo', 'alpha'], fleet(), withRepos({ seed: broadcastSeed }));
-    expect(refused.code).toBe(2);
-    expect(refused.port.sends).toEqual([]);
+  it('a plain close still closes the broadcast, and a filtered pause closes it as paused', async () => {
+    const paused = await runCli(['pause', '--yes', '--repo', 'alpha'], fleet(), withRepos({ seed: broadcastSeed }));
+    expect(paused.code).toBe(0);
+    expect(paused.err).toContain('broadcast b-1 was closed by this pause');
     const closed = await runCli(['close'], [], withRepos({ seed: broadcastSeed }));
     expect(closed.out).toContain('closed broadcast b-1');
   });
