@@ -9,9 +9,11 @@ import { type FakeAgent, fakeClock, FakeOrca, PAUSED_REPLY, pausedDone, seedOpen
 function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
   return {
     paneKey,
-    worktreeId: `wt-${paneKey}`,
-    worktree: `tree-${paneKey}`,
+    repoId: 'repo-repo',
     repo: 'repo',
+    worktreeId: `wt-${paneKey}`,
+    worktreePath: `/work/tree-${paneKey}`,
+    worktree: `tree-${paneKey}`,
     role: 'worker',
     orchestrationRunIds: [],
     lastHandle: null,
@@ -29,7 +31,7 @@ function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRe
 async function setup(agents: FakeAgent[], records: AgentRecord[] = agents.map((a) => agentRecord(a.paneKey))) {
   const dir = await tempStateDir();
   const store = createRecordStore(dir);
-  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: records };
+  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', scope: [{ typed: {} }], agents: records };
   await store.save(run);
   await store.setCurrent('pause', run.runId);
   const port = new FakeOrca(agents);

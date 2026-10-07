@@ -73,7 +73,7 @@ describe('close', () => {
 
   it('finds the open run when the pointer names a closed run, and clears the pointer', async () => {
     const { dir, store, readRun } = await setup([agentRecord('a:1')]);
-    await store.save({ runId: 'old', token: 'cafebabe', startedAt: '2025-01-01T00:00:00.000Z', status: 'closed', agents: [] });
+    await store.save({ runId: 'old', token: 'cafebabe', startedAt: '2025-01-01T00:00:00.000Z', status: 'closed', scope: [{ typed: {} }], agents: [] });
     await store.setCurrent('pause', 'old');
     expect((await close(store)).outcome).toBe('done');
     expect((await readRun()).status).toBe('closed');
@@ -83,7 +83,7 @@ describe('close', () => {
   it('closes only the newest open run when the pointer is missing and several are open', async () => {
     const { store, readRun } = await setup([agentRecord('a:1')]);
     await store.clearCurrent('pause', 'run-1');
-    await store.save({ runId: 'newer', token: 'cafebabe', startedAt: '2026-02-01T00:00:00.000Z', status: 'open', agents: [agentRecord('z:9')] });
+    await store.save({ runId: 'newer', token: 'cafebabe', startedAt: '2026-02-01T00:00:00.000Z', status: 'open', scope: [{ typed: {} }], agents: [agentRecord('z:9')] });
     await close(store);
     expect((await readRun('newer')).status).toBe('closed');
     expect((await readRun('run-1')).status).toBe('open');

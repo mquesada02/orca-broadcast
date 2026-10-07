@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import type { AgentRow, OrcaPort, RepoRow, RunRow, SendResult, TerminalRow, WorkerRow } from './types.js';
+import type { AgentRow, OrcaPort, RepoRow, RunRow, SendResult, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
 
 export const ORCA_EXECUTABLE = 'orca-ide';
 
@@ -23,6 +23,7 @@ export type Exec = (file: string, args: string[]) => Promise<ExecResult>;
 
 const EXEC_TIMEOUT_MS = 30_000;
 const MAX_BUFFER = 64 * 1024 * 1024;
+const WORKTREE_LIST_LIMIT = 10_000;
 
 export const execOrca: Exec = (file, args) =>
   new Promise((resolve, reject) => {
@@ -167,6 +168,16 @@ export function createOrcaAdapter(exec: Exec = execOrca): OrcaPort {
     async listRepos() {
       const result = await call(['repo', 'list', '--json']);
       return (result.repos ?? []).map((repo: Record<string, any>): RepoRow => ({ id: repo.id, path: repo.path, displayName: repo.displayName }));
+    },
+
+    // The command caps its rows by default and says so with `truncated`; an explicit large limit plus the completeness check
+    // means no worktree is dropped silently. Archived worktrees are not nameable.
+    async listWorktrees() {
+      const result = await call(['worktree', 'list', '--limit', String(WORKTREE_LIST_LIMIT), '--json']);
+      assertComplete('worktree list', result);
+      return (result.worktrees ?? [])
+        .filter((worktree: Record<string, any>) => worktree.isArchived !== true)
+        .map((worktree: Record<string, any>): WorktreeRow => ({ id: worktree.id, repoId: worktree.repoId, path: worktree.path, displayName: worktree.displayName }));
     },
 
     async send(handle, text): Promise<SendResult> {

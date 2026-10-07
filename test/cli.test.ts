@@ -137,7 +137,10 @@ const seedRun = (agents: Partial<AgentRecord>[]) => async (store: ReturnType<typ
     token: 'abcd1234',
     startedAt: '2026-01-01T00:00:00.000Z',
     status: 'open',
+    scope: [{ typed: {} }],
     agents: agents.map((a) => ({
+      repoId: 'repo-x',
+      worktreePath: '/work/wt',
       worktreeId: 'wt',
       lastHandle: null,
       pauseStatus: 'confirmed',
@@ -417,9 +420,10 @@ describe('safety rails', () => {
         token: 'abcd1234',
         startedAt: '2026-01-01T00:00:00.000Z',
         status: 'open',
+        scope: [{ typed: {} }],
         agents: [
           {
-            paneKey: 'a:1', worktreeId: 'wt', worktree: 'wt-a', repo: 'alpha', role: 'worker', orchestrationRunIds: [], lastHandle: null, pauseStatus: 'confirmed', pauseReason: null,
+            paneKey: 'a:1', repoId: 'repo-alpha', worktreePath: '/work/wt-a', worktreeId: 'wt', worktree: 'wt-a', repo: 'alpha', role: 'worker', orchestrationRunIds: [], lastHandle: null, pauseStatus: 'confirmed', pauseReason: null,
             pauseBaseline: 'Stopped here.\nORCA-PAUSED abcd1234', messagePending: false, confirmedAt: null, wakeCount: 0, resumeStatus: 'pending',
           },
         ],

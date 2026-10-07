@@ -10,11 +10,13 @@ import { createOrcaAdapter } from './orca-adapter.js';
 import { close } from './close.js';
 import { systemClock } from './clock.js';
 import { DEFAULT_TIMEOUT_MS, pause, type PauseDeps } from './pause.js';
+import { describeFilters, hasFilters } from './filters.js';
+import { isCommand, PARSE_OPTIONS, UsageError, validateFlags, type Command, type FlagValues } from './flags.js';
 import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
 import { resume } from './resume.js';
 import { createRecordStore } from './store.js';
-import type { Clock, Confirm, OrcaPort, RunSummary } from './types.js';
+import type { Clock, Confirm, FilterSpec, OrcaPort, Role, RunSummary } from './types.js';
 
 const CLEAR_LINE = '\r\x1b[K';
 
@@ -31,12 +33,14 @@ export interface CliDeps {
   port?: OrcaPort;
   clock?: Clock;
   newToken?: PauseDeps['newToken'];
+  /** The folder a relative `--worktree` path is resolved from. */
+  cwd?: string;
 }
 
 const USAGE = `Usage: orca-broadcast broadcast "<text>" | --file <path> [--timeout <n>s|m|h] [--yes]
-       orca-broadcast pause [--timeout <n>s|m|h] [--reason <name>] [--yes]
-       orca-broadcast resume [--yes]
-       orca-broadcast close
+       orca-broadcast pause [filters] [--timeout <n>s|m|h] [--reason <name>] [--yes]
+       orca-broadcast resume [filters] [--yes]
+       orca-broadcast close [filters]
 
 Commands:
   broadcast  Send one line of text to every working or done Claude Code agent and prove each
@@ -48,6 +52,13 @@ Commands:
            run closed (or there was nothing to resume), 1 if any is pending.
   close    Abandon the open run without resuming it: pending agents become
            abandoned, nothing is sent. Exit 0 (also when there is nothing to close).
+
+Filters (pause, resume and close; repeat a flag for several values; kinds are ANDed, values of one kind ORed):
+  --repo <id|path|name>          Agents in that repo
+  --worktree <path|id|name>      Agents in that worktree (a name is looked up in the --repo values)
+  --role <role>                  coordinator, worker or session
+  --run <id>                     Agents of that orchestration run
+  Without filters a command acts on every agent. resume and close act only on recorded agents.
 
 Options:
   --timeout <n>s|m|h   How long pause waits for confirmations, or broadcast waits for acks (default 10m)
@@ -61,11 +72,9 @@ Options:
   --help               Show this help
 `;
 
-class UsageError extends Error {}
-
 function parseUsage(argv: string[]) {
   try {
-    return parseArgs({ args: argv, options: { file: { type: 'string' }, help: { type: 'boolean' }, json: { type: 'boolean' }, reason: { type: 'string' }, timeout: { type: 'string' }, yes: { type: 'boolean' } }, allowPositionals: true });
+    return parseArgs({ args: argv, options: PARSE_OPTIONS, allowPositionals: true });
   } catch (error) {
     throw new UsageError((error as Error).message);
   }
@@ -81,10 +90,6 @@ export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()
   const base = env.XDG_STATE_HOME || join(home, '.local', 'state');
   return join(base, 'orca-broadcast');
 }
-
-const COMMANDS = ['broadcast', 'pause', 'resume', 'close'] as const;
-type Command = (typeof COMMANDS)[number];
-const isCommand = (value: string | undefined): value is Command => COMMANDS.some((name) => name === value);
 
 function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'run' | 'error' | 'record'>): string {
   const { outcome, exitCode, run, error, record } = summary;
@@ -142,33 +147,34 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       throw new UsageError(positionals.length === 0 ? 'missing command' : `unknown command "${positionals.join(' ')}"`);
     }
     command = name;
-    if (command !== 'pause' && command !== 'broadcast' && values.timeout !== undefined) throw new UsageError('--timeout applies only to pause and broadcast');
-    if (command === 'close' && values.yes) throw new UsageError('--yes applies only to pause, resume and broadcast');
-    if (command !== 'broadcast' && values.file !== undefined) throw new UsageError('--file applies only to broadcast');
+    validateFlags(command, values as FlagValues);
     if (rest.length > 0 && values.file !== undefined) throw new UsageError('give the text or --file, not both');
-    const { reason } = values;
-    if (command !== 'pause' && reason !== undefined) throw new UsageError('--reason applies only to pause');
+    const reason = values.reason as string | undefined;
     if (reason !== undefined && !isPreset(reason)) throw new UsageError(`invalid --reason "${reason}": use one of ${PRESET_NAMES.join(', ')}`);
-    const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
+    const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout as string);
+    const filterSpec: FilterSpec = { repo: (values.repo as string[] | undefined) ?? [], worktree: (values.worktree as string[] | undefined) ?? [], role: (values.role as Role[] | undefined) ?? [], run: (values.run as string[] | undefined) ?? [] };
+    const filters = hasFilters(filterSpec) ? filterSpec : undefined;
     // The safety switch: nothing is sent without a yes from the user, or --yes. This runs before anything is read, locked or listed.
     const needsConfirm = command !== 'close' && !values.yes;
     if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
     const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask) : undefined;
     // No text and no --file is not an error here: the records decide whether there is a broadcast to refuse or to continue.
-    const rawText = values.file === undefined ? rest[0] : await readTextFile(values.file);
+    const rawText = values.file === undefined ? rest[0] : await readTextFile(values.file as string);
     const text = rawText === undefined ? undefined : normaliseText(rawText);
 
     const store = createRecordStore(resolveStateDir(env));
     const progressLine = <P>(render: (progress: P) => string) =>
       io.isTTY && !json ? (progress: P) => io.stderr(`${CLEAR_LINE}${render(progress)}`) : undefined;
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
-      if (command === 'close') return close(store, signal);
-      const port = deps.port ?? createOrcaAdapter();
       const clock = deps.clock ?? systemClock;
+      const { cwd } = deps;
+      // A plain close never uses the port; only a filtered one needs live listings.
+      if (command === 'close') return close(store, signal, filters ? { filters, port: deps.port ?? createOrcaAdapter(), clock, cwd } : undefined);
+      const port = deps.port ?? createOrcaAdapter();
       if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal });
       return command === 'pause'
-        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason, onProgress: progressLine(renderProgress), confirm, signal })
-        : resume({ port, clock, store, onProgress: progressLine(renderResumeProgress), confirm, signal });
+        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, cwd, onProgress: progressLine(renderProgress), confirm, signal })
+        : resume({ port, clock, store, filters, cwd, onProgress: progressLine(renderResumeProgress), confirm, signal });
     });
     if (json) {
       io.stdout(jsonLine(command, summary));
@@ -185,7 +191,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       io.stdout(renderBroadcastOutput(command, summary));
     } else if (summary.outcome === 'nothing-to-do') {
       const selfBlock = summary.self ? `${renderSelfBlock(summary.self)}\n` : '';
-      io.stdout(`nothing to ${command}\n${selfBlock}${renderUnknownRuns(shown)}`);
+      const filterLine = filters ? `filters: ${describeFilters(filters)}\n` : '';
+      io.stdout(`nothing to ${command}\n${filterLine}${selfBlock}${renderUnknownRuns(shown)}`);
     } else {
       const table = command === 'pause' ? renderTable(summary.rows, summary.self) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows);
       io.stdout(`${table}${renderUnknownRuns(shown)}`);

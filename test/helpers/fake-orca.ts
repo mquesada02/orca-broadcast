@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RecordStore } from '../../src/store.js';
-import type { AgentRecord, AgentRow, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, TerminalRow, WorkerRow } from '../../src/types.js';
+import type { AgentRecord, AgentRow, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, TerminalRow, WorkerRow, WorktreeRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -38,6 +38,8 @@ export class FakeOrca implements OrcaPort {
   listTerminalsCalls = 0;
   listRunsCalls = 0;
   listWorkersCalls = 0;
+  listReposCalls = 0;
+  listWorktreesCalls = 0;
   /** Pane keys with an active worker row (run id optional), by worker-list call number. */
   workersAt: (workerListCall: number) => { paneKey: string; runId?: string | null }[] = () => [];
   /** Raw run-list rows by call number (a null or unknown handle is a stale one); used instead of coordinatorsAt when set. */
@@ -125,8 +127,28 @@ export class FakeOrca implements OrcaPort {
     return this.workersAt(this.listWorkersCalls).map((w) => ({ handle: this.handleOf(w.paneKey), runId: w.runId ?? null }));
   }
 
+  /** The repo list (`repo list`); a test that names repos sets it. */
+  repos: RepoRow[] = [];
+
   async listRepos(): Promise<RepoRow[]> {
-    return [];
+    this.listReposCalls += 1;
+    return this.repos;
+  }
+
+  /** The worktree list (`worktree list`); when a test leaves it unset it holds the worktrees of the agents, so idle worktrees need an explicit list. */
+  worktrees: WorktreeRow[] | null = null;
+  /** Make every worktree list call fail. */
+  failWorktreeList = false;
+
+  async listWorktrees(): Promise<WorktreeRow[]> {
+    this.listWorktreesCalls += 1;
+    if (this.failWorktreeList) throw new Error('orca-ide worktree list failed: boom');
+    return this.worktrees ?? this.agentWorktrees();
+  }
+
+  /** The worktrees the agents run in, as the worktree list would show them. */
+  agentWorktrees(): WorktreeRow[] {
+    return this.agents.map((a) => ({ id: `wt-${a.paneKey}`, repoId: `repo-${a.repo ?? 'repo'}`, path: `/work/${a.worktree ?? `tree-${a.paneKey}`}`, displayName: a.worktree ?? `tree-${a.paneKey}` }));
   }
 
   async send(handle: string, text: string): Promise<SendResult> {
@@ -209,9 +231,11 @@ export const repliesAfter = (delay: number): Behavior => {
 export function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
   return {
     paneKey,
-    worktreeId: `wt-${paneKey}`,
-    worktree: `tree-${paneKey}`,
+    repoId: 'repo-repo',
     repo: 'repo',
+    worktreeId: `wt-${paneKey}`,
+    worktreePath: `/work/tree-${paneKey}`,
+    worktree: `tree-${paneKey}`,
     role: 'worker',
     orchestrationRunIds: [],
     lastHandle: null,
@@ -227,7 +251,7 @@ export function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): 
 }
 
 export async function seedOpenRun(store: RecordStore, agents: AgentRecord[], extra: Partial<Run> = {}): Promise<Run> {
-  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents, ...extra };
+  const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', scope: [{ typed: {} }], agents, ...extra };
   await store.save(run);
   await store.setCurrent('pause', run.runId);
   return run;

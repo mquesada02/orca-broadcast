@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { Interrupted } from './abort.js';
+import { ALL_AGENTS, hasFilters, resolveFilters } from './filters.js';
 import { withRetry } from './retry.js';
-import type { AgentRow, BroadcastRecord, Clock, LocateReason, OrcaPort, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow } from './types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -136,13 +137,53 @@ export interface Snapshot {
   agents: Map<string, AgentRow>;
   terminals: Map<string, TerminalRow>;
   roles: Roles;
+  /** Every orchestration run id of the run list and the worker list: the values `--run` can name. */
+  runIds: string[];
 }
 
 // One pass of all four listings, taken together: roles are never computed from listings of different moments.
 export async function listSnapshot(deps: ListDeps): Promise<Snapshot> {
   const { port, clock, signal } = deps;
   const [[agents, terminals], runs, workers] = await allSettledOrThrow([listFresh(deps), withRetry(() => port.listRuns(), clock, signal), withRetry(() => port.listWorkers(), clock, signal)]);
-  return { agents, terminals, roles: computeRoles(agents, terminals, runs, workers) };
+  const runIds = [...new Set([...runs.map((run) => run.id), ...workers.flatMap((worker) => (worker.runId ? [worker.runId] : []))])];
+  return { agents, terminals, roles: computeRoles(agents, terminals, runs, workers), runIds };
+}
+
+// The identity fields that filters match and that a poll refreshes in a record: the ids and the worktree path.
+export const identityOf = (row: AgentRow) => ({ repoId: row.repoId, worktreeId: row.worktreeId, worktreePath: row.path });
+
+// A run written before filters existed has no scope, or agents without a repo id.
+export function assertCurrentFormat(run: Run): void {
+  if (!run.scope || run.agents.some((agent) => agent.repoId === undefined)) {
+    throw new Error('the open run was written by an older version of orca-broadcast: close it with `orca-broadcast close`, and continue its paused agents by hand');
+  }
+}
+
+// What the filter values are resolved against: the live listings, and the agents saved in a record.
+export interface LiveSources {
+  runIds: string[];
+  repos: RepoRow[];
+  worktrees: WorktreeRow[];
+}
+
+// Adds the repo list and the worktree list (every worktree, with or without an agent) to a snapshot. Callers ask for it only when a filter is given.
+export async function liveSources({ runIds }: Pick<Snapshot, 'runIds'>, { port, clock, signal }: ListDeps): Promise<LiveSources> {
+  const [repos, worktrees] = await allSettledOrThrow([withRetry(() => port.listRepos(), clock, signal), withRetry(() => port.listWorktrees(), clock, signal)]);
+  return { runIds, repos, worktrees };
+}
+
+// Resolves once per invocation. Without filters the set matches every agent.
+export function resolveFilterSet(spec: FilterSpec, live: LiveSources | null, recorded: AgentRecord[], cwd: string = process.cwd()): FilterSet {
+  if (!hasFilters(spec)) return ALL_AGENTS;
+  return resolveFilters(
+    spec,
+    {
+      repos: [...(live?.repos ?? []).map((repo) => ({ id: repo.id, path: repo.path, name: repo.displayName })), ...recorded.map((agent) => ({ id: agent.repoId, name: agent.repo }))],
+      worktrees: [...(live?.worktrees ?? []).map((worktree) => ({ id: worktree.id, path: worktree.path, name: worktree.displayName, repoId: worktree.repoId })), ...recorded.map((agent) => ({ id: agent.worktreeId, path: agent.worktreePath, name: agent.worktree, repoId: agent.repoId }))],
+      runIds: [...new Set([...(live?.runIds ?? []), ...recorded.flatMap((agent) => agent.orchestrationRunIds)])],
+    },
+    cwd,
+  );
 }
 
 // Stable partitions: coordinators come first (or last), and each group keeps its order.
@@ -166,6 +207,10 @@ export function releaseBroadcast(record: BroadcastRecord): void {
 export function failure(error: unknown, run: Run | null): RunSummary {
   const exitCode = error instanceof Interrupted ? 130 : 2;
   return { outcome: 'error', exitCode, run, error: (error as Error).message, rows: run?.agents ?? [] };
+}
+
+export function nothingToDo(): RunSummary {
+  return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [] };
 }
 
 export function cancelled(): RunSummary {

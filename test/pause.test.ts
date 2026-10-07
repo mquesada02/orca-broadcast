@@ -312,7 +312,7 @@ describe('failures', () => {
 });
 
 describe('earlier runs', () => {
-  const openRun: Run = { runId: 'old-run', token: 'cafebabe', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: [] };
+  const openRun: Run = { runId: 'old-run', token: 'cafebabe', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', scope: [{ typed: {} }], agents: [] };
 
   it('starts a new run when every earlier run is closed', async () => {
     const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
@@ -727,7 +727,7 @@ describe('open run recovery', () => {
   it('extends the newest open run and leaves the other open runs alone', async () => {
     const { dir, port, run } = await setup([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
     const store = createRecordStore(dir);
-    const base: Run = { runId: 'r-old', token: 'cafebabe', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: [] };
+    const base: Run = { runId: 'r-old', token: 'cafebabe', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', scope: [{ typed: {} }], agents: [] };
     await store.save(base);
     await store.save({ ...base, runId: 'r-new', startedAt: '2026-02-01T00:00:00.000Z' });
     const summary = await run();

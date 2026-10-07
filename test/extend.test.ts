@@ -92,7 +92,7 @@ describe('extending an open run', () => {
   it('extends an open run that only the newest status: open file reveals', async () => {
     const t = await setup([{ paneKey: 'a:1', behavior: () => ({ state: 'done', message: OLD_REPLY }) }]);
     await mkdir(join(t.dir, 'pauses'), { recursive: true });
-    const run: Run = { runId: 'run-1', token: TOKEN, startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: [confirmedRecord('a:1')] };
+    const run: Run = { runId: 'run-1', token: TOKEN, startedAt: '2026-01-01T00:00:00.000Z', status: 'open', scope: [{ typed: {} }], agents: [confirmedRecord('a:1')] };
     await writeFile(join(t.dir, 'pauses', 'run-1.json'), JSON.stringify(run));
 
     const summary = await t.runPause();
