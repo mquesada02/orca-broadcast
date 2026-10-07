@@ -54,8 +54,14 @@ export interface ConfirmTarget {
   role: Role;
 }
 
+// What only a broadcast prompt shows: the exact message, and this session (null when it is not a live Claude agent).
+export interface ConfirmDetails {
+  message: string;
+  self: ConfirmTarget | null;
+}
+
 // Asked once, before the first send: false means the user said no.
-export type Confirm = (targets: ConfirmTarget[], signal?: AbortSignal) => Promise<boolean>;
+export type Confirm = (targets: ConfirmTarget[], signal?: AbortSignal, details?: ConfirmDetails) => Promise<boolean>;
 
 export interface Clock {
   now(): number;
@@ -65,11 +71,10 @@ export interface Clock {
 export type PauseStatus = 'confirmed' | 'unconfirmed';
 export type PauseReason = 'still-working' | 'waiting-permission' | 'done-no-token' | 'send-failed' | 're-woken' | 'self';
 export type ResumeStatus = 'pending' | 'resumed' | 'gone' | 'abandoned';
+// Why an agent cannot be located any more.
+export type LocateReason = 'terminal-closed' | 'terminal-orphaned' | 'agent-missing' | 'agent-exited';
 export type ResumeReason =
-  | 'terminal-closed'
-  | 'terminal-orphaned'
-  | 'agent-missing'
-  | 'agent-exited'
+  | LocateReason
   | 'waiting-permission'
   | 'send-failed'
   | 'no-proof'
@@ -121,6 +126,12 @@ export interface RunSummary {
   error: string | null;
   rows: AgentRecord[];
   self?: AgentRecord | null;
+  /** The broadcast record that `broadcast` or `close` worked on; absent or null for the pause commands. */
+  record?: BroadcastRecord | null;
+  /** This session as `broadcast` shows it on its own line. */
+  broadcastSelf?: ConfirmTarget | null;
+  /** A line `close` prints on stderr, for example when it leaves a second open record untouched. */
+  warning?: string;
 }
 
 export interface Run {
@@ -132,9 +143,37 @@ export interface Run {
   agents: AgentRecord[];
 }
 
-// The store reads only these fields of a broadcast record; the broadcast command adds the rest.
+export type BroadcastStatus = 'pending' | 'acked' | 'gone' | 'abandoned';
+export type BroadcastReason = LocateReason | 'waiting-permission' | 'still-working' | 'send-failed' | 'closed';
+
+export interface BroadcastTarget {
+  paneKey: string;
+  repoId: string;
+  repo: string;
+  worktreeId: string;
+  worktreePath: string;
+  worktree: string;
+  role: Role;
+  orchestrationRunIds: string[];
+  /** Informational only: a send always uses the handle of a fresh row. */
+  lastHandle: string | null;
+  /** The agent's last reply when the send was accepted. */
+  baseline: string | null;
+  /** True until a send is accepted. */
+  messagePending: boolean;
+  status: BroadcastStatus;
+  reason: BroadcastReason | null;
+}
+
+// The store itself reads only id, createdAt and status.
 export interface BroadcastRecord {
   id: string;
+  token: string;
+  text: string;
   createdAt: string;
   status: 'open' | 'closed';
+  /** Process that is running this broadcast now; both are removed when it exits. */
+  pid?: number;
+  startTime?: string;
+  targets: BroadcastTarget[];
 }

@@ -11,7 +11,7 @@ function onlyObject(out: string): Record<string, unknown> {
   expect(out.endsWith('\n')).toBe(true);
   expect(out.trimEnd()).not.toContain('\n');
   const parsed = JSON.parse(out);
-  expect(Object.keys(parsed).sort()).toEqual(['command', 'error', 'exitCode', 'outcome', 'run']);
+  expect(Object.keys(parsed).sort()).toEqual(['command', 'error', 'exitCode', 'outcome', 'record', 'run']);
   return parsed;
 }
 
@@ -55,7 +55,7 @@ describe('--json pause', () => {
   it('nothing-to-do: run and error are null, and the self line stays out of the JSON', async () => {
     const { code, out } = await runCli(['pause', '--yes', '--json'], [{ paneKey: 'a:1', behavior: working }], { env: { ORCA_PANE_KEY: 'a:1' } });
     expect(code).toBe(0);
-    expect(onlyObject(out)).toEqual({ command: 'pause', outcome: 'nothing-to-do', exitCode: 0, run: null, error: null });
+    expect(onlyObject(out)).toEqual({ command: 'pause', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null });
   });
 
   it('exit 130: an interrupt mid-wait gives outcome error with the saved run', async () => {
@@ -109,7 +109,7 @@ describe('--json resume', () => {
   it('nothing-to-do: no open run gives run and error of null', async () => {
     const { code, out } = await runCli(['resume', '--yes', '--json']);
     expect(code).toBe(0);
-    expect(onlyObject(out)).toEqual({ command: 'resume', outcome: 'nothing-to-do', exitCode: 0, run: null, error: null });
+    expect(onlyObject(out)).toEqual({ command: 'resume', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null });
   });
 
   it('prints no progress line on a terminal', async () => {
@@ -143,7 +143,7 @@ describe('--json close', () => {
   it('nothing-to-do: no open run gives run and error of null', async () => {
     const { code, out } = await runCli(['close', '--json']);
     expect(code).toBe(0);
-    expect(onlyObject(out)).toEqual({ command: 'close', outcome: 'nothing-to-do', exitCode: 0, run: null, error: null });
+    expect(onlyObject(out)).toEqual({ command: 'close', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null });
   });
 });
 
@@ -154,7 +154,7 @@ describe('--json errors outside the commands', () => {
     [['--json'], null, 'missing command'],
     [['bogus', '--json'], null, 'unknown command'],
     [['pause', 'extra', '--json'], null, 'unknown command'],
-    [['close', '--timeout', '5s', '--json'], 'close', 'only to pause'],
+    [['close', '--timeout', '5s', '--json'], 'close', 'only to pause and broadcast'],
     [['pause', '--timeout', '0s', '--json'], 'pause', 'invalid --timeout'],
   ])('%j gives one error object, command %j, exit 2, empty stderr, Orca untouched', async (argv, command, message) => {
     const { code, out, err, port } = await runCli(argv, [{ paneKey: 'a:1', behavior: working }], { isTTY: true });
@@ -183,7 +183,7 @@ describe('--json errors outside the commands', () => {
   it('--help wins over --json when parsing succeeds, and the JSON error wins when it fails', async () => {
     const help = await runCli(['--help', '--json']);
     expect(help.code).toBe(0);
-    expect(help.out).toContain('Usage: orca-broadcast pause');
+    expect(help.out).toContain('Usage: orca-broadcast broadcast');
     expect(help.out).toContain('--json');
     const broken = await runCli(['--bogus', '--help', '--json']);
     expect(broken.code).toBe(2);

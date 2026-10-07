@@ -1,8 +1,23 @@
+import { randomBytes } from 'node:crypto';
 import { Interrupted } from './abort.js';
 import { withRetry } from './retry.js';
-import type { AgentRow, Clock, OrcaPort, ResumeReason, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow } from './types.js';
+import type { AgentRow, Clock, LocateReason, OrcaPort, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
+
+export function randomToken(): string {
+  return randomBytes(4).toString('hex');
+}
+
+// Any state other than working or done (waiting, or one we do not know) is treated like a permission prompt.
+export function isWaitingLike(state: string): boolean {
+  return state !== 'working' && state !== 'done';
+}
+
+// A reply written since the baseline. Orca shows null mid-turn, and that is not a reply.
+export function hasNewReply(baseline: string | null, row: AgentRow): boolean {
+  return row.lastAssistantMessage !== null && row.lastAssistantMessage !== baseline;
+}
 
 export function iso(ms: number): string {
   return new Date(ms).toISOString();
@@ -142,7 +157,7 @@ export function cancelled(): RunSummary {
   return { outcome: 'error', exitCode: 2, run: null, error: 'cancelled: nothing was sent', rows: [] };
 }
 
-export type Located = { gone: ResumeReason } | { row: AgentRow; handle: string };
+export type Located = { gone: LocateReason } | { row: AgentRow; handle: string };
 
 // The Locate rule shared by pause and resume: the checks run in this order.
 export function locate(paneKey: string, rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>): Located {

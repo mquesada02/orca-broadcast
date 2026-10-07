@@ -69,7 +69,7 @@ describe('refusing without a terminal', () => {
   it('close --yes is a usage error', async () => {
     const { code, err } = await runCli(['close', '--yes']);
     expect(code).toBe(2);
-    expect(err).toContain('--yes applies only to pause and resume');
+    expect(err).toContain('--yes applies only to pause, resume and broadcast');
     expect(err).toContain('Usage:');
   });
 

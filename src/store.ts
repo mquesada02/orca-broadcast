@@ -63,6 +63,8 @@ export interface RecordStore {
   clearCurrent(kind: RecordKind, id: string): Promise<void>;
   dir: string;
   pid: number;
+  /** Start time of this process, when it can be read. */
+  startTime: string | undefined;
 }
 
 export interface StoreOptions {
@@ -159,6 +161,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   const pid = options.pid ?? process.pid;
   const isAlive = options.isAlive ?? processIsAlive;
   const readStartTime = options.readStartTime ?? procStartTime;
+  const ownStartTime = readStartTime(pid);
   const pausesDir = join(dir, PAUSES);
   const broadcastsDir = join(dir, BROADCASTS);
   const lockPath = join(dir, LOCK);
@@ -262,6 +265,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   return {
     dir,
     pid,
+    startTime: ownStartTime,
     setCurrent,
     clearCurrent,
     loadOpen,
@@ -279,9 +283,8 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
 
     async acquireLock() {
       await mkdir(dir, { recursive: true });
-      const startTime = readStartTime(pid);
-      const content = `${pid}${startTime === undefined ? '' : ` ${startTime}`}\n`;
-      const release = () => releaseIfOwned(lockPath, startTime);
+      const content = `${pid}${ownStartTime === undefined ? '' : ` ${ownStartTime}`}\n`;
+      const release = () => releaseIfOwned(lockPath, ownStartTime);
       for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt++) {
         if (await createExclusive(lockPath, content)) return release;
         const owner = await readOwner(lockPath);

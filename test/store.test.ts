@@ -11,7 +11,7 @@ const DEAD = 4_000_000;
 const alive = (...pids: number[]) => (pid: number) => pids.includes(pid);
 const noStart = () => undefined;
 const starts = (table: Record<number, string>) => (pid: number) => table[pid];
-const broadcast = (id: string, createdAt: string, status: BroadcastRecord['status'] = 'open'): BroadcastRecord => ({ id, createdAt, status });
+const broadcast = (id: string, createdAt: string, status: BroadcastRecord['status'] = 'open'): BroadcastRecord => ({ id, createdAt, status, token: 'abcd1234', text: 'hello', targets: [] });
 // Fake pids must never read the real /proc, so every store gets a reader.
 const newStore = (dir: string, options: StoreOptions = {}) => createRecordStore(dir, { readStartTime: noStart, ...options });
 const pointer = async (dir: string) => JSON.parse(await readFile(join(dir, 'current'), 'utf8'));
@@ -457,5 +457,28 @@ describe('open-record scan', () => {
     await rm(join(dir, 'current'));
     await s.peekOpen();
     expect((await readdir(dir)).sort()).toEqual(['broadcasts', 'pauses']);
+  });
+});
+
+describe('own process identity and the full broadcast record', () => {
+  it('exposes the start time of its own pid, read through the injected reader, and undefined when it cannot be read', async () => {
+    const dir = await withDir();
+    expect(newStore(dir, { pid: 100, readStartTime: starts({ 100: '5000' }) }).startTime).toBe('5000');
+    expect(newStore(dir, { pid: 100 }).startTime).toBeUndefined();
+  });
+
+  it('round-trips every field of a broadcast record, targets included', async () => {
+    const dir = await withDir();
+    const s = newStore(dir);
+    const record: BroadcastRecord = {
+      ...broadcast('b1', '2026-01-01T00:00:00.000Z'),
+      pid: 100,
+      startTime: '5000',
+      targets: [
+        { paneKey: 'a:1', repoId: 'r', repo: 'repo', worktreeId: 'w', worktreePath: '/work/w', worktree: 'tree', role: 'coordinator', orchestrationRunIds: ['run_1'], lastHandle: 'term_1', baseline: null, messagePending: true, status: 'pending', reason: 'send-failed' },
+      ],
+    };
+    await s.saveBroadcast(record);
+    expect((await s.peekOpen()).broadcast?.record).toEqual(record);
   });
 });

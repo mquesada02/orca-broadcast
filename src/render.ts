@@ -1,4 +1,5 @@
-import type { AgentRecord, PauseStatus, Progress, ResumeProgress, ResumeStatus } from './types.js';
+import type { BroadcastProgress } from './broadcast.js';
+import type { AgentRecord, BroadcastTarget, ConfirmTarget, PauseStatus, Progress, ResumeProgress, ResumeStatus } from './types.js';
 
 const HINTS: Partial<Record<PauseStatus, string>> = {
   unconfirmed: 'not confirmed paused; check these agents before you leave',
@@ -30,12 +31,16 @@ export function renderResumeProgress(progress: ResumeProgress): string {
   return `resuming… ${progress.resumed}/${progress.total} resumed`;
 }
 
-function table(rows: AgentRecord[], statusOf: (a: AgentRecord) => string, reasonOf: (a: AgentRecord) => string | null | undefined): string[] {
-  const header = ['repo', 'worktree', 'role', 'run', 'status', 'reason'];
-  const body = rows.map((a) => [a.repo, a.worktree, a.role, a.orchestrationRunIds.length > 0 ? a.orchestrationRunIds.join(', ') : 'run: unknown', statusOf(a), reasonOf(a) ?? '-']);
+function formatTable(header: string[], body: string[][]): string[] {
   const widths = header.map((h, i) => Math.max(h.length, ...body.map((r) => (r[i] as string).length)));
   const line = (cells: string[]) => `  ${cells.map((c, i) => c.padEnd(widths[i] as number)).join('  ').trimEnd()}`;
   return [line(header), ...body.map(line)];
+}
+
+function table(rows: AgentRecord[], statusOf: (a: AgentRecord) => string, reasonOf: (a: AgentRecord) => string | null | undefined): string[] {
+  const header = ['repo', 'worktree', 'role', 'run', 'status', 'reason'];
+  const body = rows.map((a) => [a.repo, a.worktree, a.role, a.orchestrationRunIds.length > 0 ? a.orchestrationRunIds.join(', ') : 'run: unknown', statusOf(a), reasonOf(a) ?? '-']);
+  return formatTable(header, body);
 }
 
 function renderGroups<S extends string>(
@@ -81,4 +86,20 @@ export function renderCloseTable(agents: AgentRecord[]): string {
   if (agents.length === 0) return '';
   const reasonOf = (a: AgentRecord) => (a.pauseStatus === 'confirmed' ? PAUSED_AGENT_HINT : a.pauseReason);
   return [`abandoned (${agents.length}) - ${ABANDONED_HINT}`, ...table(agents, (a) => a.pauseStatus, reasonOf), ''].join('\n');
+}
+
+export function renderBroadcastProgress(progress: BroadcastProgress): string {
+  return `broadcasting… ${progress.acked}/${progress.total} acked`;
+}
+
+export function renderBroadcastTable(targets: BroadcastTarget[]): string {
+  if (targets.length === 0) return '';
+  const body = targets.map((t) => [t.repo, t.worktree, t.role, t.status, t.reason ?? '-']);
+  return [...formatTable(['repo', 'worktree', 'role', 'status', 'reason'], body), ''].join('\n');
+}
+
+const BROADCAST_SELF_HEADING = 'self (not sent) — this session cannot ack while its own command waits';
+
+export function renderBroadcastSelfBlock(self: ConfirmTarget): string {
+  return [BROADCAST_SELF_HEADING, ...formatTable(['repo', 'worktree', 'role'], [[self.repo, self.worktree, self.role]]), ''].join('\n');
 }

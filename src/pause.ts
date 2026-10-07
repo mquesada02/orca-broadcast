@@ -1,8 +1,8 @@
-import { randomBytes } from 'node:crypto';
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import type { RecordStore } from './store.js';
-import { cancelled, coordinatorsFirst, endsWithLine, failure, iso, listFresh, listSnapshot, locate, POLL_INTERVAL_MS, roleInfoOf, type RoleInfo, type Roles } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE } from './broadcast.js';
+import { cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, POLL_INTERVAL_MS, randomToken, roleInfoOf, type RoleInfo, type Roles } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
@@ -33,24 +33,15 @@ export function pauseMessage(token: string, role: Role = 'worker', reason?: Pres
   return role === 'coordinator' ? `${message} ${COORDINATOR_SENTENCE}` : message;
 }
 
-function randomToken(): string {
-  return randomBytes(4).toString('hex');
-}
-
 const pausedLine = (token: string) => `ORCA-PAUSED ${token}`;
 
-// A reply written since the baseline. Orca shows null mid-turn, and that is not a reply.
-function hasNewReply(agent: AgentRecord, row: AgentRow): boolean {
-  return row.lastAssistantMessage !== null && row.lastAssistantMessage !== agent.pauseBaseline;
-}
-
 function provesPause(agent: AgentRecord, row: AgentRow, token: string): boolean {
-  return !agent.messagePending && !isWaitingLike(row.state) && hasNewReply(agent, row) && endsWithLine(row.lastAssistantMessage, pausedLine(token));
+  return !agent.messagePending && !isWaitingLike(row.state) && hasNewReply(agent.pauseBaseline, row) && endsWithLine(row.lastAssistantMessage, pausedLine(token));
 }
 
 // A confirmed agent is woken only by a newer reply that does not end with the token line; state alone never wakes it.
 function isWoken(agent: AgentRecord, row: AgentRow, token: string): boolean {
-  return hasNewReply(agent, row) && !endsWithLine(row.lastAssistantMessage, pausedLine(token));
+  return hasNewReply(agent.pauseBaseline, row) && !endsWithLine(row.lastAssistantMessage, pausedLine(token));
 }
 
 function isGone(agent: AgentRecord): boolean {
@@ -59,11 +50,6 @@ function isGone(agent: AgentRecord): boolean {
 
 function isSettled(agent: AgentRecord): boolean {
   return isGone(agent) || agent.pauseStatus === 'confirmed' || agent.pauseReason === 'send-failed';
-}
-
-// Any state other than working or done (waiting, or one we do not know) is treated like a permission prompt.
-function isWaitingLike(state: string): boolean {
-  return state !== 'working' && state !== 'done';
 }
 
 function clearContinueProof(agent: AgentRecord): void {
@@ -195,7 +181,10 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   };
   try {
     throwIfAborted(deps.signal);
-    loaded = (await store.findOpenRun())?.run ?? null;
+    const open = await store.loadOpen();
+    // Temporary: ticket #70 replaces this refusal with the hand-over that stops a waiting broadcast. Until then one record at a time stays open.
+    if (open.broadcast) throw new Error(BROADCAST_OPEN_MESSAGE);
+    loaded = open.pause?.record ?? null;
     if (loaded && deps.reason !== undefined && deps.reason !== loaded.reason) {
       throw new Error(mismatchMessage(loaded.reason));
     }
