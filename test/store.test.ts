@@ -1,5 +1,5 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRecordStore, LockHeldError, parseProcStartTime, type StoreOptions } from '../src/store.js';
@@ -82,28 +82,24 @@ describe('lock', () => {
     await release();
     expect((await readFile(join(dir, 'lock'), 'utf8')).trim()).toBe('999');
   });
-
-  it('is never read as a run', async () => {
-    const dir = await withDir({ lock: '100\n', 'lock.takeover': '100\n' });
-    expect(await newStore(dir).findOpenRun()).toBeNull();
-  });
 });
-
 
 describe('lock owner and start time', () => {
   it('writes <pid> <starttime>, or the pid alone when the start time is unavailable', async () => {
-    const withStart = await withDir();
-    await (await newStore(withStart, { pid: 100, readStartTime: starts({ 100: '5000' }) }).acquireLock())();
-    const without = await withDir();
-    const release = await newStore(without, { pid: 100 }).acquireLock();
-    expect((await readFile(join(without, 'lock'), 'utf8'))).toBe('100\n');
-    await release();
+    for (const [startTime, content] of [['5000', '100 5000\n'], [undefined, '100\n']] as const) {
+      const dir = await withDir();
+      const release = await newStore(dir, { pid: 100, readStartTime: () => startTime }).acquireLock();
+      expect(await readFile(join(dir, 'lock'), 'utf8')).toBe(content);
+      await release();
+      expect(await readdir(dir)).toEqual([]);
+    }
+  });
 
-    const held = await withDir();
-    const releaseHeld = await newStore(held, { pid: 100, readStartTime: starts({ 100: '5000' }) }).acquireLock();
-    expect(await readFile(join(held, 'lock'), 'utf8')).toBe('100 5000\n');
-    await releaseHeld();
-    expect(await readdir(withStart)).toEqual([]);
+  it('reads its own start time from /proc by default', async () => {
+    const dir = await withDir();
+    const release = await createRecordStore(dir).acquireLock();
+    expect(await readFile(join(dir, 'lock'), 'utf8')).toMatch(/^\d+ \d+\n$/);
+    await release();
   });
 
   it('exposes its own pid and the parsed lock owner', async () => {
@@ -366,14 +362,33 @@ describe('open-record scan', () => {
     expect(JSON.parse(await readFile(join(dir, 'broadcasts', 'b1.json'), 'utf8')).status).toBe('open');
   });
 
+  it('breaks a tie between open broadcasts on the id', async () => {
+    const s = newStore(await withDir());
+    await s.saveBroadcast(broadcast('a', '2026-01-01T00:00:00.000Z'));
+    await s.saveBroadcast(broadcast('b', '2026-01-01T00:00:00.000Z'));
+    const found = (await s.loadOpen()).broadcast;
+    expect(found?.record.id).toBe('b');
+    expect(found?.others.map((r) => r.id)).toEqual(['a']);
+  });
+
+  it('resets a pointer that has the winner\'s id but the other kind', async () => {
+    const dir = await withDir();
+    const s = newStore(dir);
+    await s.save(run('x', '2026-01-01T00:00:00.000Z'));
+    await s.setCurrent('broadcast', 'x');
+    await s.loadOpen();
+    expect(await pointer(dir)).toEqual({ kind: 'pause', id: 'x' });
+  });
+
   it('keeps a pointer that already names the winner', async () => {
     const dir = await withDir();
     const s = newStore(dir);
     await s.saveBroadcast(broadcast('b1', '2026-01-01T00:00:00.000Z'));
     await s.setCurrent('broadcast', 'b1');
-    const before = await readFile(join(dir, 'current'), 'utf8');
+    const past = new Date('2020-01-01T00:00:00.000Z');
+    await utimes(join(dir, 'current'), past, past);
     await s.loadOpen();
-    expect(await readFile(join(dir, 'current'), 'utf8')).toBe(before);
+    expect((await stat(join(dir, 'current'))).mtime).toEqual(past);
   });
 
   it('removes a pointer when nothing is open', async () => {

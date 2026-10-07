@@ -18,6 +18,11 @@ export class LockHeldError extends Error {
 
 export type RecordKind = 'pause' | 'broadcast';
 
+export interface Pointer {
+  kind: RecordKind;
+  id: string;
+}
+
 export interface OpenRuns {
   run: Run;
   others: Run[];
@@ -99,6 +104,11 @@ async function removeIfPresent(path: string): Promise<void> {
   await rm(path, { force: true });
 }
 
+async function writeRecord(folder: string, id: string, record: Run | BroadcastRecord): Promise<void> {
+  await mkdir(folder, { recursive: true });
+  await writeAtomic(join(folder, `${id}.json`), `${JSON.stringify(record, null, 2)}\n`);
+}
+
 async function readRecord<T>(path: string): Promise<T | null> {
   try {
     return JSON.parse(await readFile(path, 'utf8')) as T;
@@ -123,7 +133,7 @@ async function readOpen<T extends { status: string }>(folder: string, sortKey: (
   return record ? { record, others } : null;
 }
 
-type Owner = { kind: 'missing' } | { kind: 'invalid' } | ({ kind: 'owner' } & LockOwner);
+type Owner = { kind: 'missing' } | { kind: 'invalid' } | { kind: 'owner'; owner: LockOwner };
 
 async function readOwner(path: string): Promise<Owner> {
   let text: string;
@@ -135,7 +145,7 @@ async function readOwner(path: string): Promise<Owner> {
   }
   const match = /^(\d+)(?: (\d+))?$/.exec(text.trim());
   if (!match) return { kind: 'invalid' };
-  return match[2] === undefined ? { kind: 'owner', pid: Number(match[1]) } : { kind: 'owner', pid: Number(match[1]), startTime: match[2] };
+  return { kind: 'owner', owner: match[2] === undefined ? { pid: Number(match[1]) } : { pid: Number(match[1]), startTime: match[2] } };
 }
 
 export function createRecordStore(dir: string, options: StoreOptions = {}): RecordStore {
@@ -165,7 +175,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
 
   async function releaseIfOwned(path: string, startTime?: string): Promise<void> {
     const owner = await readOwner(path);
-    if (owner.kind === 'owner' && owner.pid === pid && owner.startTime === startTime) await removeIfPresent(path);
+    if (owner.kind === 'owner' && owner.owner.pid === pid && owner.owner.startTime === startTime) await removeIfPresent(path);
   }
 
   // A dead pid, or a live pid whose start time differs from the recorded one (pid reuse), is stale.
@@ -182,7 +192,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     if (!(await createExclusive(takeoverPath, `${pid}\n`))) throw new LockHeldError(takeoverPath);
     try {
       const owner = await readOwner(lockPath);
-      if (owner.kind === 'invalid' || (owner.kind === 'owner' && (owner.pid !== observed.pid || owner.startTime !== observed.startTime))) throw new LockHeldError();
+      if (owner.kind === 'invalid' || (owner.kind === 'owner' && (owner.owner.pid !== observed.pid || owner.owner.startTime !== observed.startTime))) throw new LockHeldError();
       if (owner.kind === 'owner') await removeIfPresent(lockPath);
       if (!(await createExclusive(lockPath, content))) throw new LockHeldError();
     } finally {
@@ -196,7 +206,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   }
 
   // Anything but pointer JSON (including a pointer in the old plain-text layout) counts as missing.
-  async function readPointer(): Promise<{ kind: RecordKind; id: string } | null> {
+  async function readPointer(): Promise<Pointer | null> {
     let text: string;
     try {
       text = await readFile(pointerPath, 'utf8');
@@ -228,7 +238,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   async function loadOpen(): Promise<OpenRecords> {
     const open = await peekOpen();
     // An open pause run wins the pointer; abandoning the broadcast is the pause command's job.
-    const winner: { kind: RecordKind; id: string } | null = open.pause
+    const winner: Pointer | null = open.pause
       ? { kind: 'pause', id: open.pause.record.runId }
       : open.broadcast
         ? { kind: 'broadcast', id: open.broadcast.record.id }
@@ -257,7 +267,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
 
     async lockOwner() {
       const owner = await readOwner(lockPath);
-      return owner.kind === 'owner' ? { pid: owner.pid, ...(owner.startTime === undefined ? {} : { startTime: owner.startTime }) } : null;
+      return owner.kind === 'owner' ? owner.owner : null;
     },
 
     async acquireLock() {
@@ -270,22 +280,16 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
         const owner = await readOwner(lockPath);
         if (owner.kind === 'missing') continue;
         if (owner.kind === 'invalid') throw new LockHeldError(lockPath);
-        if (!isStale(owner)) throw new LockHeldError();
-        await takeOver(owner, content);
+        if (!isStale(owner.owner)) throw new LockHeldError();
+        await takeOver(owner.owner, content);
         return release;
       }
       throw new LockHeldError();
     },
 
-    async save(run) {
-      await mkdir(pausesDir, { recursive: true });
-      await writeAtomic(join(pausesDir, `${run.runId}.json`), `${JSON.stringify(run, null, 2)}\n`);
-    },
+    save: (run) => writeRecord(pausesDir, run.runId, run),
 
-    async saveBroadcast(record) {
-      await mkdir(broadcastsDir, { recursive: true });
-      await writeAtomic(join(broadcastsDir, `${record.id}.json`), `${JSON.stringify(record, null, 2)}\n`);
-    },
+    saveBroadcast: (record) => writeRecord(broadcastsDir, record.id, record),
 
     async removeRun(runId) {
       await removeIfPresent(join(pausesDir, `${runId}.json`));
