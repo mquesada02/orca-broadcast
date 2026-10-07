@@ -26,7 +26,7 @@ export const seedGroups =
   (_store, dir) =>
     writeGroups(dir, { version: 1, groups });
 
-/** One scripted answer: text, a function (so a test can act while the prompt is open), CTRL_C, or 'SIGTERM' (signal while the prompt waits, then hang until aborted). */
+/** One scripted answer: text, a function (so a test can act while the prompt is open; it gets the abort signal and may return a promise that settles later), CTRL_C, or 'SIGTERM' (signal while the prompt waits, then hang until aborted). */
 export const CTRL_C = Symbol('ctrl-c');
 export type Answer = string | ((signal?: AbortSignal) => string | Promise<string>) | typeof CTRL_C;
 
