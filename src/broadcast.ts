@@ -1,12 +1,10 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, POLL_INTERVAL_MS, randomToken, roleInfoOf, type Roles, type Snapshot } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, roleInfoOf, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastTarget, Clock, Confirm, ConfirmTarget, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
 export const DEFAULT_BROADCAST_TIMEOUT_MS = 10 * 60 * 1000;
 export const MAX_TEXT_LENGTH = 1000;
-export const PAUSE_OPEN_MESSAGE = 'A pause run is open; resume or close it first.';
-export const BROADCAST_OPEN_MESSAGE = 'A broadcast is open; close it first.';
 const NO_BROADCAST_MESSAGE = 'No broadcast is open; give a text.';
 
 export interface BroadcastProgress {
@@ -75,22 +73,23 @@ function selfLine(selfKey: string | undefined, { agents, terminals, roles }: Sna
 const nothingToBroadcast = (self: ConfirmTarget | null): RunSummary => ({ outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], record: null, broadcastSelf: self });
 
 // Interim rules, replaced by ticket #69: an open broadcast refuses every `broadcast`; the re-run that continues it comes with #69.
-async function refuseOpenRecords(store: RecordStore, text: string | undefined): Promise<void> {
+async function textOrRefuse(store: RecordStore, text: string | undefined): Promise<string> {
   const open = await store.loadOpen();
   if (open.pause) throw new Error(PAUSE_OPEN_MESSAGE);
   if (open.broadcast) throw new Error(BROADCAST_OPEN_MESSAGE);
   if (text === undefined) throw new Error(NO_BROADCAST_MESSAGE);
+  return text;
 }
 
 // `text` is already normalised, or undefined when the command line had none.
-export async function broadcast(text: string | undefined, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
+export async function broadcast(givenText: string | undefined, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
   const { clock, store } = deps;
   const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
   let snapshot: Snapshot;
   let record: BroadcastRecord;
   try {
     throwIfAborted(deps.signal);
-    await refuseOpenRecords(store, text);
+    const text = await textOrRefuse(store, givenText);
     snapshot = await listSnapshot(deps);
     throwIfAborted(deps.signal);
 
@@ -103,7 +102,7 @@ export async function broadcast(text: string | undefined, timeoutMs: number, dep
 
     const token = (deps.newToken ?? randomToken)();
     const targets = coordinatorsFirst(selected.map((row) => newTarget(row, snapshot.roles)), (t) => t.role);
-    if (deps.confirm && !(await deps.confirm(targets.map(confirmTarget), deps.signal, { message: broadcastMessage(text as string, token), self }))) return cancelled();
+    if (deps.confirm && !(await deps.confirm(targets.map(confirmTarget), deps.signal, { message: broadcastMessage(text, token), self }))) return cancelled();
     throwIfAborted(deps.signal);
 
     // The answer may have taken minutes: refresh state only. The targets stay as confirmed; one that vanished is recorded as gone.
@@ -112,7 +111,7 @@ export async function broadcast(text: string | undefined, timeoutMs: number, dep
     if (gone === targets.length) return nothingToBroadcast(self);
 
     const createdAt = iso(clock.now());
-    record = { id: `${createdAt.replace(/[-:.]/g, '')}-${token}`, token, text: text as string, createdAt, status: 'open', pid: store.pid, ...(store.startTime === undefined ? {} : { startTime: store.startTime }), targets };
+    record = { id: `${createdAt.replace(/[-:.]/g, '')}-${token}`, token, text, createdAt, status: 'open', pid: store.pid, ...(store.startTime === undefined ? {} : { startTime: store.startTime }), targets };
     await store.saveBroadcast(record);
     try {
       await store.setCurrent('broadcast', record.id);
@@ -152,6 +151,7 @@ export async function broadcast(text: string | undefined, timeoutMs: number, dep
   try {
     delete record.pid;
     delete record.startTime;
+    if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
     await store.saveBroadcast(record);
     if (record.status === 'closed') await store.clearCurrent('broadcast', record.id);
   } catch (error) {
@@ -179,11 +179,14 @@ function proves(target: BroadcastTarget, row: AgentRow, token: string): boolean 
 // One pass: locate, refresh, check the proof, then send to targets that still need the message. Acked and gone are permanent.
 async function poll(record: BroadcastRecord, snapshot: Snapshot, deps: BroadcastDeps): Promise<void> {
   const { agents, terminals, roles } = snapshot;
-  markGone(record.targets.filter((t) => t.status === 'pending'), agents, terminals);
   const live: { target: BroadcastTarget; row: AgentRow }[] = [];
   for (const target of record.targets.filter((t) => t.status === 'pending')) {
     const found = locate(target.paneKey, agents, terminals);
-    if ('gone' in found) continue;
+    if ('gone' in found) {
+      target.status = 'gone';
+      target.reason = found.gone;
+      continue;
+    }
     target.lastHandle = found.handle;
     Object.assign(target, roleInfoOf(roles, target.paneKey));
     if (proves(target, found.row, record.token)) {

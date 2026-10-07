@@ -216,7 +216,7 @@ describe('broadcast: the record and the sending', () => {
         };
       },
     });
-    expect(seen).toMatchObject({ status: 'open', token: TOKEN, text: 'hello', pid: process.pid, targets: [{ paneKey: 'a:1', messagePending: true, status: 'pending' }] });
+    expect(seen).toMatchObject({ status: 'open', token: TOKEN, text: 'hello', pid: process.pid, startTime: expect.any(String), targets: [{ paneKey: 'a:1', messagePending: true, status: 'pending' }] });
     expect(seen?.id).toMatch(/^\d{8}T\d{9}Z-abcd1234$/);
   });
 
@@ -224,6 +224,19 @@ describe('broadcast: the record and the sending', () => {
     const { dir } = await send('hello', [{ paneKey: 'a:1', repo: 'api', worktree: 'main', behavior: ({ received }) => (received.length === 0 ? { state: 'done', message: 'Before.' } : { state: 'done', message: `After.\n${ACK}` }) }]);
     const [record] = await records(dir);
     expect(record?.targets[0]).toMatchObject({ paneKey: 'a:1', repoId: 'repo-api', repo: 'api', worktreeId: 'wt-a:1', worktreePath: '/work/main', worktree: 'main', role: 'session', orchestrationRunIds: [], lastHandle: 'term_a:1', baseline: 'Before.', messagePending: false, status: 'acked' });
+  });
+
+  it('lists and messages coordinators first, and records the role and run ids of each target', async () => {
+    const { code, port, dir } = await send('hello', [{ paneKey: 'b:2', behavior: acks }, { paneKey: 'a:1', behavior: acks }], { configure: (p) => (p.coordinatorsAt = () => ['a:1']) });
+    expect(code).toBe(0);
+    expect(port.sends.map((s) => s.handle)).toEqual(['term_a:1', 'term_b:2']);
+    const [record] = await records(dir);
+    expect(record?.targets.map((t) => [t.paneKey, t.role, t.orchestrationRunIds])).toEqual([['a:1', 'coordinator', ['run_0']], ['b:2', 'session', []]]);
+  });
+
+  it('keeps send-failed over waiting-permission when the target later goes waiting', async () => {
+    const { dir } = await send('hello', [{ paneKey: 'a:1', behavior: ({ listCalls }) => (listCalls >= 4 ? { state: 'waiting', message: null } : { state: 'working', message: null }) }], { configure: (p) => (p.sendResult = () => ({ accepted: false, reason: 'nope' })) });
+    expect((await records(dir))[0]?.targets[0]).toMatchObject({ reason: 'send-failed', messagePending: true });
   });
 
   it('skips a target that goes waiting before its send, and sends once it leaves waiting', async () => {

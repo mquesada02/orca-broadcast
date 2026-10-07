@@ -5,6 +5,9 @@ import type { AgentRow, Clock, LocateReason, OrcaPort, Role, Run, RunRow, RunSum
 
 export const POLL_INTERVAL_MS = 2000;
 
+export const PAUSE_OPEN_MESSAGE = 'A pause run is open; resume or close it first.';
+export const BROADCAST_OPEN_MESSAGE = 'A broadcast is open; close it first.';
+
 export function randomToken(): string {
   return randomBytes(4).toString('hex');
 }
