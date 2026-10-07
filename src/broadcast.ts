@@ -1,10 +1,9 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, roleInfoOf, type Roles, type Snapshot } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, roleInfoOf, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastTarget, Clock, Confirm, ConfirmTarget, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
-export const DEFAULT_BROADCAST_TIMEOUT_MS = 10 * 60 * 1000;
-export const MAX_TEXT_LENGTH = 1000;
+const MAX_TEXT_LENGTH = 1000;
 const NO_BROADCAST_MESSAGE = 'No broadcast is open; give a text.';
 
 export interface BroadcastProgress {
@@ -156,13 +155,6 @@ export async function broadcast(givenText: string | undefined, timeoutMs: number
     if (summary.exitCode !== 130) summary = { ...failure(error, null), record, broadcastSelf: self };
   }
   return summary;
-}
-
-// The process no longer runs this broadcast: drop its pid, and close the record when no target can still progress.
-export function releaseBroadcast(record: BroadcastRecord): void {
-  delete record.pid;
-  delete record.startTime;
-  if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
 }
 
 const setGone = (target: BroadcastTarget, reason: LocateReason): void => {

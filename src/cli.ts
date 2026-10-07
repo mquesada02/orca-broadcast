@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { Interrupted, throwIfAborted } from './abort.js';
 import { PromptInterrupted } from './ask.js';
-import { broadcast, DEFAULT_BROADCAST_TIMEOUT_MS, normaliseText } from './broadcast.js';
+import { broadcast, normaliseText } from './broadcast.js';
 import { withLockAndSignals, type SignalSource } from './guard.js';
 import { createOrcaAdapter } from './orca-adapter.js';
 import { close } from './close.js';
@@ -149,7 +149,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const { reason } = values;
     if (command !== 'pause' && reason !== undefined) throw new UsageError('--reason applies only to pause');
     if (reason !== undefined && !isPreset(reason)) throw new UsageError(`invalid --reason "${reason}": use one of ${PRESET_NAMES.join(', ')}`);
-    const timeoutMs = values.timeout === undefined ? (command === 'broadcast' ? DEFAULT_BROADCAST_TIMEOUT_MS : DEFAULT_TIMEOUT_MS) : parseTimeout(values.timeout);
+    const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout);
     // The safety switch: nothing is sent without a yes from the user, or --yes. This runs before anything is read, locked or listed.
     const needsConfirm = command !== 'close' && !values.yes;
     if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');

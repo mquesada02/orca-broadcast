@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Interrupted } from './abort.js';
 import { withRetry } from './retry.js';
-import type { AgentRow, Clock, LocateReason, OrcaPort, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow } from './types.js';
+import type { AgentRow, BroadcastRecord, Clock, LocateReason, OrcaPort, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -154,6 +154,13 @@ export function coordinatorsFirst<T>(items: T[], roleOfItem: (item: T) => Role):
 
 export function coordinatorsLast<T>(items: T[], roleOfItem: (item: T) => Role): T[] {
   return splitCoordinators(items, roleOfItem).reverse().flat();
+}
+
+// The process no longer runs this broadcast: drop its pid, and close the record when no target can still progress.
+export function releaseBroadcast(record: BroadcastRecord): void {
+  delete record.pid;
+  delete record.startTime;
+  if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
 }
 
 export function failure(error: unknown, run: Run | null): RunSummary {
