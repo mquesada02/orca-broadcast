@@ -1,9 +1,8 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { RecordStore } from '../src/store.js';
 import type { BroadcastRecord, BroadcastTarget } from '../src/types.js';
 import { agentRecord, broadcastTarget, fakeClock, openBroadcastRecord, seedOpenRun, type Behavior, type FakeAgent, type FakeOrca } from './helpers/fake-orca.js';
+import { hasPointer, readBroadcasts as readRecords, statusOf as status } from './helpers/records.js';
 import { runCli, seedGroups, type RunCliOptions, type Seed } from './helpers/run-cli.js';
 
 const TOKEN = 'abcd1234';
@@ -39,14 +38,6 @@ const withRepos = (opts: RunCliOptions = {}): RunCliOptions => ({
 const sentPanes = (port: FakeOrca) => [...new Set(port.sends.map((s) => s.handle.replace('term_', '')))].sort();
 const send = (extra: string[], agents: FakeAgent[] = fleet(), opts: RunCliOptions = {}) => runCli(['broadcast', 'hello', '--yes', '--timeout', '10s', ...extra], agents, withRepos(opts));
 
-const storeDir = (dir: string) => join(dir, 'orca-broadcast');
-async function readRecords(dir: string): Promise<BroadcastRecord[]> {
-  const folder = join(storeDir(dir), 'broadcasts');
-  const names = await readdir(folder).catch(() => [] as string[]);
-  return Promise.all(names.map(async (n) => JSON.parse(await readFile(join(folder, n), 'utf8')) as BroadcastRecord));
-}
-const hasPointer = async (dir: string) => (await readdir(storeDir(dir)).catch(() => [] as string[])).includes('current');
-const status = (record?: BroadcastRecord) => Object.fromEntries((record?.targets ?? []).map((t) => [t.paneKey, t.status]));
 
 describe('broadcast filters: a first broadcast', () => {
   it.each<[string, string[], string[]]>([

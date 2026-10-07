@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -8,6 +8,7 @@ import { broadcastMessage } from '../src/broadcast.js';
 import type { RecordStore } from '../src/store.js';
 import type { BroadcastRecord, BroadcastTarget } from '../src/types.js';
 import { broadcastTarget, fakeClock, openBroadcastRecord, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
+import { hasPointer, readBroadcasts, statusOf as status, storeDir } from './helpers/records.js';
 import { CTRL_C, runCli, type RunCliOptions } from './helpers/run-cli.js';
 
 const TOKEN = 'abcd1234';
@@ -40,12 +41,7 @@ const seed = (targets: BroadcastTarget[], extra: Partial<BroadcastRecord> = {}) 
   await store.setCurrent('broadcast', record.id);
 };
 
-const storeDir = (dir: string) => join(dir, 'orca-broadcast');
-async function readRecord(dir: string): Promise<BroadcastRecord> {
-  return JSON.parse(await readFile(join(storeDir(dir), 'broadcasts', 'b-1.json'), 'utf8')) as BroadcastRecord;
-}
-const hasPointer = async (dir: string) => (await readdir(storeDir(dir)).catch(() => [] as string[])).includes('current');
-const status = (record: BroadcastRecord) => Object.fromEntries(record.targets.map((t) => [t.paneKey, t.status]));
+const readRecord = async (dir: string): Promise<BroadcastRecord> => (await readBroadcasts(dir))[0] as BroadcastRecord;
 const reasons = (record: BroadcastRecord) => Object.fromEntries(record.targets.map((t) => [t.paneKey, t.reason]));
 
 describe('re-run: continuing the open broadcast', () => {
