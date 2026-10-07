@@ -75,16 +75,46 @@ orca-broadcast broadcast                  # after a timeout: keep waiting on the
 - **One record at a time.** `broadcast` is refused (exit 2) while a pause run is open. `resume` says "nothing to resume" while only a broadcast is open. `pause` is not refused because a broadcast is open: it stops a waiting broadcast (see "Pause stops a waiting broadcast").
 - **JSON.** `--json` prints the usual object with `record` (the broadcast record) in place of `run`; `run` is `null`. When nothing is in scope, `outcome` is `nothing-to-do` and `record` is `null`.
 - **Close.** `close` abandons every pending target. `close <filters>` (or `--group`) abandons only the matching pending targets, resolved against Orca and the identity saved in the record; the record closes itself when nothing is pending and otherwise stays open ("broadcast <id> stays open: N targets abandoned"). Acked and gone targets are untouched. Nothing matching prints "nothing to close", exit 0.
-- **Limit.** A message that is queued can still be carried out by the agent just before a `close` or a `pause` abandons it.
+- **Limit.** A queued message can still run just before a `close` or a `pause` abandons it (see "Known limits").
 
 ### Pause stops a waiting broadcast
 
 A `broadcast` that waits for acks in another terminal holds the lock. `pause` does not wait for it:
 
-1. It checks its arguments before the lock, and with filters it resolves the filter values with read-only calls to Orca, so a typo in a filter value fails with exit 2 before any broadcast is stopped. When the lock is held by the process that the open broadcast record names (same pid and same start time, and that process is alive with that start time), it checks that fresh listings select at least one agent that matches the filters, then sends that process SIGTERM and waits up to 5 seconds for the lock. The broadcast treats SIGTERM like Ctrl-C: it saves its record, clears its pid and exits 130.
+1. `pause` checks its arguments before it takes the lock. With filters, it resolves the filter values with read-only calls to Orca. A typo in a filter value therefore fails with exit 2 before any broadcast is stopped.
+   Next, `pause` looks at the lock. The hand-over starts only when the process that holds the lock is the one the open broadcast record names. The pid and the start time must both match, and that process must be alive with that start time.
+   Then `pause` checks that fresh listings select at least one agent that matches the filters. After that, it sends the process SIGTERM and waits up to 5 seconds for the lock.
+   The broadcast treats SIGTERM like Ctrl-C: it saves its record, clears its pid and exits 130.
 2. Any other lock holder, a pid or start time that does not match, or a signal that is not allowed (EPERM) makes `pause` exit 2 at once, with no signal. A lock still held after 5 seconds also exits 2. A process that is already gone (ESRCH) is not an error.
 3. With an open broadcast `pause` always shows its first prompt. Your "yes" (or `--yes`) is the commit point. At that point `pause` writes its run, then abandons the broadcast's unacked targets (reason `paused`), closes the broadcast and prints one warning line on stderr (not in `--json`). A decline, an interrupt or an error before it leaves the broadcast open, stopped, with no pid. `close` abandons it; `broadcast` with no text continues it.
 4. If a pause run and a broadcast are both open (a crash between the writes), every command that loads records abandons the broadcast with reason `paused` and prints a line on stderr. If several records of one kind are open, the newest wins and the others are reported.
+
+### Filters and groups
+
+By default a command acts on every agent. Filters narrow that, and a group is a saved set of filters (see "Groups"). `orca-broadcast <command> --help` lists the flags of one command.
+
+| Flag | `broadcast` | `pause` | `resume` | `close` |
+|---|---|---|---|---|
+| `--repo` | yes | yes | narrows the run | narrows the run |
+| `--worktree` | yes | yes | narrows the run | narrows the run |
+| `--role` | yes | yes | narrows the run | narrows the run |
+| `--state` | yes | refused (exit 2); skipped in groups | refused (exit 2); skipped in groups | refused (exit 2); skipped in groups |
+| `--run` | yes | yes | narrows the run | narrows the run |
+| `--group` | yes | yes | narrows the run | narrows the run |
+| `--reason` | refused (exit 2) | yes | refused (exit 2) | refused (exit 2) |
+
+"Narrows the run" means the flag only selects among the agents the open run (or, for a `broadcast` re-run, the open broadcast) already recorded; it never adds an agent. "Skipped in groups" means that `--state` itself is refused, but a group that has a `state` kind still works: the kind is skipped with one line on stderr.
+
+Different kinds of filter are ANDed, and several values of one kind are ORed. So `--repo alpha --repo beta --role worker` means the workers in `alpha` or `beta`.
+
+```sh
+orca-broadcast pause --repo alpha                       # pause one repo
+orca-broadcast pause                                    # widen the open run to all agents
+orca-broadcast resume --role worker                     # resume only the workers
+orca-broadcast group add web --repo alpha --repo beta   # save a group ...
+orca-broadcast pause --group web                        # ... and use it
+orca-broadcast broadcast "push your branch" --group web --role worker   # a group, narrowed by a filter
+```
 
 ### Groups
 
@@ -128,7 +158,7 @@ orca-broadcast pause --group web --role worker
 | `limit` | The user is close to a usage or rate limit. | The limit has reset. |
 | *(no flag)* | The user asked all agents to pause. | The user asked you to continue. |
 
-An unknown name, or `--reason` on `resume` or `close`, is a usage error (exit 2). Running `pause` again on an open run keeps its reason; give the same `--reason` or none. A different one is refused (exit 2, nothing sent): use `close` first. The `reason` column in the output tables is a different thing: it says why one agent is not confirmed or not resumed.
+An unknown name, or `--reason` on `resume`, `close` or `broadcast`, is a usage error (exit 2). Running `pause` again on an open run keeps its reason; give the same `--reason` or none. A different one is refused (exit 2, nothing sent): use `close` first. The `reason` column in the output tables is a different thing: it says why one agent is not confirmed or not resumed.
 
 ### Exit codes
 
@@ -141,19 +171,31 @@ An unknown name, or `--reason` on `resume` or `close`, is a usage error (exit 2)
 
 ## How it works
 
-**Pause.** The tool lists agents with `orca-ide worktree ps` and selects every Claude agent in state `working`. Each agent has a role: `coordinator` (its terminal is a run's coordinator in `orca-ide orchestration run-list`, or another live agent's parent link points at it), `worker` (an active `orchestration worker-list` row, or its parent link points at a live agent), or `session`; coordinators win, and parent links come from `worktree ps`, so roles survive an Orca restart. Tables also show each agent's orchestration run ids (`run: unknown` when none is known), followed by one line "N agents have a role but no known run" when coordinators or workers have none; `--json` carries `orchestrationRunIds` per agent. Coordinators are messaged first and also told not to dispatch new work. Each agent gets one message with a random token and must end its reply with `ORCA-PAUSED <token>`. An agent counts as paused only when Orca shows it `done` and its new last reply ends with that exact line — send receipts are never taken as proof. The wait loop also sweeps up agents that start working later and re-pauses an agent that wakes up once.
+**Pause.** The tool lists agents with `orca-ide worktree ps` and selects every Claude agent in state `working`. Each agent has a role: `coordinator` (its terminal is a run's coordinator in `orca-ide orchestration run-list`, or another live agent's parent link points at it), `worker` (an active `orchestration worker-list` row, or its parent link points at a live agent), or `session`; coordinators win, and parent links come from `worktree ps`, so roles survive an Orca restart. Tables also show each agent's orchestration run ids (`run: unknown` when none is known), followed by one line "N agents have a role but no known run" when coordinators or workers have none; `--json` carries `orchestrationRunIds` per agent. Coordinators are messaged first and also told not to dispatch new work. Each agent gets one message with a random token and must end its reply with `ORCA-PAUSED <token>`. An agent counts as paused when no message is still pending for it, its last reply is new since the send, and that reply ends with that exact line. Its state does not matter, except that an agent on a permission prompt (or in an unknown state) never counts. A background task can keep Orca showing the agent `working`; that does not matter. Send receipts are never taken as proof. The wait loop also sweeps up agents that start working later and re-pauses an agent that wakes up once.
 
 **Resume.** The tool finds each recorded agent again by its Orca pane key, skips agents on a permission prompt, and sends `[orca-broadcast] CONTINUE …`. An agent counts as resumed when its state or last reply changes after the message (or, if it was still working, once Orca accepts the queued message). Workers and sessions are continued before coordinators. Re-running `resume` retries only agents that are still pending.
 
-**Record.** Each pause run is stored as JSON in `pauses/`, and each broadcast in `broadcasts/`, under `$XDG_STATE_HOME/orca-broadcast/` (default `~/.local/state/orca-broadcast/`), written atomically before every send. A `current` pointer names the one open record; at most one record, of either kind, is open. Running `pause` again before `resume` extends the same run.
+**Record.** The state lives under `$XDG_STATE_HOME/orca-broadcast/` (default `~/.local/state/orca-broadcast/`):
 
-**Safety.** The tool never types into a terminal that is not a Claude agent, never sends to an agent on a permission prompt, holds one lock for the whole run of every command, so two runs cannot overlap (the one exception is the hand-over above, which stops a broadcast it has proven to be the lock holder), and asks for confirmation before sending. The pane running `orca-broadcast` itself is never paused.
+- `lock`: the lock file (see "Safety").
+- `current`: a JSON pointer, `{"kind": "pause" | "broadcast", "id": "<id>"}`, to the one open record.
+- `pauses/`: one JSON file per pause run.
+- `broadcasts/`: one JSON file per broadcast.
+
+Each record is written atomically before every send. At most one record, of either kind, is open. If a crash leaves more than one open, the newest wins and the command reports the others. Running `pause` again before `resume` extends the same run.
+
+**Safety.** The tool never types into a terminal that is not a Claude agent. It never sends to an agent on a permission prompt. It asks for confirmation before it sends. The pane that runs `orca-broadcast` is never paused or messaged.
+
+One lock covers `broadcast`, `pause`, `resume` and `close`, for the whole run of each command, so two runs cannot overlap. A second command fails at once with "another orca-broadcast is running". `group` commands take no lock. The one exception is the hand-over above, where `pause` stops a broadcast it has proven to be the lock holder.
+
+The `lock` file holds the pid and the start time of its owner. A lock is stale, and the next command takes it over, when its pid is dead or when the pid is alive but has a different start time (the system reused the pid). If a start time is missing, only the pid test applies. A leftover `lock.takeover` file, or a `lock` file that is not readable, is never removed automatically: the command refuses to start and names the file to delete.
 
 ## Known limits
 
 - Only Claude Code agents on the local Orca host. Remote hosts and other agent types are not supported.
 - Races remain between the last check and a send (an agent can open a dialog in between).
 - An agent kept `working` by a background shell never confirms.
+- A queued broadcast can still be carried out just before a `pause` or a `close` abandons it. An agent that has the message in its queue may handle it while the tool marks it `abandoned`; a late ack on an abandoned target is ignored.
 - Machine sleep or reboot is out of scope; the scenario is "machine stays on, you are away" (network loss, a break, end of day or a usage limit).
 
 ## Development
