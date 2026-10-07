@@ -61,7 +61,7 @@ describe('close', () => {
 
   it('reports nothing to do with exit 0 when no run is open', async () => {
     const store = createRecordStore(await tempStateDir());
-    expect(await close(store)).toEqual({ outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [] });
+    expect(await close(store)).toEqual({ outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], record: null });
   });
 
   it('finds the open run when the pointer is missing', async () => {
@@ -127,8 +127,8 @@ describe('safety rails', () => {
   it('exits 130 without changing the record when the signal arrives during the lookup', async () => {
     const { store, readRun } = await setup([agentRecord('a:1')]);
     const abort = new AbortController();
-    const find = store.findOpenRun.bind(store);
-    store.findOpenRun = async () => {
+    const find = store.loadOpen.bind(store);
+    store.loadOpen = async () => {
       const found = await find();
       abort.abort('SIGHUP');
       return found;

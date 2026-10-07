@@ -32,7 +32,7 @@ describe('orca-broadcast --help and usage', () => {
   it('prints usage and exits 0 for --help', async () => {
     const { code, out } = await run(['--help']);
     expect(code).toBe(0);
-    expect(out).toContain('Usage: orca-broadcast pause');
+    expect(out).toContain('Usage: orca-broadcast broadcast');
     expect(out).toContain('--timeout');
   });
 

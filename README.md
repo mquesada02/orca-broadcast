@@ -50,14 +50,36 @@ If a run can never finish (for example an agent ignores the message), abandon it
 orca-broadcast close
 ```
 
+To give the same instruction to every working or done agent, and prove each one handled it:
+
+```sh
+orca-broadcast broadcast "back up the /tmp files you need"
+orca-broadcast broadcast --file message.txt --timeout 5m
+```
+
+### Broadcast
+
+`broadcast` sends one framed, single-line message to every Claude agent in state `working` or `done`. It never targets an agent on a permission prompt (`waiting`), and never the session that runs it (that session is shown on its own line, because it cannot ack while its own command waits). A working agent gets the message queued after its current step.
+
+- **Text.** Inline or `--file <path>`, not both. Both ends are trimmed. The text must not be empty, must have no control character (a newline or a tab, for example), and must have at most 1000 characters. Otherwise the command exits 2 with the reason and the length, and nothing is sent.
+- **Prompt.** The target table, the exact message and the self line are shown before anything is sent. Without a terminal `--yes` is required, whatever the command does next.
+- **Message.** `[orca-broadcast] The user sends you this message: "<text>" Handle it now. …`, ending with the instruction that the last line of the reply must be exactly `ORCA-ACK <token>`.
+- **Proof.** An agent counts as acked when no message is pending for it, its last reply is new since the send, and the last line is exactly `ORCA-ACK <token>`, in a `working` or `done` state. An ack is permanent. Send receipts are never proof.
+- **Record.** The record is written in `broadcasts/` before the first send, with the targets fixed at the confirmation. It closes itself when every target is acked, gone or abandoned. After a timeout it stays open; `close` abandons the targets that did not ack (reason `closed`). The pid of the running `broadcast` is stored in the record and removed on every exit.
+- **Wait.** Up to `--timeout` (default `10m`). Exit `0` when every target acked, `1` otherwise (a `gone` target counts as not acked), `2` on a refusal, `130` when interrupted.
+- **One record at a time.** `broadcast` is refused (exit 2) while a pause run is open. While a broadcast is open, `broadcast` and `pause` are refused (exit 2) until you run `close`; `resume` says "nothing to resume". These last two rules are temporary: continuing an open broadcast and pausing during one are planned. Also not built yet: the wait does not stop early when every pending target is `send-failed`, and a target that replied without the ack line shows `still-working`, not `no-ack`.
+- **JSON.** `--json` prints the usual object with `record` (the broadcast record) in place of `run`; `run` is `null`.
+- **Limit.** A message that is queued can still be carried out by the agent just before a `close` abandons it.
+
 ### Options
 
 | Option | Effect |
 |---|---|
-| `--timeout <n>s\|m\|h` | How long `pause` waits for confirmations. Default `10m`. `pause` only. |
+| `--timeout <n>s\|m\|h` | How long `pause` waits for confirmations, or `broadcast` waits for acks. Default `10m`. `pause` and `broadcast` only. |
+| `--file <path>` | Read the `broadcast` text from a file. `broadcast` only. |
 | `--reason <name>` | Why you are pausing. One of the presets below. `pause` only. Without it the message is neutral. |
-| `--yes` | Skip the confirmation prompt. Without an interactive terminal, `pause` and `resume` refuse to send unless you pass it. |
-| `--json` | Print one JSON object on stdout and nothing on stderr. It never prompts, so `pause` and `resume` need `--yes`. |
+| `--yes` | Skip the confirmation prompt. Without an interactive terminal, `broadcast`, `pause` and `resume` refuse to send unless you pass it. |
+| `--json` | Print one JSON object on stdout and nothing on stderr. It never prompts, so `broadcast`, `pause` and `resume` need `--yes`. |
 | `--help` | Show help. |
 
 ### Pause reasons
@@ -78,8 +100,8 @@ An unknown name, or `--reason` on `resume` or `close`, is a usage error (exit 2)
 
 | Code | Meaning |
 |---|---|
-| `0` | `pause`: every agent confirmed. `resume`: the run closed. Also "nothing to do". |
-| `1` | `pause`: at least one agent is unconfirmed. `resume`: at least one agent is still pending. The table says why and what to do. |
+| `0` | `pause`: every agent confirmed. `resume`: the run closed. `broadcast`: every target acked. Also "nothing to do". |
+| `1` | `pause`: at least one agent is unconfirmed. `resume`: at least one agent is still pending. `broadcast`: a target did not ack, or is gone. The table says why and what to do. |
 | `2` | Usage error, Orca listing failed, refused without `--yes`, or another `orca-broadcast` is running. |
 | `130` | Interrupted (Ctrl-C, SIGTERM, SIGHUP). The record is saved; run the command again. |
 
@@ -89,9 +111,9 @@ An unknown name, or `--reason` on `resume` or `close`, is a usage error (exit 2)
 
 **Resume.** The tool finds each recorded agent again by its Orca pane key, skips agents on a permission prompt, and sends `[orca-broadcast] CONTINUE …`. An agent counts as resumed when its state or last reply changes after the message (or, if it was still working, once Orca accepts the queued message). Workers and sessions are continued before coordinators. Re-running `resume` retries only agents that are still pending.
 
-**Record.** Each run is stored as JSON in `$XDG_STATE_HOME/orca-broadcast/` (default `~/.local/state/orca-broadcast/`), written atomically before every send. Running `pause` again before `resume` extends the same run.
+**Record.** Each pause run is stored as JSON in `pauses/`, and each broadcast in `broadcasts/`, under `$XDG_STATE_HOME/orca-broadcast/` (default `~/.local/state/orca-broadcast/`), written atomically before every send. A `current` pointer names the one open record; at most one record, of either kind, is open. Running `pause` again before `resume` extends the same run.
 
-**Safety.** The tool never types into a terminal that is not a Claude agent, never sends to an agent on a permission prompt, holds a lock so two runs cannot overlap, and asks for confirmation before sending. The pane running `orca-broadcast` itself is never paused.
+**Safety.** The tool never types into a terminal that is not a Claude agent, never sends to an agent on a permission prompt, holds one lock for the whole run of every command, so two runs cannot overlap, and asks for confirmation before sending. The pane running `orca-broadcast` itself is never paused.
 
 ## Known limits
 

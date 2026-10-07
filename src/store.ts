@@ -63,6 +63,8 @@ export interface RecordStore {
   clearCurrent(kind: RecordKind, id: string): Promise<void>;
   dir: string;
   pid: number;
+  /** Start time of this process, when it can be read. */
+  startTime: string | undefined;
 }
 
 export interface StoreOptions {
@@ -262,6 +264,9 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   return {
     dir,
     pid,
+    get startTime() {
+      return readStartTime(pid);
+    },
     setCurrent,
     clearCurrent,
     loadOpen,
