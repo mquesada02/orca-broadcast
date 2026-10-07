@@ -21,6 +21,7 @@ import {
   working,
   wokenWorking,
 } from './helpers/fake-orca.js';
+import { noKill } from './helpers/run-cli.js';
 
 const TIMEOUT = 60_000;
 const TOKEN = 'abcd1234';
@@ -380,7 +381,7 @@ describe('self handling in the CLI', () => {
     const out: string[] = [];
     const err: string[] = [];
     const port = new FakeOrca(agents);
-    const code = await main(['pause', '--yes'], { XDG_STATE_HOME: dir, ...env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: false }, { port, clock: fakeClock() });
+    const code = await main(['pause', '--yes'], { XDG_STATE_HOME: dir, ...env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: false }, { port, clock: fakeClock(), kill: noKill });
     return { code, out: out.join(''), err: err.join(''), port };
   }
 

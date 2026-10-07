@@ -52,12 +52,12 @@ function scenario(s: Scenario = {}) {
     newToken,
     seed: async (_store, stateHome) => {
       dir = join(stateHome, 'orca-broadcast');
-      const process = createRecordStore(dir, { pid: BROADCAST_PID, readStartTime: () => lockStart });
-      await process.acquireLock();
+      const broadcastStore = createRecordStore(dir, { pid: BROADCAST_PID, readStartTime: () => lockStart });
+      await broadcastStore.acquireLock();
       if (s.noRecord) return;
       const record = openBroadcastRecord([broadcastTarget('a:1', s.pending === false ? { status: 'acked', reason: null } : {})], { pid: BROADCAST_PID, ...(recordStart === undefined ? {} : { startTime: recordStart }) });
-      await process.saveBroadcast(record);
-      await process.setCurrent('broadcast', record.id);
+      await broadcastStore.saveBroadcast(record);
+      await broadcastStore.setCurrent('broadcast', record.id);
     },
     storeOptions: {
       isAlive: (pid) => starts.get(pid) !== null,

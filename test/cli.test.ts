@@ -9,6 +9,7 @@ import { createOrcaAdapter, type Exec } from '../src/orca-adapter.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord } from '../src/types.js';
 import { agentRecord, type FakeAgent, seedOpenRun, fakeClock, FakeOrca, pausedDone, repliesWithToken, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
+import { noKill } from './helpers/run-cli.js';
 
 async function run(
   argv: string[],
@@ -24,7 +25,7 @@ async function run(
   const port = new FakeOrca(agents);
   configure(port);
   const clock = fakeClock();
-  const code = await main(argv, { XDG_STATE_HOME: dir }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY }, { port, clock });
+  const code = await main(argv, { XDG_STATE_HOME: dir }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY }, { port, clock, kill: noKill });
   return { code, out: out.join(''), err: err.join(''), dir, port, clock };
 }
 
@@ -281,8 +282,8 @@ describe('orca-broadcast close', () => {
     const clock = fakeClock();
     const tokens = ['11111111'];
 
-    expect(await main(['close'], { XDG_STATE_HOME: dir }, io, { port, clock })).toBe(0);
-    expect(await main(['pause', '--yes'], { XDG_STATE_HOME: dir }, io, { port, clock, newToken: () => tokens[0] as string })).toBe(0);
+    expect(await main(['close'], { XDG_STATE_HOME: dir }, io, { port, clock, kill: noKill })).toBe(0);
+    expect(await main(['pause', '--yes'], { XDG_STATE_HOME: dir }, io, { port, clock, newToken: () => tokens[0] as string, kill: noKill })).toBe(0);
 
     const current = (JSON.parse(await readFile(`${dir}/orca-broadcast/current`, 'utf8')) as { id: string }).id;
     expect(current).not.toBe('run-1');
@@ -299,7 +300,7 @@ describe('safety rails', () => {
     const port = new FakeOrca(agents);
     const clock = fakeClock();
     const signals = new EventEmitter();
-    const code = await main(argv, { XDG_STATE_HOME: dir }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: false }, { port, clock, signals, ...extra });
+    const code = await main(argv, { XDG_STATE_HOME: dir }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: false }, { port, clock, signals, kill: noKill, ...extra });
     return { code, out: out.join(''), err: err.join(''), port, clock, signals, stateDir: join(dir, 'orca-broadcast') };
   }
 

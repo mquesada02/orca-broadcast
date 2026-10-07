@@ -29,6 +29,11 @@ export interface RunCliOptions {
   storeOptions?: StoreOptions;
 }
 
+/** The default process-kill fake: a test that does not give one fails if the CLI tries to signal a process, so it never reaches a real one. */
+export const noKill = (pid: number): void => {
+  throw new Error(`test gave no kill, but the CLI tried to signal ${pid}`);
+};
+
 /** Runs the CLI shell once with a fake Orca port, a fake clock and a fresh state directory. */
 export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: RunCliOptions = {}) {
   const dir = await tempStateDir();
@@ -54,6 +59,6 @@ export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: Run
         return Promise.resolve(typeof answer === 'function' ? answer() : answer);
       }
     : undefined;
-  const code = await main(argv, { XDG_STATE_HOME: dir, ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken, kill: opts.kill ?? ((pid) => { throw new Error(`test gave no kill, but the CLI tried to signal ${pid}`); }), storeOptions: opts.storeOptions, cwd: opts.cwd });
+  const code = await main(argv, { XDG_STATE_HOME: dir, ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken, kill: opts.kill ?? noKill, storeOptions: opts.storeOptions, cwd: opts.cwd });
   return { code, out: out.join(''), err: err.join(''), port, questions, dir };
 }
