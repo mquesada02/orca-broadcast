@@ -78,6 +78,18 @@ describe('group add', () => {
     expect(ambiguous.err).toContain('ambiguous --worktree "main"');
   });
 
+  it('refuses a bad --role and names the roles', async () => {
+    const { code, err } = await runCli(['group', 'add', 'web', '--role', 'boss'], fleet(), withRepos());
+    expect(code).toBe(2);
+    expect(err).toContain('invalid --role "boss"');
+  });
+
+  it('accepts repeated filter flags and keeps every value', async () => {
+    const { code, dir } = await runCli(['group', 'add', 'web', '--repo', 'alpha', '--repo', 'beta', '--role', 'worker', '--role', 'session'], fleet(), withRepos());
+    expect(code).toBe(0);
+    expect((await readGroups(dir)).groups.web).toEqual({ repo: ['alpha', 'beta'], role: ['worker', 'session'] });
+  });
+
   it('refuses a bad --state and names the allowed values', async () => {
     const { code, err } = await runCli(['group', 'add', 'web', '--state', 'bogus'], fleet(), withRepos());
     expect(code).toBe(2);
@@ -139,6 +151,19 @@ describe('group list, show and remove', () => {
     ];
     const { out } = await runCli(['group', 'show', 'done'], agents, withRepos({ seed: seedGroups({ done: { repo: ['alpha'], state: ['done'] } }) }));
     expect(out).toBe('group done: --repo alpha --state done\nalpha/main  session  done\n');
+  });
+
+  it('show lists only the agents a broadcast would target: Claude agents in state working or done that are still located', async () => {
+    const waiting = () => ({ state: 'waiting', message: null });
+    const agents: FakeAgent[] = [
+      { paneKey: 'a:1', repo: 'alpha', worktree: 'listed', behavior: working },
+      { paneKey: 'a:2', repo: 'alpha', worktree: 'on-a-prompt', behavior: waiting },
+      { paneKey: 'a:3', repo: 'alpha', worktree: 'not-claude', agentType: 'codex', behavior: working },
+      { paneKey: 'a:4', repo: 'alpha', worktree: 'closed-terminal', hasTerminal: false, behavior: working },
+      { paneKey: 'a:5', repo: 'alpha', worktree: 'other-agent', agentIdentity: 'codex', behavior: working },
+    ];
+    const { out } = await runCli(['group', 'show', 'web'], agents, withRepos({ seed: seedGroups({ web: { repo: ['alpha'] } }) }));
+    expect(out).toBe('group web: --repo alpha\nalpha/listed  session  working\n');
   });
 
   it('show says so when nobody matches, in --json too', async () => {
