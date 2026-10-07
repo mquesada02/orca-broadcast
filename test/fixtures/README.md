@@ -12,6 +12,10 @@ whose `coordinator_handle` is null) and `worktree-ps-plain-handoff.json` (the `w
 `worktree create --parent-worktree active --agent claude` without orchestration, in a throwaway worktree that was removed again: its
 agent has `parentPaneKey: null`, so a plain handoff child is not a worker). All are captured 2026-10-06 and redacted the same way.
 
+`worktree-list.json` is `worktree list --limit 10000 --json` (a read-only call) trimmed to 6 of the 57 worktrees of two repos (the two repos each keep a
+`main` worktree, so a name repeats across repos), and `worktree-list-truncated.json` is the same call with `--limit 2`, a real page with `truncated: true` and
+`totalCount: 57`. Ids, paths, branch names and other names are placeholders; the generic names `main` stay. Captured 2026-10-07 and redacted the same way.
+
 `terminal-send-truncated.txt` is synthetic: the stale-handle output cut off mid-JSON, as left by a timed-out
 `terminal send` that still reported its request id.
 

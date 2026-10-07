@@ -31,6 +31,14 @@ export interface WorkerRow {
   runId: string | null;
 }
 
+// A worktree Orca manages, whether or not an agent runs in it. `id` is the worktree id of `worktree ps` (`<repoId>::<path>`).
+export interface WorktreeRow {
+  id: string;
+  repoId: string;
+  path: string;
+  displayName: string;
+}
+
 export interface RepoRow {
   id: string;
   path: string;
@@ -45,6 +53,7 @@ export interface OrcaPort {
   listRuns(): Promise<RunRow[]>;
   listWorkers(): Promise<WorkerRow[]>;
   listRepos(): Promise<RepoRow[]>;
+  listWorktrees(): Promise<WorktreeRow[]>;
   send(handle: string, text: string): Promise<SendResult>;
 }
 

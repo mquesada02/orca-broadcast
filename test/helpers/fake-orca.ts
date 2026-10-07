@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RecordStore } from '../../src/store.js';
-import type { AgentRecord, AgentRow, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, TerminalRow, WorkerRow } from '../../src/types.js';
+import type { AgentRecord, AgentRow, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, TerminalRow, WorkerRow, WorktreeRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -39,6 +39,7 @@ export class FakeOrca implements OrcaPort {
   listRunsCalls = 0;
   listWorkersCalls = 0;
   listReposCalls = 0;
+  listWorktreesCalls = 0;
   /** Pane keys with an active worker row (run id optional), by worker-list call number. */
   workersAt: (workerListCall: number) => { paneKey: string; runId?: string | null }[] = () => [];
   /** Raw run-list rows by call number (a null or unknown handle is a stale one); used instead of coordinatorsAt when set. */
@@ -132,6 +133,22 @@ export class FakeOrca implements OrcaPort {
   async listRepos(): Promise<RepoRow[]> {
     this.listReposCalls += 1;
     return this.repos;
+  }
+
+  /** The worktree list (`worktree list`); when a test leaves it unset it holds the worktrees of the agents, so idle worktrees need an explicit list. */
+  worktrees: WorktreeRow[] | null = null;
+  /** Make every worktree list call fail. */
+  failWorktreeList = false;
+
+  async listWorktrees(): Promise<WorktreeRow[]> {
+    this.listWorktreesCalls += 1;
+    if (this.failWorktreeList) throw new Error('orca-ide worktree list failed: boom');
+    return this.worktrees ?? this.agentWorktrees();
+  }
+
+  /** The worktrees the agents run in, as the worktree list would show them. */
+  agentWorktrees(): WorktreeRow[] {
+    return this.agents.map((a) => ({ id: `wt-${a.paneKey}`, repoId: `repo-${a.repo ?? 'repo'}`, path: `/work/${a.worktree ?? `tree-${a.paneKey}`}`, displayName: a.worktree ?? `tree-${a.paneKey}` }));
   }
 
   async send(handle: string, text: string): Promise<SendResult> {

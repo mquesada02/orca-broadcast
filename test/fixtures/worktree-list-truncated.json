@@ -1,0 +1,127 @@
+{
+  "id": "00000000-0000-4000-8000-000000000003",
+  "ok": true,
+  "result": {
+    "worktrees": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001::/home/user/work/dir-1",
+        "identity": {
+          "key": "wt2:local:00000000-0000-4000-8000-000000001001",
+          "executionHostId": "local",
+          "instanceId": "00000000-0000-4000-8000-000000001001"
+        },
+        "instanceId": "00000000-0000-4000-8000-000000001001",
+        "repoId": "00000000-0000-4000-8000-000000000001",
+        "projectId": "github:org/project-1",
+        "hostId": "local",
+        "projectHostSetupId": "00000000-0000-4000-8000-000000000001",
+        "path": "/home/user/work/dir-1",
+        "head": "0000000000000000000000000000000000000001",
+        "branch": "refs/heads/main",
+        "isBare": false,
+        "isMainWorktree": true,
+        "displayName": "main",
+        "displayNameMode": "automatic",
+        "comment": "",
+        "linkedIssue": null,
+        "linkedPR": null,
+        "linkedLinearIssue": null,
+        "linkedLinearIssueWorkspaceId": null,
+        "linkedLinearIssueOrganizationUrlKey": null,
+        "linkedGitLabMR": null,
+        "linkedGitLabIssue": null,
+        "linkedBitbucketPR": null,
+        "linkedAzureDevOpsPR": null,
+        "linkedGiteaPR": null,
+        "linkedWorkItem": null,
+        "linkedTaskSourceContext": null,
+        "isArchived": false,
+        "isUnread": true,
+        "isPinned": false,
+        "sortOrder": 1791347834598,
+        "lastActivityAt": 1791347001632,
+        "workspaceStatus": "in-progress",
+        "parentWorktreeId": null,
+        "childWorktreeIds": [],
+        "lineage": null,
+        "git": {
+          "path": "/home/user/work/dir-1",
+          "head": "0000000000000000000000000000000000000001",
+          "branch": "refs/heads/main",
+          "isBare": false,
+          "isMainWorktree": true
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000001::/home/user/work/dir-2",
+        "identity": {
+          "key": "wt2:local:00000000-0000-4000-8000-000000001002",
+          "executionHostId": "local",
+          "instanceId": "00000000-0000-4000-8000-000000001002"
+        },
+        "instanceId": "00000000-0000-4000-8000-000000001002",
+        "repoId": "00000000-0000-4000-8000-000000000001",
+        "projectId": "github:org/project-1",
+        "hostId": "local",
+        "projectHostSetupId": "00000000-0000-4000-8000-000000000001",
+        "creatorProvenance": {
+          "kind": "host"
+        },
+        "path": "/home/user/work/dir-2",
+        "head": "0000000000000000000000000000000000000001",
+        "branch": "refs/heads/branch-2",
+        "isBare": false,
+        "isMainWorktree": false,
+        "displayName": "name-1",
+        "displayNameMode": "fixed",
+        "comment": "",
+        "linkedIssue": null,
+        "linkedPR": null,
+        "linkedLinearIssue": null,
+        "linkedLinearIssueWorkspaceId": null,
+        "linkedLinearIssueOrganizationUrlKey": null,
+        "linkedGitLabMR": null,
+        "linkedGitLabIssue": null,
+        "linkedBitbucketPR": null,
+        "linkedAzureDevOpsPR": null,
+        "linkedGiteaPR": null,
+        "linkedWorkItem": null,
+        "linkedTaskSourceContext": null,
+        "isArchived": false,
+        "isUnread": false,
+        "isPinned": false,
+        "sortOrder": 1791347812598,
+        "lastActivityAt": 1791299385315,
+        "createdAt": 1791299385315,
+        "cliProvenance": {
+          "kind": "created-by-cli",
+          "createdAt": 1791299377147,
+          "callerTerminalHandle": "term_f8c21ce2-ff9e-49cb-89a6-58e9f8b74776"
+        },
+        "baseRef": "refs/remotes/origin/main",
+        "workspaceStatus": "in-progress",
+        "parentWorktreeId": null,
+        "childWorktreeIds": [],
+        "lineage": null,
+        "git": {
+          "path": "/home/user/work/dir-2",
+          "head": "0000000000000000000000000000000000000001",
+          "branch": "refs/heads/branch-2",
+          "isBare": false,
+          "isMainWorktree": false
+        }
+      }
+    ],
+    "hostScope": {
+      "hostIds": [
+        "local"
+      ],
+      "omittedHostIds": []
+    },
+    "totalCount": 57,
+    "truncated": true
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-4000-8000-000000000002"
+  }
+}

@@ -143,6 +143,32 @@ describe('orca adapter mapping', () => {
     expect(calls[0]?.args).toEqual(['repo', 'list', '--json']);
   });
 
+  it('maps worktree list to id, repo id, path and display name, asking for a large limit', async () => {
+    const { exec, calls } = fakeExec({ 'worktree list': fixture('worktree-list') });
+    const worktrees = await createOrcaAdapter(exec).listWorktrees();
+    const source = json('worktree-list').result.worktrees;
+    expect(worktrees).toEqual(source.map((w: any) => ({ id: w.id, repoId: w.repoId, path: w.path, displayName: w.displayName })));
+    expect(worktrees).toHaveLength(6);
+    expect(calls[0]?.args).toEqual(['worktree', 'list', '--limit', '10000', '--json']);
+  });
+
+  it('gives a worktree the same id as worktree ps does: <repoId>::<path>', async () => {
+    const fromList = (await createOrcaAdapter(fakeExec({ 'worktree list': fixture('worktree-list') }).exec).listWorktrees())[0];
+    const fromPs = (await createOrcaAdapter(fakeExec({ 'worktree ps': fixture('worktree-ps') }).exec).listAgents())[0];
+    expect(fromList?.id).toBe(`${fromList?.repoId}::${fromList?.path}`);
+    expect(fromPs?.worktreeId).toBe(`${fromPs?.repoId}::${fromPs?.path}`);
+  });
+
+  it('keeps the same display name in two repos and leaves archived worktrees out', async () => {
+    const worktrees = await createOrcaAdapter(fakeExec({ 'worktree list': fixture('worktree-list') }).exec).listWorktrees();
+    expect(worktrees.filter((w) => w.displayName === 'main').map((w) => w.repoId)).toHaveLength(2);
+    const doc = json('worktree-list');
+    doc.result.worktrees[1].isArchived = true;
+    const rest = await createOrcaAdapter(fakeExec({ 'worktree list': JSON.stringify(doc) }).exec).listWorktrees();
+    expect(rest).toHaveLength(5);
+    expect(rest.map((w) => w.id)).not.toContain(doc.result.worktrees[1].id);
+  });
+
   it('maps a send result to accepted or not accepted', async () => {
     const accepted = fakeExec({ 'terminal send': fixture('terminal-send-accepted') });
     expect(await createOrcaAdapter(accepted.exec).send('term_x', 'hello')).toEqual({ accepted: true });
@@ -259,6 +285,14 @@ describe('orca adapter listing errors', () => {
     });
     await expect(createOrcaAdapter(exec).listAgents()).rejects.toThrow(/incomplete/);
     await expect(createOrcaAdapter(exec).listTerminals()).rejects.toThrow(/incomplete/);
+  });
+
+  it('fails on a truncated worktree list (a real page captured with --limit 2) and on an omitted local host', async () => {
+    const truncated = fakeExec({ 'worktree list': fixture('worktree-list-truncated') });
+    expect(json('worktree-list-truncated').result).toMatchObject({ truncated: true });
+    await expect(createOrcaAdapter(truncated.exec).listWorktrees()).rejects.toThrow(/worktree list listing is incomplete/);
+    const local = fakeExec({ 'worktree list': withScope('worktree-list', (r) => (r.hostScope.omittedHostIds = ['local'])) });
+    await expect(createOrcaAdapter(local.exec).listWorktrees()).rejects.toThrow(/incomplete/);
   });
 
   it('throws when the local host is omitted but ignores omitted remote hosts', async () => {
