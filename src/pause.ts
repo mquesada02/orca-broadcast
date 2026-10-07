@@ -27,7 +27,7 @@ export function pauseMessage(token: string, role: Role = 'worker', reason?: Pres
   const message =
     `[orca-broadcast] ${pauseSentence(reason)} Finish the step you are on now. ` +
     'Do not start a new step and do not commit. Then end your turn with a short note: where you stopped, ' +
-    `and your next step. The last line of your reply must be exactly: ORCA-PAUSED ${token}. ` +
+    `and your next step. The last line of your reply must be exactly: ${pausedLine(token)}. ` +
     'If a background task or notification wakes you before that, do not act on it: reply with one short line, and end that reply with the same last line. ' +
     'After that, do nothing until you get a message that starts with [orca-broadcast] CONTINUE.';
   return role === 'coordinator' ? `${message} ${COORDINATOR_SENTENCE}` : message;
@@ -39,19 +39,18 @@ function randomToken(): string {
 
 const pausedLine = (token: string) => `ORCA-PAUSED ${token}`;
 
-function provesPause(agent: AgentRecord, row: AgentRow, token: string): boolean {
-  return (
-    !agent.messagePending &&
-    !isWaitingLike(row.state) &&
-    row.lastAssistantMessage !== agent.pauseBaseline &&
-    endsWithLine(row.lastAssistantMessage, pausedLine(token))
-  );
+// A reply written since the baseline. Orca shows null mid-turn, and that is not a reply.
+function hasNewReply(agent: AgentRecord, row: AgentRow): boolean {
+  return row.lastAssistantMessage !== null && row.lastAssistantMessage !== agent.pauseBaseline;
 }
 
-// A confirmed agent is woken only by a newer reply that does not end with the token line; state alone never wakes it,
-// and a null reply (Orca shows null mid-turn) is not a reply.
+function provesPause(agent: AgentRecord, row: AgentRow, token: string): boolean {
+  return !agent.messagePending && !isWaitingLike(row.state) && hasNewReply(agent, row) && endsWithLine(row.lastAssistantMessage, pausedLine(token));
+}
+
+// A confirmed agent is woken only by a newer reply that does not end with the token line; state alone never wakes it.
 function isWoken(agent: AgentRecord, row: AgentRow, token: string): boolean {
-  return row.lastAssistantMessage !== null && row.lastAssistantMessage !== agent.pauseBaseline && !endsWithLine(row.lastAssistantMessage, pausedLine(token));
+  return hasNewReply(agent, row) && !endsWithLine(row.lastAssistantMessage, pausedLine(token));
 }
 
 function isGone(agent: AgentRecord): boolean {

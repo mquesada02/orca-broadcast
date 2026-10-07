@@ -189,28 +189,28 @@ describe('staying paused', () => {
 
   it('keeps a confirmed agent confirmed when it is woken and its new reply still ends with the token line', async () => {
     const { port, summary } = await runLong(
-      confirmsThen((received, n) => (n < 6 ? { state: 'working', message: null } : { state: 'done', message: `Still paused.\nORCA-PAUSED ${tokenOf(received[0] as string)}` })),
+      confirmsThen((received, n) => (n < 6 ? { state: 'working', message: null } : doneWithToken(received, 'Still paused.'))),
     );
     expect(port.sendsTo('a:1')).toBe(1);
-    expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', pauseReason: null, wakeCount: 0 });
+    expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', pauseReason: null, wakeCount: 0, pauseBaseline: expect.stringContaining('Stopped.') });
     expect(summary.exitCode).toBe(0);
   });
 
-  it('does not wake a confirmed agent because of its state alone, or because its reply is null mid-turn', async () => {
-    for (const state of ['working', 'waiting', 'done']) {
+  for (const state of ['working', 'waiting', 'done']) {
+    it(`does not wake a confirmed agent in state ${state} whose reply is null mid-turn`, async () => {
       const { port, summary } = await runLong(confirmsThen(() => ({ state, message: null })));
       expect(port.sendsTo('a:1')).toBe(1);
       expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', wakeCount: 0 });
-    }
-  });
+    });
+  }
 
-  it('does not wake a confirmed agent that is working or waiting with its unchanged token reply', async () => {
-    for (const state of ['working', 'waiting']) {
+  for (const state of ['working', 'waiting']) {
+    it(`does not wake a confirmed agent in state ${state} with its unchanged token reply`, async () => {
       const { port, summary } = await runLong(confirmsThen((received) => ({ state, message: `Stopped.\nORCA-PAUSED ${tokenOf(received[0] as string)}` })));
       expect(port.sendsTo('a:1')).toBe(1);
       expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', wakeCount: 0 });
-    }
-  });
+    });
+  }
 
   it('re-pauses a confirmed agent once when its newer reply has no token line', async () => {
     const { port, summary } = await runLong(confirmsThen(() => ({ state: 'done', message: 'I started a new task.' })));

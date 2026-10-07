@@ -144,6 +144,9 @@ export const startsNewTurnAfterContinue: Behavior = ({ received }) =>
 
 export const working: Behavior = () => ({ state: 'working', message: null });
 
+/** An agent that a background task woke after its token reply: working, with a newer reply that has no token line. */
+export const wokenWorking: Behavior = () => ({ state: 'working', message: 'Back at work.' });
+
 /** A finished reply whose last line is the pause token from the first message received. */
 export const doneWithToken = (received: string[], note = 'Stopped here. Next: run tests.'): Reply => ({
   state: 'done',

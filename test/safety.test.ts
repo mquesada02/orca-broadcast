@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { agentRecord, fakeClock, PAUSED_REPLY, repliesWithToken, seedOpenRun, startsNewTurnAfterContinue, working, type FakeOrca } from './helpers/fake-orca.js';
+import { agentRecord, fakeClock, PAUSED_REPLY, repliesWithToken, seedOpenRun, startsNewTurnAfterContinue, working, wokenWorking, type FakeOrca } from './helpers/fake-orca.js';
 import { CTRL_C, runCli, type Answer, type RunCliOptions, type Seed } from './helpers/run-cli.js';
 import type { AgentRecord } from '../src/types.js';
 
@@ -164,7 +164,7 @@ describe('the plan of an extended pause', () => {
   });
 
   it('a woken confirmed agent is listed', async () => {
-    const { questions, err, port } = await runCli(['pause'], [{ paneKey: 'a:1', worktree: 'wt-a', behavior: () => ({ state: 'working', message: 'Back at work.' }) }], { isTTY: true, ask: ['n'], seed: seedAgents([confirmedA()]) });
+    const { questions, err, port } = await runCli(['pause'], [{ paneKey: 'a:1', worktree: 'wt-a', behavior: wokenWorking }], { isTTY: true, ask: ['n'], seed: seedAgents([confirmedA()]) });
     expect(err).toContain('repo/tree-a:1 (worker)');
     expect(questions).toHaveLength(1);
     expect(port.sends).toEqual([]);

@@ -19,6 +19,7 @@ import {
   seedOpenRun,
   tempStateDir,
   working,
+  wokenWorking,
 } from './helpers/fake-orca.js';
 
 const TIMEOUT = 60_000;
@@ -62,7 +63,7 @@ const wakesAfterConfirm = (): Behavior => {
 };
 
 /** An agent that a background task has woken since the run confirmed it: working, with a newer reply and no token line. */
-const wokenAgent: Behavior = (ctx) => (ctx.received.length === 0 ? { state: 'working', message: 'Back at work.' } : cycleAgent(ctx));
+const wokenAgent: Behavior = (ctx) => (ctx.received.length === 0 ? wokenWorking(ctx) : cycleAgent(ctx));
 
 const confirmedRecord = (paneKey: string) => agentRecord(paneKey, { pauseBaseline: OLD_REPLY });
 

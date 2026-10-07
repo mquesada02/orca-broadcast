@@ -15,5 +15,3 @@ background `sleep` task wakes after its `ORCA-PAUSED` reply. Each file holds one
 - `-working-token`: the agent is `working` while the background task runs, and its last reply already ends with the token line.
 - `-midturn`: after the wake-up, mid-turn, the agent is `working` and `lastAssistantMessage` is `null` (not an empty string).
 - `-done-token`: the woken agent is `done` and its new reply ends with the same token line (it followed the new pause sentence).
-
-In another capture, a woken agent whose reply had no token line ended `done` with a reply that did not end with the token line.

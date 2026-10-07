@@ -49,7 +49,7 @@ function lastLine(message: string | null): string | null {
   return last.length >= 2 && last.startsWith('`') && last.endsWith('`') ? last.slice(1, -1) : last;
 }
 
-// The one last-line check that the pause proof and the later ack proof share.
+// The exact last-line check. It lives here so the later ack proof uses the same normalisation as the pause proof.
 export function endsWithLine(message: string | null, line: string): boolean {
   return lastLine(message) === line;
 }
