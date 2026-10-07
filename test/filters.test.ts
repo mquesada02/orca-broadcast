@@ -582,7 +582,7 @@ describe('filters beside an open broadcast record', () => {
     await store.setCurrent('broadcast', 'b-1');
   };
 
-  it('a filtered close leaves a broadcast alone and prints "nothing to close"', async () => {
+  it('a filtered close that matches no pending target of a broadcast prints "nothing to close" and leaves it open', async () => {
     const { code, out, dir } = await runCli(['close', '--repo', 'alpha'], [], withRepos({ seed: broadcastSeed }));
     expect(code).toBe(0);
     expect(out).toContain('nothing to close');
