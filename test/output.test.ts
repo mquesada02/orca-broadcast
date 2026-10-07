@@ -181,9 +181,9 @@ describe('--json errors outside the commands', () => {
   });
 
   it('--help wins over --json when parsing succeeds, and the JSON error wins when it fails', async () => {
-    const help = await runCli(['--help', '--json']);
+    const help = await runCli(['pause', '--help', '--json']);
     expect(help.code).toBe(0);
-    expect(help.out).toContain('Usage: orca-broadcast broadcast');
+    expect(help.out).toContain('Usage: orca-broadcast pause');
     expect(help.out).toContain('--json');
     const broken = await runCli(['--bogus', '--help', '--json']);
     expect(broken.code).toBe(2);

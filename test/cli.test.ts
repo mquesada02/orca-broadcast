@@ -33,8 +33,11 @@ describe('orca-broadcast --help and usage', () => {
   it('prints usage and exits 0 for --help', async () => {
     const { code, out } = await run(['--help']);
     expect(code).toBe(0);
-    expect(out).toContain('Usage: orca-broadcast broadcast');
-    expect(out).toContain('--timeout');
+    expect(out).toContain('Usage: orca-broadcast <command>');
+    expect(out).toContain('run `orca-broadcast <command> --help` for its options');
+    const broadcast = await run(['broadcast', '--help']);
+    expect(broadcast.out).toContain('Usage: orca-broadcast broadcast');
+    expect(broadcast.out).toContain('--timeout');
   });
 
   it.each([
@@ -60,8 +63,8 @@ describe('orca-broadcast --help and usage', () => {
   });
 
   it('describes close in the usage text', async () => {
-    const { out } = await run(['--help']);
-    expect(out).toContain('orca-broadcast close');
+    const { out } = await run(['close', '--help']);
+    expect(out).toContain('Usage: orca-broadcast close');
   });
 });
 
@@ -220,8 +223,8 @@ describe('orca-broadcast resume', () => {
   });
 
   it('lists resume in the usage text', async () => {
-    const { out } = await run(['--help']);
-    expect(out).toContain('orca-broadcast resume');
+    const { out } = await run(['resume', '--help']);
+    expect(out).toContain('Usage: orca-broadcast resume');
   });
 });
 
@@ -491,7 +494,7 @@ describe('--reason', () => {
   const agents = (): FakeAgent[] => [{ paneKey: 'a:1', behavior: repliesWithToken() }];
 
   it('lists the presets in --help', async () => {
-    const { out } = await run(['--help']);
+    const { out } = await run(['pause', '--help']);
     for (const name of ['--reason <name>', 'network', 'away', 'end-of-day', 'limit']) expect(out).toContain(name);
   });
 
