@@ -87,6 +87,7 @@ describe('usage errors', () => {
     [['close', '--yes'], 'Usage: orca-broadcast close'],
     [['broadcast', 'a', 'b'], 'Usage: orca-broadcast broadcast'],
     [['group', 'add'], 'Usage: orca-broadcast group add'],
+    [['--repo', 'alpha', 'pause', '--bogus'], 'Usage: orca-broadcast pause'],
     [['bogus'], 'Usage: orca-broadcast <command>'],
     [[], 'Usage: orca-broadcast <command>'],
   ])('%j prints its error and a usage line, not the whole help', async (argv, usage) => {

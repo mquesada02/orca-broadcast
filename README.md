@@ -82,7 +82,7 @@ orca-broadcast broadcast                  # after a timeout: keep waiting on the
 A `broadcast` that waits for acks in another terminal holds the lock. `pause` does not wait for it:
 
 1. `pause` checks its arguments before it takes the lock. With filters, it resolves the filter values with read-only calls to Orca. A typo in a filter value therefore fails with exit 2 before any broadcast is stopped.
-   Next, `pause` looks at the lock. The hand-over starts only when the process that holds the lock is the one the open broadcast record names. The pid and the start time must both match, and that process must be alive with that start time.
+   Next, `pause` looks at the lock. The hand-over starts only when the process that holds the lock is the one the open broadcast record names. The pid and the start time must both match, and that process must be alive with that start time. A lock without a start time never matches, so no hand-over happens.
    Then `pause` checks that fresh listings select at least one agent that matches the filters. After that, it sends the process SIGTERM and waits up to 5 seconds for the lock.
    The broadcast treats SIGTERM like Ctrl-C: it saves its record, clears its pid and exits 130.
 2. Any other lock holder, a pid or start time that does not match, or a signal that is not allowed (EPERM) makes `pause` exit 2 at once, with no signal. A lock still held after 5 seconds also exits 2. A process that is already gone (ESRCH) is not an error.

@@ -125,7 +125,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
   // The first words of argv until the parser has run: enough to answer a failed parse of a group call in the group shape.
   let group = groupLabel(argv.filter((arg) => !arg.startsWith('-')));
   // What a usage error prints under its message; refined once the parser has run.
-  let topic: HelpTopic = helpTopicOf(argv.filter((arg) => !arg.startsWith('-')));
+  let topic: HelpTopic = helpTopicOf(argv.filter((arg) => arg === 'group' || isCommand(arg)));
   try {
     const { values, positionals } = parseUsage(argv);
     topic = helpTopicOf(positionals);

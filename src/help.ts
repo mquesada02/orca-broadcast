@@ -1,4 +1,4 @@
-import { COMMANDS, flagsOf, type Command, type FlagSpec } from './flags.js';
+import { flagsOf, isCommand, type Command, type FlagSpec } from './flags.js';
 
 /** What a help request or a usage error is about: one command, the `group` commands, or nothing known. */
 export type HelpTopic = Command | 'group' | null;
@@ -34,12 +34,13 @@ const GROUP_USAGE = [
   'orca-broadcast group remove <name> [--json]',
 ];
 
-const OTHER = new Set(['help', 'json']);
+// The two flags every page ends with, so a command's own flags come first.
+const GENERIC_FLAGS = new Set(['help', 'json']);
 
 const flagUsage = ([name, spec]: [string, FlagSpec]) => `[--${name}${spec.arg ? ` ${spec.arg}` : ''}]`;
 
 function usageOf(command: Command): string {
-  const flags = flagsOf(command).filter(([name]) => !OTHER.has(name));
+  const flags = flagsOf(command).filter(([name]) => !GENERIC_FLAGS.has(name));
   const parts = ['orca-broadcast', command];
   if (command === 'broadcast') parts.push('["<text>" | --file <path>]');
   if (flags.some(([, spec]) => spec.filter)) parts.push('[filters]');
@@ -57,7 +58,7 @@ export function usageLine(topic: HelpTopic): string {
 const TOP_USAGE = 'Usage: orca-broadcast <command> [flags]\n';
 
 const flagLines = (entries: [string, FlagSpec][], note: (spec: FlagSpec) => string | undefined, help: (spec: FlagSpec) => string): string => {
-  const ordered = [...entries.filter(([name]) => !OTHER.has(name)), ...entries.filter(([name]) => OTHER.has(name))];
+  const ordered = [...entries.filter(([name]) => !GENERIC_FLAGS.has(name)), ...entries.filter(([name]) => GENERIC_FLAGS.has(name))];
   return ordered
     .map(([name, spec]) => {
       const extra = note(spec);
@@ -93,7 +94,8 @@ export function helpFor(topic: HelpTopic): string {
   return topic === 'group' ? groupHelp() : topic === null ? topHelp() : commandHelp(topic);
 }
 
+/** The topic of the first word, or null when it is not a command. */
 export const helpTopicOf = (positionals: string[]): HelpTopic => {
   const [first] = positionals;
-  return first === 'group' ? 'group' : (COMMANDS as readonly (string | undefined)[]).includes(first) ? (first as Command) : null;
+  return first === 'group' ? 'group' : isCommand(first) ? first : null;
 };

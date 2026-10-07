@@ -30,13 +30,18 @@ export interface FlagSpec {
 }
 
 // One table drives the parser and the "flag not valid here" messages of every command.
+const NARROWS_RUN = 'Only narrows the recorded agents of the open run.';
+const NEEDS_YES = 'It never asks for confirmation, so --yes is required.';
+const STATE_KIND_SKIPPED = "A group's state kind is skipped (one line on stderr); a group with only a state kind is refused.";
+const NARROWING_NOTES = { resume: NARROWS_RUN, close: NARROWS_RUN } as const;
+
 const FLAGS: Record<string, FlagSpec> = {
   help: { type: 'boolean', commands: COMMANDS, help: 'Show this help' },
   json: {
     type: 'boolean',
     commands: COMMANDS,
     help: 'Print one JSON object on stdout and nothing on stderr (except the one line about a skipped group state kind)',
-    notes: { broadcast: 'It never asks for confirmation, so --yes is required.', pause: 'It never asks for confirmation, so --yes is required.', resume: 'It never asks for confirmation, so --yes is required.' },
+    notes: { broadcast: NEEDS_YES, pause: NEEDS_YES, resume: NEEDS_YES },
   },
   file: { type: 'string', arg: '<path>', commands: ['broadcast'], help: 'Read the text from a file instead of the command line; give the text or --file, not both' },
   timeout: {
@@ -65,7 +70,7 @@ const FLAGS: Record<string, FlagSpec> = {
     filter: true,
     groupAdd: true,
     help: 'Agents in that repo; repeat the flag for several values',
-    notes: { resume: 'Only narrows the recorded agents of the open run.', close: 'Only narrows the recorded agents of the open run.' },
+    notes: NARROWING_NOTES,
   },
   worktree: {
     type: 'string',
@@ -75,7 +80,7 @@ const FLAGS: Record<string, FlagSpec> = {
     filter: true,
     groupAdd: true,
     help: 'Agents in that worktree; a name is looked up in the --repo values',
-    notes: { resume: 'Only narrows the recorded agents of the open run.', close: 'Only narrows the recorded agents of the open run.' },
+    notes: NARROWING_NOTES,
   },
   role: {
     type: 'string',
@@ -85,7 +90,7 @@ const FLAGS: Record<string, FlagSpec> = {
     filter: true,
     groupAdd: true,
     help: 'Agents with that role',
-    notes: { resume: 'Only narrows the recorded agents of the open run.', close: 'Only narrows the recorded agents of the open run.' },
+    notes: NARROWING_NOTES,
   },
   run: {
     type: 'string',
@@ -95,7 +100,7 @@ const FLAGS: Record<string, FlagSpec> = {
     filter: true,
     groupAdd: true,
     help: 'Agents of that orchestration run (an exact run id)',
-    notes: { resume: 'Only narrows the recorded agents of the open run.', close: 'Only narrows the recorded agents of the open run.' },
+    notes: NARROWING_NOTES,
   },
   state: {
     type: 'string',
@@ -116,9 +121,9 @@ const FLAGS: Record<string, FlagSpec> = {
     filter: true,
     help: 'Use a saved group; one per command. Other filters narrow it',
     notes: {
-      pause: "A group's state kind is skipped (one line on stderr); a group with only a state kind is refused.",
-      resume: "A group's state kind is skipped (one line on stderr); a group with only a state kind is refused. Only narrows the recorded agents of the open run.",
-      close: "A group's state kind is skipped (one line on stderr); a group with only a state kind is refused. Only narrows the recorded agents of the open run.",
+      pause: STATE_KIND_SKIPPED,
+      resume: `${STATE_KIND_SKIPPED} ${NARROWS_RUN}`,
+      close: `${STATE_KIND_SKIPPED} ${NARROWS_RUN}`,
     },
   },
 };
