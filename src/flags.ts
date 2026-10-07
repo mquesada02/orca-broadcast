@@ -128,9 +128,13 @@ const FLAGS: Record<string, FlagSpec> = {
   },
 };
 
-/** The flags a command accepts, in table order, or the flags `group add` accepts. */
-export const flagsOf = (target: Command | 'group add'): [string, FlagSpec][] =>
-  Object.entries(FLAGS).filter(([name, spec]) => (target === 'group add' ? name === 'help' || name === 'json' || spec.groupAdd : spec.commands.includes(target)));
+const GENERIC_FLAGS = ['help', 'json'];
+
+/** The flags a command accepts, or the flags `group add` accepts: the command's own in table order, then `json` and `help`. */
+export const flagsOf = (target: Command | 'group add'): [string, FlagSpec][] => {
+  const own = Object.entries(FLAGS).filter(([name, spec]) => !GENERIC_FLAGS.includes(name) && (target === 'group add' ? spec.groupAdd : spec.commands.includes(target)));
+  return [...own, ...GENERIC_FLAGS.map((name): [string, FlagSpec] => [name, FLAGS[name]!])];
+};
 
 export const PARSE_OPTIONS = Object.fromEntries(Object.entries(FLAGS).map(([name, { type, multiple }]) => [name, multiple ? { type, multiple } : { type }]));
 

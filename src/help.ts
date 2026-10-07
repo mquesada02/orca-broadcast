@@ -34,13 +34,12 @@ const GROUP_USAGE = [
   'orca-broadcast group remove <name> [--json]',
 ];
 
-// The two flags every page ends with, so a command's own flags come first.
-const GENERIC_FLAGS = new Set(['help', 'json']);
+const GROUP_PURPOSE = 'Save, list, show and remove named filters';
 
 const flagUsage = ([name, spec]: [string, FlagSpec]) => `[--${name}${spec.arg ? ` ${spec.arg}` : ''}]`;
 
 function usageOf(command: Command): string {
-  const flags = flagsOf(command).filter(([name]) => !GENERIC_FLAGS.has(name));
+  const flags = flagsOf(command).filter(([name]) => name !== 'help' && name !== 'json');
   const parts = ['orca-broadcast', command];
   if (command === 'broadcast') parts.push('["<text>" | --file <path>]');
   if (flags.some(([, spec]) => spec.filter)) parts.push('[filters]');
@@ -55,39 +54,28 @@ export function usageLine(topic: HelpTopic): string {
   return `Usage: ${usageOf(topic)}\n`;
 }
 
-const TOP_USAGE = 'Usage: orca-broadcast <command> [flags]\n';
-
-const flagLines = (entries: [string, FlagSpec][], note: (spec: FlagSpec) => string | undefined, help: (spec: FlagSpec) => string): string => {
-  const ordered = [...entries.filter(([name]) => !GENERIC_FLAGS.has(name)), ...entries.filter(([name]) => GENERIC_FLAGS.has(name))];
-  return ordered
+const flagLines = (target: Command | 'group add'): string =>
+  flagsOf(target)
     .map(([name, spec]) => {
-      const extra = note(spec);
-      return `  --${name}${spec.arg ? ` ${spec.arg}` : ''}\n      ${help(spec)}${extra ? `\n      ${extra}` : ''}\n`;
+      const help = (target === 'group add' && spec.groupHelp) || spec.help;
+      const note = target === 'group add' ? undefined : spec.notes?.[target];
+      return `  --${name}${spec.arg ? ` ${spec.arg}` : ''}\n      ${help}${note ? `\n      ${note}` : ''}\n`;
     })
     .join('');
-};
 
 export function commandHelp(command: Command): string {
   const body = DETAILS[command].map((line) => `${line}\n`).join('');
-  return `${usageLine(command)}\n${PURPOSE[command]}.\n${body}\nFlags:\n${flagLines(flagsOf(command), (spec) => spec.notes?.[command], (spec) => spec.help)}`;
+  return `${usageLine(command)}\n${PURPOSE[command]}.\n${body}\nFlags:\n${flagLines(command)}`;
 }
 
 export function groupHelp(): string {
   const note = 'list, show and remove take only --json and --help.\n';
-  return `${usageLine('group')}\nSave, list, show and remove named filters. add checks that every value resolves now; show lists the agents the group matches now. They only read Orca and send nothing.\n${note}\nFlags of group add:\n${flagLines(flagsOf('group add'), () => undefined, (spec) => spec.groupHelp ?? spec.help)}`;
+  return `${usageLine('group')}\n${GROUP_PURPOSE}. add checks that every value resolves now; show lists the agents the group matches now. They only read Orca and send nothing.\n${note}\nFlags of group add:\n${flagLines('group add')}`;
 }
 
-const TOP_PURPOSE: [string, string][] = [
-  ['broadcast', 'Send one line of text to the agents and prove each one acknowledged it'],
-  ['pause', 'Ask the working agents to stop at a clean point and prove it'],
-  ['resume', 'Tell the paused agents to continue and prove it'],
-  ['close', 'Abandon the open run or broadcast without resuming it'],
-  ['group', 'Save, list, show and remove named filters'],
-];
-
 export function topHelp(): string {
-  const commands = TOP_PURPOSE.map(([name, text]) => `  ${name.padEnd(11)}${text}\n`).join('');
-  return `${TOP_USAGE}\nCommands:\n${commands}\nOptions differ per command: run \`orca-broadcast <command> --help\` for its options.\n`;
+  const commands = [...Object.entries(PURPOSE), ['group', GROUP_PURPOSE]].map(([name, text]) => `  ${name!.padEnd(11)}${text}\n`).join('');
+  return `Usage: orca-broadcast <command> [flags]\n\nCommands:\n${commands}\nOptions differ per command: run \`orca-broadcast <command> --help\` for its options.\n`;
 }
 
 export function helpFor(topic: HelpTopic): string {
