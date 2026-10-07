@@ -1,7 +1,7 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { continueSentence, type Preset } from './reasons.js';
 import { hasFilters, matches, NO_FILTERS } from './filters.js';
-import { assertCurrentFormat, cancelled, coordinatorsLast, failure, identityOf, iso, listAgentsFresh, listSnapshot, nothingToDo, locate, POLL_INTERVAL_MS, liveSources, resolveFilterSet, roleInfoOf, type Roles } from './shared.js';
+import { assertCurrentFormat, cancelled, coordinatorsLast, failure, identityOf, iso, listAgentsFresh, listSnapshot, nothingToDo, locate, POLL_INTERVAL_MS, liveSources, resolveFilterSet, roleInfoOf, withWarnings, type Roles } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, ContinueBaseline, FilterSpec, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
@@ -44,13 +44,19 @@ function sendTargets(selected: AgentRecord[], rows: Map<string, AgentRow>, termi
   return coordinatorsLast(targets, (target) => target.role);
 }
 
-export async function resume(deps: ResumeDeps): Promise<RunSummary> {
+export function resume(deps: ResumeDeps): Promise<RunSummary> {
+  return withWarnings((warnings) => runResume(deps, warnings));
+}
+
+async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSummary> {
   const { port, clock, store } = deps;
 
   let run: Run | null;
   try {
     throwIfAborted(deps.signal);
-    run = (await store.findOpenRun())?.run ?? null;
+    const open = await store.loadOpen();
+    warnings.push(...open.notes);
+    run = open.pause?.record ?? null;
     if (run) assertCurrentFormat(run);
   } catch (error) {
     return failure(error, null);

@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { BroadcastRecord, Run } from './types.js';
+import { releaseBroadcast } from './shared.js';
+import type { BroadcastReason, BroadcastRecord, Run } from './types.js';
 
 const POINTER = 'current';
 const LOCK = 'lock';
@@ -39,6 +40,11 @@ export interface OpenRecords {
   broadcast: OpenEntry<BroadcastRecord> | null;
 }
 
+// What the repairing load returns: the records after recovery, and one line per thing it found or fixed.
+export interface LoadedRecords extends OpenRecords {
+  notes: string[];
+}
+
 export interface LockOwner {
   pid: number;
   startTime?: string;
@@ -47,13 +53,17 @@ export interface LockOwner {
 export interface RecordStore {
   /** The open pause run, as the repairing load sees it. */
   findOpenRun(): Promise<OpenRuns | null>;
-  /** Scans both kinds and repairs the pointer. The caller must hold the lock. */
-  loadOpen(): Promise<OpenRecords>;
+  /** Scans both kinds, repairs the pointer and abandons a broadcast that is open beside a pause run. The caller must hold the lock. */
+  loadOpen(): Promise<LoadedRecords>;
   /** The same selection as `loadOpen`, with no repair; safe without the lock. */
   peekOpen(): Promise<OpenRecords>;
   acquireLock(): Promise<() => Promise<void>>;
   /** The parsed lock owner, or null when there is no lock or it is invalid. */
   lockOwner(): Promise<LockOwner | null>;
+  /** Whether a process with this pid exists (the reader the stale-lock rule uses). */
+  isProcessAlive(pid: number): boolean;
+  /** The start time of any process, when it can be read (the reader the stale-lock rule uses). */
+  processStartTime(pid: number): string | undefined;
   save(run: Run): Promise<void>;
   saveBroadcast(record: BroadcastRecord): Promise<void>;
   /** Removes a pause run's file and clears the pointer if it names that run. The caller guarantees the run is new and unconfirmed. */
@@ -94,6 +104,17 @@ function procStartTime(pid: number): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+// The pending targets of a broadcast that nobody runs any more are no longer waited on: the record closes and drops its pid.
+export function abandonPending(record: BroadcastRecord, reason: Extract<BroadcastReason, 'paused' | 'closed'>): number {
+  const pending = record.targets.filter((t) => t.status === 'pending');
+  for (const target of pending) {
+    target.status = 'abandoned';
+    target.reason = reason;
+  }
+  releaseBroadcast(record); // nothing is pending now, so this also closes the record
+  return pending.length;
 }
 
 async function writeAtomic(path: string, content: string): Promise<void> {
@@ -244,9 +265,21 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     return { pause, broadcast };
   }
 
-  async function loadOpen(): Promise<OpenRecords> {
+  async function loadOpen(): Promise<LoadedRecords> {
     const open = await peekOpen();
-    // An open pause run wins the pointer; abandoning the broadcast is the pause command's job.
+    const notes: string[] = [];
+    // When several records of one kind are open the newest wins and the others are only reported.
+    if (open.pause?.others.length) notes.push(`other pause runs are open and were left as they are: ${open.pause.others.map((r) => r.runId).join(', ')}`);
+    if (!open.pause && open.broadcast?.others.length) notes.push(`other broadcasts are open and were left as they are: ${open.broadcast.others.map((r) => r.id).join(', ')}`);
+    // An open pause run wins the pointer, and every broadcast open beside it is abandoned: one record is open at a time.
+    if (open.pause && open.broadcast) {
+      for (const record of [open.broadcast.record, ...open.broadcast.others]) {
+        abandonPending(record, 'paused');
+        await writeRecord(broadcastsDir, record.id, record);
+        notes.push(`broadcast ${record.id} was open beside a pause run and is now abandoned`);
+      }
+      open.broadcast = null;
+    }
     const winner: Pointer | null = open.pause
       ? { kind: 'pause', id: open.pause.record.runId }
       : open.broadcast
@@ -258,7 +291,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
       const pointer = await readPointer();
       if (pointer?.kind !== winner.kind || pointer.id !== winner.id) await setCurrent(winner.kind, winner.id);
     }
-    return open;
+    return { ...open, notes };
   }
 
   return {
@@ -276,6 +309,9 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
       const { pause } = await loadOpen();
       return pause ? { run: pause.record, others: pause.others } : null;
     },
+
+    isProcessAlive: isAlive,
+    processStartTime: readStartTime,
 
     async lockOwner() {
       const owner = await readOwner(lockPath);

@@ -5,17 +5,17 @@ import { parseArgs } from 'node:util';
 import { Interrupted, throwIfAborted } from './abort.js';
 import { PromptInterrupted } from './ask.js';
 import { broadcast, normaliseText } from './broadcast.js';
-import { withLockAndSignals, type SignalSource } from './guard.js';
+import { withLockAndSignals, type GuardOptions, type SignalSource } from './guard.js';
 import { createOrcaAdapter } from './orca-adapter.js';
 import { close } from './close.js';
 import { systemClock } from './clock.js';
-import { DEFAULT_TIMEOUT_MS, pause, type PauseDeps } from './pause.js';
+import { DEFAULT_TIMEOUT_MS, pause, precheckPause, prelockPause, type PauseDeps } from './pause.js';
 import { describeFilters, hasFilters } from './filters.js';
 import { isCommand, PARSE_OPTIONS, UsageError, validateFlags, type Command, type FlagValues } from './flags.js';
 import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
 import { resume } from './resume.js';
-import { createRecordStore } from './store.js';
+import { createRecordStore, type StoreOptions } from './store.js';
 import type { Clock, Confirm, FilterSpec, OrcaPort, Role, RunSummary } from './types.js';
 
 const CLEAR_LINE = '\r\x1b[K';
@@ -35,6 +35,10 @@ export interface CliDeps {
   newToken?: PauseDeps['newToken'];
   /** The folder a relative `--worktree` path is resolved from. */
   cwd?: string;
+  /** Sends a signal to a process; the real `process.kill` when omitted. */
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+  /** The store's pid, liveness and start-time readers; the real ones when omitted. */
+  storeOptions?: StoreOptions;
 }
 
 const USAGE = `Usage: orca-broadcast broadcast "<text>" | --file <path> [--timeout <n>s|m|h] [--yes]
@@ -162,20 +166,29 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const rawText = values.file === undefined ? rest[0] : await readTextFile(values.file as string);
     const text = rawText === undefined ? undefined : normaliseText(rawText);
 
-    const store = createRecordStore(resolveStateDir(env));
+    const store = createRecordStore(resolveStateDir(env), deps.storeOptions);
     const progressLine = <P>(render: (progress: P) => string) =>
       io.isTTY && !json ? (progress: P) => io.stderr(`${CLEAR_LINE}${render(progress)}`) : undefined;
+    const clock = deps.clock ?? systemClock;
+    const { cwd } = deps;
+    // A plain close never uses the port; only a filtered one needs live listings.
+    const port = command === 'close' && !filters ? null : (deps.port ?? createOrcaAdapter());
+    // Only `pause` may stop a broadcast that holds the lock: it is the one urgent command. Its filter values are checked before the lock.
+    const scope = { port, clock, filters, cwd };
+    const guardOptions: GuardOptions =
+      command === 'pause' && port
+        ? {
+            prelock: (signal) => prelockPause({ ...scope, port, signal }),
+            handOver: { clock, kill: deps.kill ?? process.kill.bind(process), precheck: (signal) => precheckPause({ ...scope, port, selfPaneKey: env.ORCA_PANE_KEY, signal }) },
+          }
+        : {};
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
-      const clock = deps.clock ?? systemClock;
-      const { cwd } = deps;
-      // A plain close never uses the port; only a filtered one needs live listings.
-      if (command === 'close') return close(store, signal, filters ? { filters, port: deps.port ?? createOrcaAdapter(), clock, cwd } : undefined);
-      const port = deps.port ?? createOrcaAdapter();
+      if (!port || command === 'close') return close(store, signal, port && filters ? { filters, port, clock, cwd } : undefined);
       if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal });
       return command === 'pause'
         ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, cwd, onProgress: progressLine(renderProgress), confirm, signal })
         : resume({ port, clock, store, filters, cwd, onProgress: progressLine(renderResumeProgress), confirm, signal });
-    });
+    }, guardOptions);
     if (json) {
       io.stdout(jsonLine(command, summary));
       return summary.exitCode;
@@ -184,7 +197,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
 
     // The agents of this output: the rows, and self where the output has a self block.
     const shown = summary.self ? [...summary.rows, summary.self] : summary.rows;
-    if (summary.warning) io.stderr(`orca-broadcast: ${summary.warning}\n`);
+    for (const warning of summary.warnings ?? []) io.stderr(`orca-broadcast: ${warning}\n`);
     if (summary.outcome === 'error') {
       io.stderr(`orca-broadcast: ${summary.error}\n`);
     } else if (command === 'broadcast' || summary.record) {

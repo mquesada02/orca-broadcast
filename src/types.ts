@@ -141,8 +141,8 @@ export interface RunSummary {
   record?: BroadcastRecord | null;
   /** This session as `broadcast` shows it on its own line. */
   broadcastSelf?: ConfirmTarget | null;
-  /** A line `close` prints on stderr, for example when it leaves a second open record untouched. */
-  warning?: string;
+  /** Lines printed on stderr in text mode (never in `--json`): recovery notes and the broadcast a pause abandoned. */
+  warnings?: string[];
 }
 
 // What the user typed for each filter kind, as stored for display.
@@ -174,7 +174,7 @@ export interface Run {
 }
 
 export type BroadcastStatus = 'pending' | 'acked' | 'gone' | 'abandoned';
-export type BroadcastReason = LocateReason | 'waiting-permission' | 'still-working' | 'send-failed' | 'closed';
+export type BroadcastReason = LocateReason | 'waiting-permission' | 'still-working' | 'send-failed' | 'closed' | 'paused';
 
 export interface BroadcastTarget {
   paneKey: string;

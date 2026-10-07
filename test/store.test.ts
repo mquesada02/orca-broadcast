@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRecordStore, LockHeldError, parseProcStartTime, type StoreOptions } from '../src/store.js';
 import type { BroadcastRecord, Run } from '../src/types.js';
-import { tempStateDir } from './helpers/fake-orca.js';
+import { broadcastTarget, tempStateDir } from './helpers/fake-orca.js';
 
 const run = (runId: string, startedAt: string, status: Run['status'] = 'open'): Run => ({ runId, token: 'cafebabe', startedAt, status, scope: [{ typed: {} }], agents: [] });
 const DEAD = 4_000_000;
@@ -296,7 +296,7 @@ describe('open-record scan', () => {
   it('returns nothing for a missing state directory', async () => {
     const s = newStore(await tempStateDir());
     expect(await s.findOpenRun()).toBeNull();
-    expect(await s.loadOpen()).toEqual({ pause: null, broadcast: null });
+    expect(await s.loadOpen()).toEqual({ pause: null, broadcast: null, notes: [] });
     expect(await s.peekOpen()).toEqual({ pause: null, broadcast: null });
   });
 
@@ -360,17 +360,41 @@ describe('open-record scan', () => {
     expect(await pointer(dir)).toEqual({ kind: 'broadcast', id: 'b1' });
   });
 
-  it('reports both kinds when both are open and gives the pointer to the pause run, without changing the broadcast', async () => {
+  it('abandons the broadcast that is open beside a pause run, reports it, and gives the pointer to the pause run', async () => {
     const dir = await withDir();
     const s = newStore(dir);
-    await s.saveBroadcast(broadcast('b1', '2026-03-01T00:00:00.000Z'));
+    await s.saveBroadcast({ ...broadcast('b1', '2026-03-01T00:00:00.000Z'), pid: 4242, startTime: '9', targets: [broadcastTarget('a:1'), { ...broadcastTarget('b:2'), status: 'acked', reason: null }] });
     await s.save(run('r1', '2026-01-01T00:00:00.000Z'));
     await s.setCurrent('broadcast', 'b1');
     const open = await s.loadOpen();
     expect(open.pause?.record.runId).toBe('r1');
-    expect(open.broadcast?.record.id).toBe('b1');
+    expect(open.broadcast).toBeNull();
+    expect(open.notes).toEqual(['broadcast b1 was open beside a pause run and is now abandoned']);
     expect(await pointer(dir)).toEqual({ kind: 'pause', id: 'r1' });
-    expect(JSON.parse(await readFile(join(dir, 'broadcasts', 'b1.json'), 'utf8')).status).toBe('open');
+    const saved = JSON.parse(await readFile(join(dir, 'broadcasts', 'b1.json'), 'utf8')) as BroadcastRecord;
+    expect(saved).toMatchObject({ status: 'closed' });
+    expect(saved).not.toHaveProperty('pid');
+    expect(saved.targets.map((t) => [t.status, t.reason])).toEqual([['abandoned', 'paused'], ['acked', null]]);
+    expect((await s.loadOpen()).notes).toEqual([]);
+  });
+
+  it('does not abandon a lone open broadcast, and does not touch it in the lock-free query', async () => {
+    const dir = await withDir();
+    const s = newStore(dir);
+    await s.saveBroadcast(broadcast('b1', '2026-03-01T00:00:00.000Z'));
+    expect((await s.peekOpen()).broadcast?.record.id).toBe('b1');
+    expect((await s.loadOpen()).broadcast?.record).toMatchObject({ id: 'b1', status: 'open' });
+  });
+
+  it('reports the other open records of one kind and leaves them open', async () => {
+    const s = newStore(await withDir());
+    await s.save(run('old-run', '2026-01-01T00:00:00.000Z'));
+    await s.save(run('new-run', '2026-02-01T00:00:00.000Z'));
+    expect((await s.loadOpen()).notes).toEqual(['other pause runs are open and were left as they are: old-run']);
+    const t = newStore(await withDir());
+    await t.saveBroadcast(broadcast('old-b', '2026-01-01T00:00:00.000Z'));
+    await t.saveBroadcast(broadcast('new-b', '2026-02-01T00:00:00.000Z'));
+    expect((await t.loadOpen()).notes).toEqual(['other broadcasts are open and were left as they are: old-b']);
   });
 
   it('breaks a tie between open broadcasts on the id', async () => {
@@ -427,7 +451,7 @@ describe('open-record scan', () => {
   it('ignores records left in the old flat layout', async () => {
     const dir = await withDir({ 'old-run.json': JSON.stringify(run('old-run', '2026-01-01T00:00:00.000Z')), current: 'old-run\n' });
     const s = newStore(dir);
-    expect(await s.loadOpen()).toEqual({ pause: null, broadcast: null });
+    expect(await s.loadOpen()).toEqual({ pause: null, broadcast: null, notes: [] });
     expect(await readdir(dir)).toEqual(['old-run.json']);
   });
 

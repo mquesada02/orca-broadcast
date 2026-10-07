@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { broadcastMessage } from '../src/broadcast.js';
 import type { RecordStore } from '../src/store.js';
 import type { BroadcastRecord, BroadcastTarget } from '../src/types.js';
-import { agentRecord, fakeClock, seedOpenRun, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
+import { agentRecord, broadcastTarget, fakeClock, openBroadcastRecord, seedOpenRun, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
 import { CTRL_C, runCli, type RunCliOptions } from './helpers/run-cli.js';
 
 const TOKEN = 'abcd1234';
@@ -31,11 +31,8 @@ async function records(dir: string): Promise<BroadcastRecord[]> {
 }
 const hasPointer = async (dir: string) => (await readdir(storeDir(dir)).catch(() => [] as string[])).includes('current');
 
-function target(paneKey: string, extra: Partial<BroadcastTarget> = {}): BroadcastTarget {
-  return { paneKey, repoId: 'repo-repo', repo: 'repo', worktreeId: `wt-${paneKey}`, worktreePath: `/work/tree-${paneKey}`, worktree: `tree-${paneKey}`, role: 'session', orchestrationRunIds: [], lastHandle: null, baseline: null, messagePending: false, status: 'pending', reason: 'still-working', ...extra };
-}
 const seedBroadcast = (targets: BroadcastTarget[], extra: Partial<BroadcastRecord> = {}) => async (store: RecordStore) => {
-  const record: BroadcastRecord = { id: 'b-1', token: TOKEN, text: 'earlier text', createdAt: '2026-01-01T00:00:00.000Z', status: 'open', targets, ...extra };
+  const record = openBroadcastRecord(targets, extra);
   await store.saveBroadcast(record);
   await store.setCurrent('broadcast', record.id);
 };
@@ -414,7 +411,7 @@ describe('broadcast and the other record', () => {
     ['the same text', ['broadcast', 'earlier text', '--yes']],
     ['no text', ['broadcast', '--yes']],
   ])('is refused with %s while a broadcast is open, and the record stays', async (_name, argv) => {
-    const { code, err, port, dir } = await run(argv, [{ paneKey: 'a:1', behavior: acks }], { seed: seedBroadcast([target('a:1')]) });
+    const { code, err, port, dir } = await run(argv, [{ paneKey: 'a:1', behavior: acks }], { seed: seedBroadcast([broadcastTarget('a:1')]) });
     expect(code).toBe(2);
     expect(err).toContain('A broadcast is open; close it first.');
     expect(port.sends).toEqual([]);
@@ -428,36 +425,8 @@ describe('broadcast and the other record', () => {
     expect(port.sends).toEqual([]);
   });
 
-  it('makes pause exit 2 and write nothing while a broadcast is open', async () => {
-    const { code, err, port, dir } = await run(['pause', '--yes'], [{ paneKey: 'a:1', behavior: working }], { seed: seedBroadcast([target('a:1')]) });
-    expect(code).toBe(2);
-    expect(err).toContain('A broadcast is open; close it first.');
-    expect(port.sends).toEqual([]);
-    expect(await readdir(storeDir(dir))).not.toContain('pauses');
-    expect((await records(dir))[0]).toMatchObject({ id: 'b-1', status: 'open' });
-    expect(JSON.parse(await readFile(join(storeDir(dir), 'current'), 'utf8'))).toEqual({ kind: 'broadcast', id: 'b-1' });
-  });
-
-  it('makes pause exit 2 with a JSON error object while a broadcast is open', async () => {
-    const { code, out } = await run(['pause', '--yes', '--json'], [{ paneKey: 'a:1', behavior: working }], { seed: seedBroadcast([target('a:1')]) });
-    expect(code).toBe(2);
-    expect(JSON.parse(out)).toMatchObject({ command: 'pause', outcome: 'error', exitCode: 2, run: null, record: null });
-  });
-
-  it('makes pause exit 2 and write nothing when a pause run and a broadcast are both open', async () => {
-    const { code, err, port } = await run(['pause', '--yes'], [{ paneKey: 'a:1', behavior: working }], {
-      seed: async (store) => {
-        await seedBroadcast([target('a:1')])(store);
-        await seedOpenRun(store, [agentRecord('a:1')]);
-      },
-    });
-    expect(code).toBe(2);
-    expect(err).toContain('A broadcast is open; close it first.');
-    expect(port.sends).toEqual([]);
-  });
-
   it('makes resume say "nothing to resume" with exit 0 when only a broadcast is open', async () => {
-    const { code, out, port } = await run(['resume', '--yes'], [{ paneKey: 'a:1', behavior: working }], { seed: seedBroadcast([target('a:1')]) });
+    const { code, out, port } = await run(['resume', '--yes'], [{ paneKey: 'a:1', behavior: working }], { seed: seedBroadcast([broadcastTarget('a:1')]) });
     expect(code).toBe(0);
     expect(out).toContain('nothing to resume');
     expect(port.sends).toEqual([]);
@@ -465,7 +434,7 @@ describe('broadcast and the other record', () => {
 });
 
 describe('close and a broadcast', () => {
-  const seedTargets = seedBroadcast([target('a:1'), target('b:2', { status: 'acked', reason: null }), target('c:3', { status: 'gone', reason: 'terminal-closed' })], { pid: 999_999, startTime: '1' });
+  const seedTargets = seedBroadcast([broadcastTarget('a:1'), broadcastTarget('b:2', { status: 'acked', reason: null }), broadcastTarget('c:3', { status: 'gone', reason: 'terminal-closed' })], { pid: 999_999, startTime: '1' });
 
   it('abandons the pending targets with reason closed, says it closed a broadcast, clears the pointer and the pid', async () => {
     const { code, out, dir, port } = await run(['close'], [], { seed: seedTargets });
@@ -491,23 +460,24 @@ describe('close and a broadcast', () => {
     expect(again.code).toBe(0);
   });
 
-  it('closes the pause run first, leaves the broadcast open and warns when both are open', async () => {
+  it('closes the pause run and reports the broadcast that recovery abandoned when both are open', async () => {
     const { code, out, err, dir } = await run(['close'], [], {
       seed: async (store) => {
-        await seedBroadcast([target('a:1')])(store);
+        await seedBroadcast([broadcastTarget('a:1')])(store);
         await seedOpenRun(store, [agentRecord('a:1')]);
       },
     });
     expect(code).toBe(0);
     expect(out).not.toContain('closed broadcast');
-    expect(err).toContain('broadcast b-1 is also open');
-    expect((await records(dir))[0]).toMatchObject({ status: 'open' });
+    expect(err).toContain('broadcast b-1 was open beside a pause run and is now abandoned');
+    expect((await records(dir))[0]).toMatchObject({ status: 'closed' });
+    expect((await records(dir))[0]?.targets[0]).toMatchObject({ status: 'abandoned', reason: 'paused' });
   });
 
   it('gives JSON with the pause run and no record when both kinds are open, and no warning field', async () => {
     const { out, err } = await run(['close', '--json'], [], {
       seed: async (store) => {
-        await seedBroadcast([target('a:1')])(store);
+        await seedBroadcast([broadcastTarget('a:1')])(store);
         await seedOpenRun(store, [agentRecord('a:1')]);
       },
     });

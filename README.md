@@ -67,9 +67,18 @@ orca-broadcast broadcast --file message.txt --timeout 5m
 - **Proof.** An agent counts as acked when no message is pending for it, its last reply is new since the send, and the last line is exactly `ORCA-ACK <token>`, in a `working` or `done` state. An ack is permanent. Send receipts are never proof.
 - **Record.** The record is written in `broadcasts/` before the first send, with the targets fixed at the confirmation. It closes itself when every target is acked, gone or abandoned. After a timeout it stays open; `close` abandons the targets that did not ack (reason `closed`). The pid of the running `broadcast` is stored in the record and removed on every exit.
 - **Wait.** Up to `--timeout` (default `10m`). Exit `0` when every target acked, `1` otherwise (a `gone` target counts as not acked), `2` on a refusal, `130` when interrupted.
-- **One record at a time.** `broadcast` is refused (exit 2) while a pause run is open. While a broadcast is open, `broadcast` and `pause` are refused (exit 2) until you run `close`; `resume` says "nothing to resume". These last two rules are temporary: continuing an open broadcast and pausing during one are planned. Also not built yet: the wait does not stop early when every pending target is `send-failed`, and a target that replied without the ack line shows `still-working`, not `no-ack`.
+- **One record at a time.** `broadcast` is refused (exit 2) while a pause run is open. While a broadcast is open, `broadcast` is refused (exit 2) until you run `close`; `resume` says "nothing to resume". This rule is temporary: continuing an open broadcast is planned. `pause` is not refused because a broadcast is open: it stops a waiting broadcast (see "Pause stops a waiting broadcast"). Also not built yet: the wait does not stop early when every pending target is `send-failed`, and a target that replied without the ack line shows `still-working`, not `no-ack`.
 - **JSON.** `--json` prints the usual object with `record` (the broadcast record) in place of `run`; `run` is `null`.
-- **Limit.** A message that is queued can still be carried out by the agent just before a `close` abandons it.
+- **Limit.** A message that is queued can still be carried out by the agent just before a `close` or a `pause` abandons it.
+
+### Pause stops a waiting broadcast
+
+A `broadcast` that waits for acks in another terminal holds the lock. `pause` does not wait for it:
+
+1. It checks its arguments before the lock, and with filters it resolves the filter values with read-only calls to Orca, so a typo in a filter value fails with exit 2 before any broadcast is stopped. When the lock is held by the process that the open broadcast record names (same pid and same start time, and that process is alive with that start time), it checks that fresh listings select at least one agent that matches the filters, then sends that process SIGTERM and waits up to 5 seconds for the lock. The broadcast treats SIGTERM like Ctrl-C: it saves its record, clears its pid and exits 130.
+2. Any other lock holder, a pid or start time that does not match, or a signal that is not allowed (EPERM) makes `pause` exit 2 at once, with no signal. A lock still held after 5 seconds also exits 2. A process that is already gone (ESRCH) is not an error.
+3. With an open broadcast `pause` always shows its first prompt. Your "yes" (or `--yes`) is the commit point. At that point `pause` writes its run, then abandons the broadcast's unacked targets (reason `paused`), closes the broadcast and prints one warning line on stderr (not in `--json`). A decline, an interrupt or an error before it leaves the broadcast open, stopped, with no pid. `close` abandons it; continuing it is planned.
+4. If a pause run and a broadcast are both open (a crash between the writes), every command that loads records abandons the broadcast with reason `paused` and prints a line on stderr. If several records of one kind are open, the newest wins and the others are reported.
 
 ### Options
 
@@ -113,7 +122,7 @@ An unknown name, or `--reason` on `resume` or `close`, is a usage error (exit 2)
 
 **Record.** Each pause run is stored as JSON in `pauses/`, and each broadcast in `broadcasts/`, under `$XDG_STATE_HOME/orca-broadcast/` (default `~/.local/state/orca-broadcast/`), written atomically before every send. A `current` pointer names the one open record; at most one record, of either kind, is open. Running `pause` again before `resume` extends the same run.
 
-**Safety.** The tool never types into a terminal that is not a Claude agent, never sends to an agent on a permission prompt, holds one lock for the whole run of every command, so two runs cannot overlap, and asks for confirmation before sending. The pane running `orca-broadcast` itself is never paused.
+**Safety.** The tool never types into a terminal that is not a Claude agent, never sends to an agent on a permission prompt, holds one lock for the whole run of every command, so two runs cannot overlap (the one exception is the hand-over above, which stops a broadcast it has proven to be the lock holder), and asks for confirmation before sending. The pane running `orca-broadcast` itself is never paused.
 
 ## Known limits
 

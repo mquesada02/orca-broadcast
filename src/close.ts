@@ -1,11 +1,8 @@
 import { Interrupted, throwIfAborted } from './abort.js';
 import { hasFilters, matches } from './filters.js';
-import { assertCurrentFormat, failure, listSnapshot, liveSources, nothingToDo, releaseBroadcast, resolveFilterSet, type LiveSources } from './shared.js';
-import type { RecordStore } from './store.js';
+import { assertCurrentFormat, failure, listSnapshot, liveSources, nothingToDo, resolveFilterSet, withWarnings, type LiveSources } from './shared.js';
+import { abandonPending, type RecordStore } from './store.js';
 import type { BroadcastRecord, Clock, FilterSpec, OrcaPort, RunSummary } from './types.js';
-
-// Temporary: until #70 builds the recovery that abandons a broadcast beside an open pause run, close leaves it open and says so.
-const UNTOUCHED_BROADCAST_WARNING = (record: BroadcastRecord) => `broadcast ${record.id} is also open and was left untouched; run close again after this one`;
 
 // Present only when a filter is given: a plain close never uses the port.
 export interface CloseFilters {
@@ -15,12 +12,17 @@ export interface CloseFilters {
   cwd?: string;
 }
 
-export async function close(store: RecordStore, signal?: AbortSignal, filtered?: CloseFilters): Promise<RunSummary> {
+export function close(store: RecordStore, signal?: AbortSignal, filtered?: CloseFilters): Promise<RunSummary> {
+  return withWarnings((warnings) => runClose(store, warnings, signal, filtered));
+}
+
+async function runClose(store: RecordStore, warnings: string[], signal?: AbortSignal, filtered?: CloseFilters): Promise<RunSummary> {
   let open;
   let abandoned;
   try {
     throwIfAborted(signal);
     open = await store.loadOpen();
+    warnings.push(...open.notes);
     throwIfAborted(signal);
   } catch (error) {
     return failure(error, null);
@@ -60,15 +62,11 @@ export async function close(store: RecordStore, signal?: AbortSignal, filtered?:
   } catch (error) {
     return failure(error, run);
   }
-  return { outcome: 'done', exitCode: 0, run, error: null, rows: abandoned, record: null, ...(broadcast ? { warning: UNTOUCHED_BROADCAST_WARNING(broadcast) } : {}) };
+  return { outcome: 'done', exitCode: 0, run, error: null, rows: abandoned, record: null };
 }
 
 async function closeBroadcast(store: RecordStore, record: BroadcastRecord): Promise<RunSummary> {
-  for (const target of record.targets.filter((t) => t.status === 'pending')) {
-    target.status = 'abandoned';
-    target.reason = 'closed';
-  }
-  releaseBroadcast(record);
+  abandonPending(record, 'closed');
   try {
     await store.saveBroadcast(record);
     await store.clearCurrent('broadcast', record.id);
