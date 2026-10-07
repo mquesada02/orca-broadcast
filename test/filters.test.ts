@@ -122,6 +122,89 @@ describe('filter values', () => {
   });
 });
 
+// A worktree in which no agent runs.
+const IDLE = { id: 'repo-alpha::/work/idle', repoId: 'repo-alpha', path: '/work/idle', displayName: 'idle' };
+const withIdle = (opts: RunCliOptions = {}): RunCliOptions =>
+  withRepos({
+    ...opts,
+    configure: (port) => {
+      port.worktrees = [...port.agentWorktrees(), IDLE];
+      opts.configure?.(port);
+    },
+  });
+
+describe('an idle worktree', () => {
+  it.each([
+    ['a path', ['--worktree', '/work/idle'], 'filters: --worktree /work/idle'],
+    ['an id', ['--worktree', 'repo-alpha::/work/idle'], 'filters: --worktree repo-alpha::/work/idle'],
+    ['a name scoped by --repo', ['--repo', 'alpha', '--worktree', 'idle'], 'filters: --repo alpha --worktree idle'],
+  ])('can be named by %s: "nothing to pause", the filters used, exit 0, nothing written', async (_label, flags, filtersLine) => {
+    const { code, out, port, dir } = await runCli(['pause', '--yes', ...flags], fleet(), withIdle());
+    expect(code).toBe(0);
+    expect(out).toContain('nothing to pause');
+    expect(out).toContain(filtersLine);
+    expect(port.sends).toEqual([]);
+    expect(await readRuns(dir)).toEqual([]);
+  });
+
+  it('is unknown without the worktree list (exit 2), and an unrelated name is still unknown', async () => {
+    const without = await runCli(['pause', '--yes', '--worktree', '/work/idle'], fleet(), withRepos());
+    expect(without.code).toBe(2);
+    expect(without.err).toContain('unknown --worktree "/work/idle"');
+    const other = await runCli(['pause', '--yes', '--worktree', 'nope'], fleet(), withIdle());
+    expect(other.code).toBe(2);
+  });
+
+  it('on an open run, appends a scope set that sweeps an agent that is in that worktree', async () => {
+    const seed = async (store: ReturnType<typeof createRecordStore>) => {
+      await seedOpenRun(store, [agentRecord('a:1', { repoId: 'repo-alpha', repo: 'alpha' })]);
+    };
+    const agents: FakeAgent[] = [
+      { paneKey: 'a:1', repo: 'alpha', worktree: 'main', behavior: pausedDone() },
+      { paneKey: 'n:1', repo: 'alpha', worktree: 'idle', behavior: repliesWithToken() },
+    ];
+    const worktrees = (p: FakeOrca) => (p.worktrees = [...p.agentWorktrees().filter((w) => w.id !== 'wt-n:1'), { ...IDLE, id: 'wt-n:1' }]);
+    const { code, port, dir } = await runCli(['pause', '--yes', '--repo', 'alpha', '--worktree', 'idle'], agents, withIdle({ seed, configure: worktrees }));
+    expect(code).toBe(0);
+    expect(sentPanes(port)).toEqual(['n:1']);
+    const [run] = await readRuns(dir);
+    expect(run?.scope.at(-1)).toMatchObject({ repoIds: ['repo-alpha'], worktreeIds: ['wt-n:1'] });
+    expect(run?.agents.map((a) => a.paneKey)).toEqual(['a:1', 'n:1']);
+  });
+
+  it('resume and close print "nothing to <command>" with the filters when the worktree has no recorded agent', async () => {
+    const seed = async (store: ReturnType<typeof createRecordStore>) => {
+      await seedOpenRun(store, [agentRecord('a:1', { repoId: 'repo-alpha', repo: 'alpha' })]);
+    };
+    const resumed = await runCli(['resume', '--yes', '--worktree', '/work/idle'], [], withIdle({ seed }));
+    expect(resumed.code).toBe(0);
+    expect(resumed.out).toContain('nothing to resume');
+    const closed = await runCli(['close', '--worktree', 'repo-alpha::/work/idle'], [], withIdle({ seed }));
+    expect(closed.code).toBe(0);
+    expect(closed.out).toContain('nothing to close');
+  });
+
+  it('is listed once per invocation and only when a filter is given', async () => {
+    const plain = await runCli(['pause', '--yes'], fleet(), withIdle());
+    expect(plain.port.listWorktreesCalls).toBe(0);
+    expect(plain.port.listReposCalls).toBe(0);
+    const filtered = await runCli(['pause', '--yes', '--role', 'worker'], fleet(), withIdle());
+    expect(filtered.port.listWorktreesCalls).toBe(1);
+  });
+
+  it('fails pause when the worktree list fails, and a filtered close falls back to the saved record', async () => {
+    const pausedRun = await runCli(['pause', '--yes', '--repo', 'alpha'], fleet(), withIdle({ configure: (p) => (p.failWorktreeList = true) }));
+    expect(pausedRun.code).toBe(2);
+    expect(pausedRun.port.sends).toEqual([]);
+    const seed = async (store: ReturnType<typeof createRecordStore>) => {
+      await seedOpenRun(store, [agentRecord('a:1', { repoId: 'repo-alpha', repo: 'alpha' }), agentRecord('b:1', { repoId: 'repo-beta', repo: 'beta' })]);
+    };
+    const closed = await runCli(['close', '--repo', 'repo-alpha'], [], withIdle({ seed, configure: (p) => (p.failWorktreeList = true) }));
+    expect(closed.code).toBe(0);
+    expect((await readRuns(closed.dir))[0]?.agents.map((a) => a.resumeStatus)).toEqual(['abandoned', 'pending']);
+  });
+});
+
 describe('flag table', () => {
   it.each([
     [['pause', '--state', 'working'], '--state applies only to broadcast'],

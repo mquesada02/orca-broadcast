@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Interrupted } from './abort.js';
 import { ALL_AGENTS, hasFilters, resolveFilters } from './filters.js';
 import { withRetry } from './retry.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow } from './types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -161,14 +161,15 @@ export function assertCurrentFormat(run: Run): void {
 
 // What the filter values are resolved against: the live listings, and the agents saved in a record.
 export interface LiveSources {
-  agents: Map<string, AgentRow>;
   runIds: string[];
   repos: RepoRow[];
+  worktrees: WorktreeRow[];
 }
 
-// Adds the repo list to a snapshot. Callers ask for it only when a filter is given.
-export async function liveSources({ agents, runIds }: Pick<Snapshot, 'agents' | 'runIds'>, { port, clock, signal }: ListDeps): Promise<LiveSources> {
-  return { agents, runIds, repos: await withRetry(() => port.listRepos(), clock, signal) };
+// Adds the repo list and the worktree list (every worktree, with or without an agent) to a snapshot. Callers ask for it only when a filter is given.
+export async function liveSources({ runIds }: Pick<Snapshot, 'runIds'>, { port, clock, signal }: ListDeps): Promise<LiveSources> {
+  const [repos, worktrees] = await allSettledOrThrow([withRetry(() => port.listRepos(), clock, signal), withRetry(() => port.listWorktrees(), clock, signal)]);
+  return { runIds, repos, worktrees };
 }
 
 // Resolves once per invocation. Without filters the set matches every agent.
@@ -178,7 +179,7 @@ export function resolveFilterSet(spec: FilterSpec, live: LiveSources | null, rec
     spec,
     {
       repos: [...(live?.repos ?? []).map((repo) => ({ id: repo.id, path: repo.path, name: repo.displayName })), ...recorded.map((agent) => ({ id: agent.repoId, name: agent.repo }))],
-      worktrees: [...[...(live?.agents.values() ?? [])].map((row) => ({ id: row.worktreeId, path: row.path, name: row.worktree, repoId: row.repoId })), ...recorded.map((agent) => ({ id: agent.worktreeId, path: agent.worktreePath, name: agent.worktree, repoId: agent.repoId }))],
+      worktrees: [...(live?.worktrees ?? []).map((worktree) => ({ id: worktree.id, path: worktree.path, name: worktree.displayName, repoId: worktree.repoId })), ...recorded.map((agent) => ({ id: agent.worktreeId, path: agent.worktreePath, name: agent.worktree, repoId: agent.repoId }))],
       runIds: [...new Set([...(live?.runIds ?? []), ...recorded.flatMap((agent) => agent.orchestrationRunIds)])],
     },
     cwd,
