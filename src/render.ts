@@ -57,7 +57,7 @@ function renderGroups<S extends string>(
 
 // The agents of an output that have a role but no known run. A session with no run is normal and is not counted.
 export function renderUnknownRuns(agents: AgentRecord[]): string {
-  const count = agents.filter((a) => a.resumeStatus !== 'gone' && a.role !== 'session' && a.orchestrationRunIds.length === 0).length;
+  const count = agents.filter((a) => a.role !== 'session' && a.orchestrationRunIds.length === 0).length;
   return count > 0 ? `${count} agents have a role but no known run\n` : '';
 }
 

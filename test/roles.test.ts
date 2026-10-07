@@ -370,6 +370,19 @@ describe('output of roles and run ids', () => {
     expect(out).toMatch(/tree-k:1\s+session\s+run: unknown/);
   });
 
+  it('counts a coordinator whose terminal went gone, as its row is still printed with its stored role and run set', async () => {
+    const { out } = await runCli(
+      ['pause', '--yes'],
+      [
+        { paneKey: 'c:1', terminalAt: (listing) => (listing >= 2 ? 'missing' : 'ok'), behavior: working },
+        { paneKey: 'x:2', behavior: working },
+      ],
+      { configure: (p) => { p.coordinatorsAt = () => ['c:1']; p.runsAt = (call) => (call < 2 ? [runRow(p, 'run_a', 'c:1')] : []); } },
+    );
+    expect(out).toMatch(/tree-c:1\s+coordinator\s+run_a\s+unconfirmed\s+terminal-closed/);
+    expect(out).not.toContain('no known run');
+  });
+
   it('keeps the count line out of --json and carries the run ids in each agent entry', async () => {
     const { out } = await runCli(['pause', '--yes', '--json'], [{ paneKey: 'c:1', behavior: repliesWithToken() }], {
       configure: (p) => {
