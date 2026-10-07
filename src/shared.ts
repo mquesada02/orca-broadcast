@@ -212,9 +212,13 @@ export function coordinatorsLast<T>(items: T[], roleOfItem: (item: T) => Role): 
 }
 
 // The process no longer runs this broadcast: drop its pid, and close the record when no target can still progress.
-export function releaseBroadcast(record: BroadcastRecord): void {
+export function clearPid(record: BroadcastRecord): void {
   delete record.pid;
   delete record.startTime;
+}
+
+export function releaseBroadcast(record: BroadcastRecord): void {
+  clearPid(record);
   if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
 }
 

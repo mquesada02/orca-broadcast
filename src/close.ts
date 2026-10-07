@@ -4,7 +4,7 @@ import { assertCurrentFormat, failure, listSnapshot, liveSources, nothingToDo, r
 import { abandonPending, type RecordStore } from './store.js';
 import type { BroadcastRecord, BroadcastTarget, Clock, FilterSpec, GroupFilter, OrcaPort, RunSummary } from './types.js';
 
-// Present only when a filter is given: a plain close never uses the port.
+// Present only when a filter is given: a plain close never uses the port. The filters narrow the pause run or the broadcast that is open.
 export interface CloseFilters {
   filters: FilterSpec;
   group?: GroupFilter;

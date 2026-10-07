@@ -222,12 +222,14 @@ describe('broadcast filters: a re-run', () => {
   });
 
   it('prints "nothing to broadcast" and the filters when the filters leave nothing in scope, leaving the targets as they were', async () => {
-    const { code, out, port, dir } = await rerun(['--repo', 'gamma', '--role', 'worker'], fleet(), { seed: seed(TARGETS(), { pid: 1, startTime: '5' }) });
+    const targets = [...TARGETS().slice(0, 3), target('s:9', 'gamma', { messagePending: true, reason: 'send-failed' }), TARGETS()[3] as BroadcastTarget];
+    const { code, out, port, dir } = await rerun(['--repo', 'gamma', '--role', 'worker'], fleet(), { seed: seed(targets, { pid: 1, startTime: '5' }) });
     expect(code).toBe(0);
     expect(out).toBe('nothing to broadcast\nfilters: --repo gamma --role worker\n');
     expect(port.sends).toEqual([]);
     const record = await recordOf(dir);
-    expect(status(record)).toEqual({ 'a:1': 'pending', 'a:2': 'pending', 'b:1': 'pending', 'g:1': 'gone' });
+    expect(status(record)).toEqual({ 'a:1': 'pending', 'a:2': 'pending', 'b:1': 'pending', 's:9': 'pending', 'g:1': 'gone' });
+    expect(record.targets[3]?.reason).toBe('send-failed'); // the final pid-clearing save does not persist a clearing
     expect(record).not.toHaveProperty('pid');
     expect(record.status).toBe('open');
   });

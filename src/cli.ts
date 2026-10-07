@@ -12,7 +12,7 @@ import { systemClock } from './clock.js';
 import { DEFAULT_TIMEOUT_MS, pause, precheckPause, prelockPause, type PauseDeps } from './pause.js';
 import { describeFilters, hasFilters, isFiltered } from './filters.js';
 import { isGroupSubcommand, runGroup, type GroupResult } from './group-cmd.js';
-import { GROUP_STATES, isGroupState, loadGroups, lookupGroup, resolveGroupsPath, toBroadcastGroupFilter, toGroupFilter, type GroupSpec } from './groups.js';
+import { GROUP_STATES, isGroupState, loadGroups, lookupGroup, resolveGroupsPath, toGroupFilter, type GroupSpec } from './groups.js';
 import { isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, type Command, type FlagValues } from './flags.js';
 import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
@@ -261,7 +261,7 @@ async function loadGroupFilter(names: string[] | undefined, command: Command, en
   const name = names?.[0];
   if (name === undefined) return undefined;
   const spec = lookupGroup(await loadGroups(resolveGroupsPath(env)), name);
-  if (command === 'broadcast') return toBroadcastGroupFilter(name, spec);
+  if (command === 'broadcast') return { name, spec };
   const filter = toGroupFilter(name, spec);
   if (!hasFilters(filter.spec)) throw new Error(`Group ${name} only filters by state, which ${command} does not use.`);
   if (spec.state.length > 0) io.stderr(`orca-broadcast: group ${name}: state filter skipped (${command} does not use it)\n`);

@@ -34,7 +34,7 @@ export function matches(set: FilterSet, subject: Subject): boolean {
     (!set.worktreeIds || set.worktreeIds.includes(subject.worktreeId)) &&
     (!set.roles || set.roles.includes(subject.role)) &&
     (!set.runIds || subject.orchestrationRunIds.some((id) => set.runIds?.includes(id))) &&
-    (!set.states || (subject.state !== undefined && (set.states as string[]).includes(subject.state)))
+    (!set.states || (subject.state !== undefined && set.states.some((state) => state === subject.state)))
   );
 }
 

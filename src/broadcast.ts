@@ -1,6 +1,6 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { isFiltered, matches, NO_FILTERS, type Subject } from './filters.js';
-import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, cancelled, clearPid, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
@@ -77,7 +77,7 @@ function selfLine(selfKey: string | undefined, { agents, terminals, roles }: Sna
 
 const nothingToBroadcast = (self: BroadcastSelf | null): RunSummary => ({ outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], record: null, broadcastSelf: self });
 
-// `text` is already normalised, or undefined when the command line had none. No text, or the open broadcast's own text, continues that broadcast.
+// `givenText` is already normalised, or undefined when the command line had none. No text, or the open broadcast's own text, continues that broadcast.
 export function broadcast(givenText: string | undefined, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
   return withWarnings((warnings) => runBroadcast(givenText, timeoutMs, deps, warnings));
 }
@@ -187,8 +187,7 @@ async function rerun(loaded: BroadcastRecord, timeoutMs: number, deps: Broadcast
     return wait(prepared.plan, timeoutMs, deps);
   }
   try {
-    delete saved.pid;
-    delete saved.startTime;
+    clearPid(saved);
     await store.saveBroadcast(saved);
   } catch (error) {
     if (prepared.summary.exitCode !== 130) return failure(error, null);

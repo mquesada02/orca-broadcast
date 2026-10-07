@@ -153,6 +153,9 @@ export interface BroadcastSelf extends ConfirmTarget {
   reason?: BroadcastReason | null;
 }
 
+// The live states a broadcast can select.
+export type AgentState = 'working' | 'done';
+
 // What the user typed for each filter kind, as stored for display.
 export interface FilterSpec {
   repo: string[];
@@ -160,7 +163,7 @@ export interface FilterSpec {
   role: Role[];
   run: string[];
   /** Only `broadcast` and its groups use it; the kinds above are the ones every command knows. */
-  state?: ('working' | 'done')[];
+  state?: AgentState[];
 }
 
 // One resolved filter set: a kind that is absent does not filter. A set with no kind matches every agent.
@@ -170,7 +173,7 @@ export interface FilterSet {
   roles?: Role[];
   runIds?: string[];
   /** The live states a broadcast selects (`--state`). */
-  states?: ('working' | 'done')[];
+  states?: AgentState[];
   typed: Partial<FilterSpec>;
   /** The saved group this set came from, for display only. */
   group?: string;

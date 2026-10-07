@@ -101,8 +101,7 @@ export function renderBroadcastTable(targets: BroadcastTarget[]): string {
 const BROADCAST_SELF_HEADING = 'self (not sent) — this session cannot ack while its own command waits';
 
 export function renderBroadcastSelfBlock(self: BroadcastSelf): string {
-  const saved = self.status !== undefined;
-  const header = saved ? ['repo', 'worktree', 'role', 'status', 'reason'] : ['repo', 'worktree', 'role'];
-  const row = saved ? [self.repo, self.worktree, self.role, self.status as string, self.reason ?? '-'] : [self.repo, self.worktree, self.role];
-  return [BROADCAST_SELF_HEADING, ...formatTable(header, [row]), ''].join('\n');
+  const columns: [string, string][] = [['repo', self.repo], ['worktree', self.worktree], ['role', self.role]];
+  if (self.status !== undefined) columns.push(['status', self.status], ['reason', self.reason ?? '-']);
+  return [BROADCAST_SELF_HEADING, ...formatTable(columns.map(([name]) => name), [columns.map(([, value]) => value)]), ''].join('\n');
 }

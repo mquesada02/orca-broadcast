@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { broadcastMessage } from '../src/broadcast.js';
@@ -60,6 +61,15 @@ describe('re-run: continuing the open broadcast', () => {
     expect(record).toMatchObject({ token: TOKEN, status: 'closed' });
     expect(record).not.toHaveProperty('pid');
     expect(await hasPointer(dir)).toBe(false);
+  });
+
+  it('continues with --file text that has a trailing newline', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'orca-broadcast-file-'));
+    const file = join(folder, 'text.txt');
+    await writeFile(file, `${TEXT}\n`);
+    const { code, port } = await run(['broadcast', '--file', file, '--yes'], [{ paneKey: 'a:1', behavior: acks }], { seed: seed([sent('a:1')]) });
+    expect(code).toBe(0);
+    expect(port.sends).toEqual([]);
   });
 
   it('is a pure wait with no prompt when nothing needs a send', async () => {
@@ -170,6 +180,7 @@ describe('re-run: what is sent again', () => {
     expect(clock.slept).toBe(0);
     const record = await readRecord(dir);
     expect(record.status).toBe('open');
+    expect(record).not.toHaveProperty('pid');
     expect(reasons(record)).toEqual({ 'c:3': 'send-failed' });
   });
 

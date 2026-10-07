@@ -45,11 +45,6 @@ export function toGroupFilter(name: string, spec: GroupSpec): GroupFilter {
   return { name, spec: { repo: spec.repo, worktree: spec.worktree, role: spec.role, run: spec.run } };
 }
 
-// A group for broadcast: every kind applies, `state` included.
-export function toBroadcastGroupFilter(name: string, spec: GroupSpec): GroupFilter {
-  return { name, spec };
-}
-
 // Reads the file on every call. A missing file is no groups; anything invalid is an error that names the file.
 export async function loadGroups(path: string): Promise<Map<string, GroupSpec>> {
   let text: string;

@@ -106,7 +106,7 @@ function procStartTime(pid: number): string | undefined {
   }
 }
 
-// The pending targets of a broadcast that nobody runs any more are no longer waited on: the record closes and drops its pid.
+// Abandons the pending targets (all, or those `select` picks) of a broadcast that nobody runs any more: the record drops its pid and closes when nothing is pending.
 export function abandonPending(record: BroadcastRecord, reason: Extract<BroadcastReason, 'paused' | 'closed'>, select: (target: BroadcastTarget) => boolean = () => true): number {
   const pending = record.targets.filter((t) => t.status === 'pending' && select(t));
   for (const target of pending) {
