@@ -36,7 +36,8 @@ const GROUP_USAGE = [
 
 const GROUP_PURPOSE = 'Save, list, show and remove named filters';
 
-const flagUsage = ([name, spec]: [string, FlagSpec]) => `[--${name}${spec.arg ? ` ${spec.arg}` : ''}]`;
+const flagHead = (name: string, spec: FlagSpec) => `--${name}${spec.arg ? ` ${spec.arg}` : ''}`;
+const flagUsage = ([name, spec]: [string, FlagSpec]) => `[${flagHead(name, spec)}]`;
 
 function usageOf(command: Command): string {
   const flags = flagsOf(command).filter(([name]) => !GENERIC_FLAGS.includes(name));
@@ -59,7 +60,7 @@ const flagLines = (target: Command | 'group add'): string =>
     .map(([name, spec]) => {
       const help = (target === 'group add' && spec.groupHelp) || spec.help;
       const note = target === 'group add' ? undefined : spec.notes?.[target];
-      return `  --${name}${spec.arg ? ` ${spec.arg}` : ''}\n      ${help}${note ? `\n      ${note}` : ''}\n`;
+      return `  ${flagHead(name, spec)}\n      ${help}${note ? `\n      ${note}` : ''}\n`;
     })
     .join('');
 
