@@ -87,7 +87,7 @@ describe('orca-broadcast pause', () => {
     ]);
     expect(code).toBe(0);
     expect(out).toContain('confirmed (2)');
-    expect(out).toMatch(/alpha\s+wt-a\s+worker\s+confirmed/);
+    expect(out).toMatch(/alpha\s+wt-a\s+session\s+run: unknown\s+confirmed/);
     expect(out).not.toContain('unconfirmed');
     expect((await readdir(`${dir}/orca-broadcast`)).sort()).toEqual(['current', 'pauses']);
   });
@@ -100,7 +100,7 @@ describe('orca-broadcast pause', () => {
     expect(code).toBe(1);
     expect(out.indexOf('unconfirmed (1)')).toBeLessThan(out.indexOf('confirmed (1)'));
     expect(out).toContain('check these agents before you leave');
-    expect(out).toMatch(/beta\s+wt-b\s+worker\s+unconfirmed\s+still-working/);
+    expect(out).toMatch(/beta\s+wt-b\s+session\s+run: unknown\s+unconfirmed\s+still-working/);
   });
 
   it('honours --timeout', async () => {
@@ -165,7 +165,7 @@ describe('orca-broadcast resume', () => {
     );
     expect(code).toBe(0);
     expect(out).toContain('resumed (1)');
-    expect(out).toMatch(/alpha\s+wt-a\s+worker\s+resumed/);
+    expect(out).toMatch(/alpha\s+wt-a\s+session\s+run: unknown\s+resumed/);
     expect(await readdir(`${dir}/orca-broadcast/pauses`)).toEqual(['run-1.json']);
   });
 
@@ -190,8 +190,8 @@ describe('orca-broadcast resume', () => {
     expect(out.indexOf('gone (1)')).toBeLessThan(out.indexOf('resumed (1)'));
     expect(out).toContain('answer the permission prompt');
     expect(out).toContain('restart these agents yourself');
-    expect(out).toMatch(/gamma\s+wt-c\s+worker\s+pending\s+waiting-permission/);
-    expect(out).toMatch(/beta\s+wt-b\s+worker\s+gone\s+agent-exited/);
+    expect(out).toMatch(/gamma\s+wt-c\s+session\s+run: unknown\s+pending\s+waiting-permission/);
+    expect(out).toMatch(/beta\s+wt-b\s+worker\s+run: unknown\s+gone\s+agent-exited/);
   });
 
   it('prints nothing to resume and exits 0 when no run is open', async () => {
@@ -235,9 +235,10 @@ describe('orca-broadcast close', () => {
 
     expect(code).toBe(0);
     expect(out).toContain('abandoned (3) - still paused — continue it by hand');
-    expect(out).toMatch(/repo\s+tree-a:1\s+worker\s+confirmed\s+paused and waiting for CONTINUE — run resume before close, or continue it by hand/);
-    expect(out).toMatch(/tree-b:2\s+worker\s+unconfirmed\s+still-working/);
-    expect(out).toMatch(/tree-c:3\s+worker\s+unconfirmed\s+-/);
+    expect(out).toMatch(/repo\s+tree-a:1\s+worker\s+run: unknown\s+confirmed\s+paused and waiting for CONTINUE — run resume before close, or continue it by hand/);
+    expect(out).toMatch(/tree-b:2\s+worker\s+run: unknown\s+unconfirmed\s+still-working/);
+    expect(out).toMatch(/tree-c:3\s+worker\s+run: unknown\s+unconfirmed\s+-/);
+    expect(out).toContain('3 agents have a role but no known run\n');
     expect(out).not.toContain('tree-d:4');
     expect(port.sends).toHaveLength(0);
     expect([port.listCalls, port.listTerminalsCalls, port.listRunsCalls]).toEqual([0, 0, 0]);
@@ -418,7 +419,7 @@ describe('safety rails', () => {
         status: 'open',
         agents: [
           {
-            paneKey: 'a:1', worktreeId: 'wt', worktree: 'wt-a', repo: 'alpha', role: 'worker', lastHandle: null, pauseStatus: 'confirmed', pauseReason: null,
+            paneKey: 'a:1', worktreeId: 'wt', worktree: 'wt-a', repo: 'alpha', role: 'worker', orchestrationRunIds: [], lastHandle: null, pauseStatus: 'confirmed', pauseReason: null,
             pauseBaseline: 'Stopped here.\nORCA-PAUSED abcd1234', messagePending: false, confirmedAt: null, wakeCount: 0, resumeStatus: 'pending',
           },
         ],

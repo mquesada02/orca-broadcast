@@ -8,7 +8,7 @@ import { createOrcaAdapter } from './orca-adapter.js';
 import { close } from './close.js';
 import { systemClock } from './clock.js';
 import { DEFAULT_TIMEOUT_MS, pause, type PauseDeps } from './pause.js';
-import { renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable } from './render.js';
+import { renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
 import { resume } from './resume.js';
 import { createRecordStore } from './store.js';
@@ -143,13 +143,16 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     }
     if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
 
+    // The agents of this output: the rows, and self where the output has a self block.
+    const shown = summary.self ? [...summary.rows, summary.self] : summary.rows;
     if (summary.outcome === 'error') {
       io.stderr(`orca-broadcast: ${summary.error}\n`);
     } else if (summary.outcome === 'nothing-to-do') {
       const selfBlock = summary.self ? `${renderSelfBlock(summary.self)}\n` : '';
-      io.stdout(`nothing to ${command}\n${selfBlock}`);
+      io.stdout(`nothing to ${command}\n${selfBlock}${renderUnknownRuns(shown)}`);
     } else {
-      io.stdout(command === 'pause' ? renderTable(summary.rows, summary.self) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows));
+      const table = command === 'pause' ? renderTable(summary.rows, summary.self) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows);
+      io.stdout(`${table}${renderUnknownRuns(shown)}`);
     }
     return summary.exitCode;
   } catch (error) {

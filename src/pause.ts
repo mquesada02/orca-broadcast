@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import type { RecordStore } from './store.js';
-import { cancelled, endsWithLine, failure, iso, listCoordinators, listFresh, locate, POLL_INTERVAL_MS, roleFirst, roleOf } from './shared.js';
+import { cancelled, coordinatorsFirst, endsWithLine, failure, iso, listFresh, listSnapshot, locate, POLL_INTERVAL_MS, roleInfoOf, type RoleInfo, type Roles } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
@@ -88,13 +88,13 @@ function isSweepable(row: AgentRow): boolean {
   return row.agentType === 'claude' && row.state === 'working';
 }
 
-function newAgent(row: AgentRow): AgentRecord {
+function newAgent(row: AgentRow, info: RoleInfo): AgentRecord {
   const agent: AgentRecord = {
     paneKey: row.paneKey,
     worktreeId: row.worktreeId,
     worktree: row.worktree,
     repo: row.repo,
-    role: 'worker',
+    ...info,
     lastHandle: null,
     pauseStatus: 'unconfirmed',
     pauseReason: null,
@@ -109,12 +109,13 @@ function newAgent(row: AgentRow): AgentRecord {
 }
 
 // Self is never paused by this command: it is recorded as pending for resume, whatever its earlier record was.
-function markSelf(existing: AgentRecord | undefined, row: AgentRow, handle: string): AgentRecord {
-  const agent = existing ?? newAgent(row);
+function markSelf(existing: AgentRecord | undefined, row: AgentRow, handle: string, info: RoleInfo): AgentRecord {
+  const agent = existing ?? newAgent(row, info);
   reopen(agent, row);
   Object.assign(agent, {
     worktree: row.worktree,
     repo: row.repo,
+    ...info,
     lastHandle: handle,
     pauseReason: 'self',
     messagePending: false,
@@ -144,19 +145,19 @@ type Prepared = { run: Run; extending: boolean } | { summary: RunSummary };
 
 // Builds the run this invocation works on, in memory: the loaded run extended, or a new run of the agents found working.
 // The loaded run is never changed, so it stays available as the pre-invocation record.
-function prepare(loaded: Run | null, startedAt: number, newToken: () => string, reason: Preset | undefined, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, selfKey: string | undefined): Prepared {
+function prepare(loaded: Run | null, startedAt: number, newToken: () => string, reason: Preset | undefined, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, selfKey: string | undefined): Prepared {
   const selfFound = selfKey ? locate(selfKey, agents, terminals) : null;
   const self = selfFound && !('gone' in selfFound) && selfFound.row.agentType === 'claude' ? selfFound : null;
 
   if (loaded) {
     const run = structuredClone(loaded);
-    handOverSelf(run, selfKey, self, agents, terminals);
+    handOverSelf(run, selfKey, self, agents, terminals, roles);
     extend(run, selfKey, agents, terminals);
     return { run, extending: true };
   }
   const discovered = [...agents.values()].filter((row) => isSweepable(row) && row.paneKey !== selfKey);
   if (discovered.length === 0) {
-    const onlySelf = self?.row.state === 'working' ? markSelf(undefined, self.row, self.handle) : null;
+    const onlySelf = self?.row.state === 'working' ? markSelf(undefined, self.row, self.handle, roleInfoOf(roles, self.row.paneKey)) : null;
     return { summary: { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], self: onlySelf } };
   }
   const token = newToken();
@@ -165,10 +166,10 @@ function prepare(loaded: Run | null, startedAt: number, newToken: () => string, 
     token,
     startedAt: iso(startedAt),
     status: 'open',
-    agents: discovered.map(newAgent),
+    agents: discovered.map((row) => newAgent(row, roleInfoOf(roles, row.paneKey))),
   };
   if (reason) run.reason = reason;
-  if (self) run.agents.push(markSelf(undefined, self.row, self.handle));
+  if (self) run.agents.push(markSelf(undefined, self.row, self.handle, roleInfoOf(roles, self.row.paneKey)));
   return { run, extending: false };
 }
 
@@ -183,12 +184,13 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   let loaded: Run | null;
   let agents: Map<string, AgentRow>;
   let terminals: Map<string, TerminalRow>;
+  let roles: Roles;
   let prepared: Prepared;
   let confirmed = false;
   // The answer may have taken minutes: look again and start the clock now.
   const afterYes = async () => {
     confirmed = true;
-    [agents, terminals] = await listFresh(deps);
+    ({ agents, terminals, roles } = await listSnapshot(deps));
     startedAt = clock.now();
   };
   try {
@@ -197,16 +199,16 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
     if (loaded && deps.reason !== undefined && deps.reason !== loaded.reason) {
       throw new Error(mismatchMessage(loaded.reason));
     }
-    [agents, terminals] = await listFresh(deps);
+    ({ agents, terminals, roles } = await listSnapshot(deps));
     throwIfAborted(deps.signal);
-    prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, selfKey);
+    prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, roles, selfKey);
     if (deps.confirm && 'run' in prepared) {
-      const targets = planSends(prepared.run, agents, terminals, await listCoordinators(deps), deps, selfKey);
+      const targets = planSends(prepared.run, agents, terminals, roles, deps, selfKey);
       if (targets.length > 0) {
         if (!(await deps.confirm(targets, deps.signal))) return withSelf(cancelled(), selfKey);
         throwIfAborted(deps.signal);
         await afterYes();
-        prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, selfKey);
+        prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, roles, selfKey);
       }
     }
   } catch (error) {
@@ -219,9 +221,9 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   if (!extending) await store.setCurrent('pause', run.runId); // findOpenRun already points at an open run
 
   // Before the first send pass that was not confirmed at the start: a "no" or a failure leaves the records as they were before this invocation.
-  const confirmLate = async (confirm: Confirm, coordinators: Set<string>): Promise<RunSummary | null> => {
+  const confirmLate = async (confirm: Confirm): Promise<RunSummary | null> => {
     try {
-      const targets = planSends(run, agents, terminals, coordinators, deps, selfKey);
+      const targets = planSends(run, agents, terminals, roles, deps, selfKey);
       if (targets.length === 0) return null;
       const yes = await confirm(targets, deps.signal);
       throwIfAborted(deps.signal);
@@ -240,19 +242,18 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
   try {
     while (true) {
       throwIfAborted(deps.signal);
-      const coordinators = await listCoordinators(deps);
       if (deps.confirm && !confirmed) {
-        const declined = await confirmLate(deps.confirm, coordinators);
+        const declined = await confirmLate(deps.confirm);
         if (declined) return declined;
       }
-      await poll(run, agents, terminals, coordinators, deps, selfKey);
+      await poll(run, agents, terminals, roles, deps, selfKey);
       await store.save(run);
       reportProgress(run, startedAt + timeoutMs - clock.now(), deps, selfKey);
       throwIfAborted(deps.signal);
       if (run.agents.every((a) => a.paneKey === selfKey || isSettled(a))) break;
       await sleepOrAbort(clock, POLL_INTERVAL_MS, deps.signal);
       if (clock.now() - startedAt >= timeoutMs) break;
-      [agents, terminals] = await listFresh(deps);
+      ({ agents, terminals, roles } = await listSnapshot(deps));
     }
   } catch (error) {
     await store.save(run);
@@ -264,7 +265,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
 }
 
 // Self handover: an earlier self that is not the current self becomes a normal agent; the current self is recorded for resume.
-function handOverSelf(run: Run, selfKey: string | undefined, self: Found | null, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>): void {
+function handOverSelf(run: Run, selfKey: string | undefined, self: Found | null, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles): void {
   for (const agent of run.agents) {
     if (agent.pauseReason !== 'self' || agent.paneKey === selfKey || isGone(agent)) continue;
     const found = locate(agent.paneKey, agents, terminals);
@@ -272,7 +273,7 @@ function handOverSelf(run: Run, selfKey: string | undefined, self: Found | null,
   }
   if (!self) return;
   const existing = run.agents.find((a) => a.paneKey === self.row.paneKey);
-  const recorded = markSelf(existing, self.row, self.handle);
+  const recorded = markSelf(existing, self.row, self.handle, roleInfoOf(roles, self.row.paneKey));
   if (!existing) run.agents.push(recorded);
 }
 
@@ -306,17 +307,17 @@ function markLocated(agent: AgentRecord, agents: Map<string, AgentRow>, terminal
 }
 
 // The in-memory part of a poll: sweep newcomers, locate, check wake-ups and proofs. It sends nothing and saves nothing.
-function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined): { agent: AgentRecord; row: AgentRow }[] {
+function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined): { agent: AgentRecord; row: AgentRow }[] {
   for (const row of agents.values()) {
     if (!isSweepable(row) || row.paneKey === selfKey || run.agents.some((a) => a.paneKey === row.paneKey)) continue;
-    run.agents.push(newAgent(row));
+    run.agents.push(newAgent(row, roleInfoOf(roles, row.paneKey)));
   }
 
   const live: { agent: AgentRecord; row: AgentRow }[] = [];
   for (const agent of run.agents.filter((a) => !isGone(a))) {
     const located = markLocated(agent, agents, terminals);
     if (located) {
-      agent.role = roleOf(located.handle, coordinators);
+      Object.assign(agent, roleInfoOf(roles, agent.paneKey));
       if (agent.paneKey !== selfKey) live.push({ agent, row: located.row });
     }
   }
@@ -347,16 +348,16 @@ function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string,
 
 // The agents a poll would message, coordinators first.
 function sendQueue(live: { agent: AgentRecord; row: AgentRow }[]): { agent: AgentRecord; row: AgentRow }[] {
-  return roleFirst(live, 'coordinator', ({ agent }) => agent.role).filter(({ agent, row }) => agent.messagePending && agent.pauseReason !== 'send-failed' && !isWaitingLike(row.state));
+  return coordinatorsFirst(live, ({ agent }) => agent.role).filter(({ agent, row }) => agent.messagePending && agent.pauseReason !== 'send-failed' && !isWaitingLike(row.state));
 }
 
 // Who the next poll would message, found by running its in-memory part on a copy of the run.
-function planSends(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined): ConfirmTarget[] {
-  return sendQueue(refresh(structuredClone(run), agents, terminals, coordinators, deps, selfKey)).map(({ agent }) => ({ repo: agent.repo, worktree: agent.worktree, role: agent.role }));
+function planSends(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined): ConfirmTarget[] {
+  return sendQueue(refresh(structuredClone(run), agents, terminals, roles, deps, selfKey)).map(({ agent }) => ({ repo: agent.repo, worktree: agent.worktree, role: agent.role }));
 }
 
-async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, coordinators: Set<string>, deps: PauseDeps, selfKey: string | undefined): Promise<void> {
-  const live = refresh(run, agents, terminals, coordinators, deps, selfKey);
+async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: PauseDeps, selfKey: string | undefined): Promise<void> {
+  const live = refresh(run, agents, terminals, roles, deps, selfKey);
 
   for (const { agent, row } of sendQueue(live)) {
     throwIfAborted(deps.signal);

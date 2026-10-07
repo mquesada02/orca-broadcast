@@ -2,8 +2,11 @@ import type { Preset } from './reasons.js';
 
 export interface AgentRow {
   paneKey: string;
+  parentPaneKey: string | null;
   worktreeId: string;
   worktree: string;
+  repoId: string;
+  path: string;
   repo: string;
   agentType: string;
   state: string;
@@ -20,7 +23,18 @@ export interface TerminalRow {
 
 export interface RunRow {
   id: string;
-  coordinatorHandle: string;
+  coordinatorHandle: string | null;
+}
+
+export interface WorkerRow {
+  handle: string;
+  runId: string | null;
+}
+
+export interface RepoRow {
+  id: string;
+  path: string;
+  displayName: string;
 }
 
 export type SendResult = { accepted: true } | { accepted: false; reason: string };
@@ -29,6 +43,8 @@ export interface OrcaPort {
   listAgents(): Promise<AgentRow[]>;
   listTerminals(): Promise<TerminalRow[]>;
   listRuns(): Promise<RunRow[]>;
+  listWorkers(): Promise<WorkerRow[]>;
+  listRepos(): Promise<RepoRow[]>;
   send(handle: string, text: string): Promise<SendResult>;
 }
 
@@ -64,7 +80,7 @@ export interface ContinueBaseline {
   lastAssistantMessage: string | null;
 }
 
-export type Role = 'coordinator' | 'worker';
+export type Role = 'coordinator' | 'worker' | 'session';
 
 export interface AgentRecord {
   paneKey: string;
@@ -72,6 +88,7 @@ export interface AgentRecord {
   worktree: string;
   repo: string;
   role: Role;
+  orchestrationRunIds: string[];
   lastHandle: string | null;
   pauseStatus: PauseStatus;
   pauseReason: PauseReason | null;

@@ -21,6 +21,7 @@ export interface RunCliOptions {
   env?: NodeJS.ProcessEnv;
   signals?: EventEmitter;
   clock?: ReturnType<typeof fakeClock>;
+  newToken?: () => string;
 }
 
 /** Runs the CLI shell once with a fake Orca port, a fake clock and a fresh state directory. */
@@ -48,6 +49,6 @@ export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: Run
         return Promise.resolve(typeof answer === 'function' ? answer() : answer);
       }
     : undefined;
-  const code = await main(argv, { XDG_STATE_HOME: dir, ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals });
+  const code = await main(argv, { XDG_STATE_HOME: dir, ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken });
   return { code, out: out.join(''), err: err.join(''), port, questions, dir };
 }

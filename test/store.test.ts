@@ -23,6 +23,17 @@ async function withDir(files: Record<string, string> = {}) {
   return dir;
 }
 
+describe('records', () => {
+  it('loads a record written before run ids existed with an empty run id list', async () => {
+    const old = { ...run('run-old', '2026-01-01T00:00:00.000Z'), agents: [{ paneKey: 'a:1', role: 'worker' }] };
+    const dir = await withDir();
+    await mkdir(join(dir, 'pauses'));
+    await writeFile(join(dir, 'pauses', 'run-old.json'), JSON.stringify(old));
+    const found = await createRecordStore(dir).findOpenRun();
+    expect(found?.run.agents[0]?.orchestrationRunIds).toEqual([]);
+  });
+});
+
 describe('lock', () => {
   it('is exclusive while its owner lives, and release makes it available again', async () => {
     const dir = await withDir();

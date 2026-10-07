@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import type { AgentRow, OrcaPort, RunRow, SendResult, TerminalRow } from './types.js';
+import type { AgentRow, OrcaPort, RepoRow, RunRow, SendResult, TerminalRow, WorkerRow } from './types.js';
 
 export const ORCA_EXECUTABLE = 'orca-ide';
 
@@ -103,8 +103,11 @@ export function createOrcaAdapter(exec: Exec = execOrca): OrcaPort {
         for (const agent of worktree.agents ?? []) {
           rows.push({
             paneKey: agent.paneKey,
+            parentPaneKey: agent.parentPaneKey ?? null,
             worktreeId: worktree.worktreeId,
             worktree: worktree.displayName,
+            repoId: worktree.repoId,
+            path: worktree.path,
             repo: worktree.repo,
             agentType: agent.agentType,
             state: agent.state,
@@ -136,11 +139,34 @@ export function createOrcaAdapter(exec: Exec = execOrca): OrcaPort {
         const args = ['orchestration', 'run-list', '--json', ...(cursor ? ['--cursor', cursor] : [])];
         const result = await call(args);
         for (const run of result.runs ?? []) {
-          runs.push({ id: run.id, coordinatorHandle: run.coordinator_handle });
+          runs.push({ id: run.id, coordinatorHandle: run.coordinator_handle ?? null });
         }
         cursor = result.nextCursor ?? null;
       } while (cursor);
       return runs;
+    },
+
+    async listWorkers() {
+      const workers: WorkerRow[] = [];
+      const seen = new Set<string>();
+      let cursor: string | null = null;
+      while (true) {
+        const args = ['orchestration', 'worker-list', '--terminal-state', 'active', '--json', ...(cursor ? ['--cursor', cursor] : [])];
+        const result = await call(args);
+        for (const worker of result.workers ?? []) {
+          if (worker.agentTerminalHandle) workers.push({ handle: worker.agentTerminalHandle, runId: worker.runId ?? null });
+        }
+        if (result.page?.hasMore !== true) return workers;
+        const next: unknown = result.page.nextCursor;
+        if (typeof next !== 'string' || next === '' || seen.has(next)) throw new Error('orca-ide orchestration worker-list paging is broken (more pages but no new cursor)');
+        seen.add(next);
+        cursor = next;
+      }
+    },
+
+    async listRepos() {
+      const result = await call(['repo', 'list', '--json']);
+      return (result.repos ?? []).map((repo: Record<string, any>): RepoRow => ({ id: repo.id, path: repo.path, displayName: repo.displayName }));
     },
 
     async send(handle, text): Promise<SendResult> {

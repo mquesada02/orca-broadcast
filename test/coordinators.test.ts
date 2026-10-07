@@ -23,7 +23,7 @@ async function setupPause(agents: FakeAgent[]) {
     const file = (await readdir(join(dir, 'pauses'))).find((n) => n.endsWith('.json')) ?? '';
     return JSON.parse(await readFile(join(dir, 'pauses', file), 'utf8')) as Run;
   };
-  return { port, run, readRun };
+  return { port, run, readRun, dir };
 }
 
 const handles = (port: FakeOrca) => port.sends.map((s) => s.handle);
@@ -58,6 +58,7 @@ describe('coordinators in pause', () => {
         'worktree ps': fixture('worktree-ps'),
         'terminal list': fixture('terminal-list'),
         'orchestration run-list': JSON.stringify(args.includes('--cursor') ? page2 : page1),
+        'orchestration worker-list': fixture('worker-list'),
         'terminal send': fixture('terminal-send-accepted'),
       };
       return { stdout: body[key] as string, stderr: '', code: 0 };
@@ -74,11 +75,12 @@ describe('coordinators in pause', () => {
     expect(summary.rows.map((r) => r.messagePending)).toEqual([false]);
   });
 
-  it('sends a worker the unchanged pause message and records role worker', async () => {
+  it('sends a worker (an active worker row) the unchanged pause message and records role worker and its run id', async () => {
     const { port, run } = await setupPause([{ paneKey: 'a:1', behavior: repliesWithToken() }]);
+    port.workersAt = () => [{ paneKey: 'a:1', runId: 'run_9' }];
     const summary = await run();
     expect(textTo(port, 'a:1')).toEqual([WORKER_MESSAGE]);
-    expect(summary.rows[0]?.role).toBe('worker');
+    expect(summary.rows[0]).toMatchObject({ role: 'worker', orchestrationRunIds: ['run_9'] });
   });
 
   it('messages every coordinator before any worker in the first poll', async () => {
@@ -104,7 +106,7 @@ describe('coordinators in pause', () => {
     expect(handles(port)).toEqual(['term_a:1', 'term_c:4', 'term_w:3']);
     expect(textTo(port, 'c:4')).toEqual([COORDINATOR_MESSAGE]);
     const record = await readRun();
-    expect(record.agents.map((a) => [a.paneKey, a.role])).toEqual([['a:1', 'worker'], ['w:3', 'worker'], ['c:4', 'coordinator']]);
+    expect(record.agents.map((a) => [a.paneKey, a.role])).toEqual([['a:1', 'session'], ['w:3', 'session'], ['c:4', 'coordinator']]);
   });
 
   it('re-pauses a woken coordinator with the coordinator message, before a woken worker listed earlier', async () => {
@@ -121,8 +123,8 @@ describe('coordinators in pause', () => {
   });
 
   const flips: [string, (call: number) => string[], string[], string][] = [
-    ['a coordinator that becomes a worker', (call) => (call < 3 ? ['a:1'] : []), [COORDINATOR_MESSAGE, WORKER_MESSAGE], 'worker'],
-    ['a worker that becomes a coordinator', (call) => (call < 3 ? [] : ['a:1']), [WORKER_MESSAGE, COORDINATOR_MESSAGE], 'coordinator'],
+    ['a coordinator that becomes a session', (call) => (call < 3 ? ['a:1'] : []), [COORDINATOR_MESSAGE, WORKER_MESSAGE], 'session'],
+    ['a session that becomes a coordinator', (call) => (call < 3 ? [] : ['a:1']), [WORKER_MESSAGE, COORDINATOR_MESSAGE], 'coordinator'],
   ];
   for (const [name, coordinatorsAt, messages, role] of flips) {
     it(`does not trust the stored role: ${name} before its re-pause gets the message of its new role`, async () => {
@@ -147,15 +149,25 @@ describe('coordinators in pause', () => {
     expect(summary.rows[0]).toMatchObject({ resumeStatus: 'gone', role: 'coordinator' });
   });
 
-  it('saves the record, sends nothing and exits 2 when run-list keeps failing in the first poll', async () => {
-    const { port, run, readRun } = await setupPause([{ paneKey: 'a:1', behavior: working }]);
+  it('writes no record, sends nothing and exits 2 when run-list keeps failing in the first listing', async () => {
+    const { port, run, dir } = await setupPause([{ paneKey: 'a:1', behavior: working }]);
     port.failRunListsFrom = 1;
     const summary = await run();
     expect(summary.exitCode).toBe(2);
     expect(summary.error).toContain('run-list');
     expect(port.listRunsCalls).toBe(3);
     expect(port.sends).toEqual([]);
-    expect((await readRun()).agents.map((a) => a.paneKey)).toEqual(['a:1']);
+    expect(await readdir(dir).catch(() => [])).toEqual([]);
+  });
+
+  it('writes no record, sends nothing and exits 2 when worker-list keeps failing in the first listing', async () => {
+    const { port, run, dir } = await setupPause([{ paneKey: 'a:1', behavior: working }]);
+    port.failWorkerListsFrom = 1;
+    const summary = await run();
+    expect(summary.exitCode).toBe(2);
+    expect(summary.error).toContain('worker-list');
+    expect(port.sends).toEqual([]);
+    expect(await readdir(dir).catch(() => [])).toEqual([]);
   });
 
   it('stops with exit 2 when a later run-list call fails, sending nothing after it', async () => {
@@ -182,11 +194,11 @@ describe('coordinators in pause', () => {
     expect(port.listRunsCalls).toBe(2);
   });
 
-  it('does not read run-list when there is nothing to pause', async () => {
+  it('takes one pass of all four listings even when there is nothing to pause', async () => {
     const { port, run } = await setupPause([{ paneKey: 'a:1', behavior: pausedDone() }]);
     const summary = await run();
     expect(summary.outcome).toBe('nothing-to-do');
-    expect(port.listRunsCalls).toBe(0);
+    expect([port.listCalls, port.listTerminalsCalls, port.listRunsCalls, port.listWorkersCalls]).toEqual([1, 1, 1, 1]);
   });
 });
 
@@ -218,7 +230,7 @@ describe('coordinators in resume', () => {
     port.coordinatorsAt = () => ['a:1'];
     await go();
     expect(handles(port)).toEqual(['term_b:2', 'term_a:1']);
-    expect((await readRun()).agents.map((a) => [a.paneKey, a.role])).toEqual([['a:1', 'coordinator'], ['b:2', 'worker']]);
+    expect((await readRun()).agents.map((a) => [a.paneKey, a.role])).toEqual([['a:1', 'coordinator'], ['b:2', 'session']]);
   });
 
   it('leaves the records of agents it never reached untouched when a signal stops it between role-ordered sends', async () => {

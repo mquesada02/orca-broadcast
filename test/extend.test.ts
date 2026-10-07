@@ -384,7 +384,7 @@ describe('self handling in the CLI', () => {
     return { code, out: out.join(''), err: err.join(''), port };
   }
 
-  const selfBlock = `${SELF_HEADING}\n  repo  worktree  role    status  reason\n  repo  tree-s:1  worker  self    -\n\n`;
+  const selfBlock = `${SELF_HEADING}\n  repo  worktree  role     run           status  reason\n  repo  tree-s:1  session  run: unknown  self    -\n\n`;
 
   it('prints the self block after "nothing to pause" when self is the only working Claude agent', async () => {
     const { code, out, port } = await runCli({ ORCA_PANE_KEY: 's:1' }, [{ paneKey: 's:1', behavior: working }]);
@@ -438,7 +438,7 @@ describe('roles in extension and self handling', () => {
     expect(t.port.sends.map((s) => s.handle)).toEqual([t.port.handleOf('c:1'), t.port.handleOf('w:1')]);
     expect(textTo(t.port, 'c:1')).toEqual([pauseMessage(TOKEN, 'coordinator')]);
     expect(textTo(t.port, 'w:1')).toEqual([pauseMessage(TOKEN)]);
-    expect(summary.rows.map((r) => [r.paneKey, r.role])).toEqual([['w:1', 'worker'], ['c:1', 'coordinator']]);
+    expect(summary.rows.map((r) => [r.paneKey, r.role])).toEqual([['w:1', 'session'], ['c:1', 'coordinator']]);
   });
 
   it('never messages a coordinator self, and a later resume sends workers first and self last', async () => {

@@ -13,6 +13,7 @@ function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRe
     worktree: `tree-${paneKey}`,
     repo: 'repo',
     role: 'worker',
+    orchestrationRunIds: [],
     lastHandle: null,
     pauseStatus: 'confirmed',
     pauseReason: null,

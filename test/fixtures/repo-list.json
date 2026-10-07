@@ -1,0 +1,81 @@
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "ok": true,
+  "result": {
+    "repos": [
+      {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "path": "/home/user/work/dir-3",
+        "displayName": "<redacted displayName>",
+        "badgeColor": "#8b5cf6",
+        "addedAt": 1786975444979,
+        "kind": "git",
+        "externalWorktreeVisibility": "hide",
+        "externalWorktreeVisibilityLegacy": false,
+        "projectGroupId": "00000000-0000-4000-8000-000000000004",
+        "projectGroupOrder": 1,
+        "gitUsername": "<redacted gitUsername>",
+        "repoIcon": {
+          "type": "image",
+          "src": "<redacted src>",
+          "source": "github",
+          "label": "<redacted label>"
+        },
+        "upstream": null,
+        "gitRemoteIdentity": {
+          "canonicalKey": "<redacted canonicalKey>",
+          "remoteName": "origin",
+          "remoteUrl": "<redacted remoteUrl>"
+        },
+        "projectHostSetupMethod": "imported-existing-folder",
+        "hookSettings": {
+          "mode": "auto",
+          "setupRunPolicy": "run-by-default",
+          "setupAgentStartupPolicy": "start-immediately",
+          "scripts": {
+            "setup": "",
+            "archive": ""
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000005",
+        "path": "/home/user/work/dir-6",
+        "displayName": "<redacted displayName>",
+        "badgeColor": "#737373",
+        "addedAt": 1786975498735,
+        "kind": "git",
+        "externalWorktreeVisibility": "hide",
+        "externalWorktreeVisibilityLegacy": false,
+        "projectGroupId": "00000000-0000-4000-8000-000000000004",
+        "projectGroupOrder": 0,
+        "gitUsername": "<redacted gitUsername>",
+        "repoIcon": {
+          "type": "image",
+          "src": "<redacted src>",
+          "source": "github",
+          "label": "<redacted label>"
+        },
+        "upstream": null,
+        "gitRemoteIdentity": {
+          "canonicalKey": "<redacted canonicalKey>",
+          "remoteName": "origin",
+          "remoteUrl": "<redacted remoteUrl>"
+        },
+        "projectHostSetupMethod": "imported-existing-folder",
+        "hookSettings": {
+          "mode": "auto",
+          "setupRunPolicy": "run-by-default",
+          "setupAgentStartupPolicy": "start-immediately",
+          "scripts": {
+            "setup": "",
+            "archive": ""
+          }
+        }
+      }
+    ]
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-4000-8000-000000000007"
+  }
+}
