@@ -114,3 +114,10 @@ export interface Run {
   reason?: Preset;
   agents: AgentRecord[];
 }
+
+// The store reads only these fields of a broadcast record; the broadcast command adds the rest.
+export interface BroadcastRecord {
+  id: string;
+  createdAt: string;
+  status: 'open' | 'closed';
+}

@@ -83,7 +83,7 @@ export async function resume(deps: ResumeDeps): Promise<RunSummary> {
   const finished = run.agents.every((a) => a.resumeStatus !== 'pending');
   if (finished) run.status = 'closed';
   await store.save(run);
-  if (finished) await store.clearCurrent();
+  if (finished) await store.clearCurrent('pause', run.runId);
   return { outcome: 'done', exitCode: finished ? 0 : 1, run, error: null, rows: run.agents };
 }
 

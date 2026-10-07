@@ -19,7 +19,7 @@ export async function close(store: RecordStore, signal?: AbortSignal): Promise<R
   run.status = 'closed';
   try {
     await store.save(run);
-    await store.clearCurrent();
+    await store.clearCurrent('pause', run.runId);
   } catch (error) {
     return failure(error, run);
   }

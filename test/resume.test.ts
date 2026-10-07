@@ -30,12 +30,12 @@ async function setup(agents: FakeAgent[], records: AgentRecord[] = agents.map((a
   const store = createRecordStore(dir);
   const run: Run = { runId: 'run-1', token: 'abcd1234', startedAt: '2026-01-01T00:00:00.000Z', status: 'open', agents: records };
   await store.save(run);
-  await store.setCurrent(run.runId);
+  await store.setCurrent('pause', run.runId);
   const port = new FakeOrca(agents);
   const clock = fakeClock();
   const progress: ResumeProgress[] = [];
   const go = (signal?: AbortSignal) => resume({ port, clock, store: createRecordStore(dir), onProgress: (p) => progress.push(p), signal });
-  const readRun = async (): Promise<Run> => JSON.parse(await readFile(join(dir, 'run-1.json'), 'utf8')) as Run;
+  const readRun = async (): Promise<Run> => JSON.parse(await readFile(join(dir, 'pauses', 'run-1.json'), 'utf8')) as Run;
   return { dir, port, clock, go, readRun, progress };
 }
 
@@ -80,7 +80,7 @@ describe('resume happy path', () => {
     const { port, go, readRun, dir } = await setup([{ paneKey: 'a:1', stateStartedAt: 7, behavior: pausedDone(PAUSED_REPLY) }]);
     let during: Run | undefined;
     port.onSend = async () => {
-      during = JSON.parse(await readFile(join(dir, 'run-1.json'), 'utf8')) as Run;
+      during = JSON.parse(await readFile(join(dir, 'pauses', 'run-1.json'), 'utf8')) as Run;
     };
 
     await go();
@@ -276,7 +276,7 @@ describe('no run and errors', () => {
   it('exits 2 when the run file cannot be parsed', async () => {
     const { dir, go, port } = await setup([{ paneKey: 'a:1', behavior: working }]);
     const { writeFile } = await import('node:fs/promises');
-    await writeFile(join(dir, 'run-1.json'), '{not json');
+    await writeFile(join(dir, 'pauses', 'run-1.json'), '{not json');
     const summary = await go();
     expect(summary).toMatchObject({ outcome: 'error', exitCode: 2 });
     expect(port.sends).toHaveLength(0);

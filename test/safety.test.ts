@@ -12,7 +12,7 @@ const hasPointer = (dir: string) => existsSync(join(dir, 'orca-broadcast', 'curr
 
 /** The run files (not the pointer or lock files), by name. */
 async function runFiles(dir: string): Promise<Record<string, string>> {
-  const stateDir = join(dir, 'orca-broadcast');
+  const stateDir = join(dir, 'orca-broadcast', 'pauses');
   if (!existsSync(stateDir)) return {};
   const names = (await readdir(stateDir)).filter((name) => name.endsWith('.json'));
   return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(join(stateDir, name), 'utf8')])));

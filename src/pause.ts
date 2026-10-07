@@ -216,7 +216,7 @@ export async function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSumm
 
   const { run, extending } = prepared;
   await store.save(run);
-  if (!extending) await store.setCurrent(run.runId); // findOpenRun already points at an open run
+  if (!extending) await store.setCurrent('pause', run.runId); // findOpenRun already points at an open run
 
   // Before the first send pass that was not confirmed at the start: a "no" or a failure leaves the records as they were before this invocation.
   const confirmLate = async (confirm: Confirm, coordinators: Set<string>): Promise<RunSummary | null> => {

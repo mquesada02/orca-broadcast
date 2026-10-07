@@ -129,8 +129,8 @@ describe('--json close', () => {
   it('exit 2: an unreadable record gives outcome error and no run', async () => {
     const { code, out, err } = await runCli(['close', '--json'], [], {
       seed: async (store) => {
-        await mkdir(store.dir, { recursive: true });
-        await writeFile(join(store.dir, 'bad.json'), '{nope');
+        await mkdir(join(store.dir, 'pauses'), { recursive: true });
+        await writeFile(join(store.dir, 'pauses', 'bad.json'), '{nope');
       },
     });
     expect(code).toBe(2);

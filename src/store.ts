@@ -1,10 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Run } from './types.js';
+import type { BroadcastRecord, Run } from './types.js';
 
 const POINTER = 'current';
 const LOCK = 'lock';
 const TAKEOVER = 'lock.takeover';
+const PAUSES = 'pauses';
+const BROADCASTS = 'broadcasts';
 const LOCK_ATTEMPTS = 3;
 
 export class LockHeldError extends Error {
@@ -13,23 +16,54 @@ export class LockHeldError extends Error {
   }
 }
 
+export type RecordKind = 'pause' | 'broadcast';
+
 export interface OpenRuns {
   run: Run;
   others: Run[];
 }
 
+export interface OpenEntry<T> {
+  record: T;
+  others: T[];
+}
+
+// The open winner of each kind, or null when none is open.
+export interface OpenRecords {
+  pause: OpenEntry<Run> | null;
+  broadcast: OpenEntry<BroadcastRecord> | null;
+}
+
+export interface LockOwner {
+  pid: number;
+  startTime?: string;
+}
+
 export interface RecordStore {
+  /** The open pause run, as the repairing load sees it. */
   findOpenRun(): Promise<OpenRuns | null>;
+  /** Scans both kinds and repairs the pointer. The caller must hold the lock. */
+  loadOpen(): Promise<OpenRecords>;
+  /** The same selection as `loadOpen`, with no repair; safe without the lock. */
+  peekOpen(): Promise<OpenRecords>;
   acquireLock(): Promise<() => Promise<void>>;
+  /** The parsed lock owner, or null when there is no lock or it is invalid. */
+  lockOwner(): Promise<LockOwner | null>;
   save(run: Run): Promise<void>;
-  setCurrent(runId: string): Promise<void>;
-  clearCurrent(): Promise<void>;
+  saveBroadcast(record: BroadcastRecord): Promise<void>;
+  /** Removes a pause run's file and clears the pointer if it names that run. The caller guarantees the run is new and unconfirmed. */
+  removeRun(runId: string): Promise<void>;
+  setCurrent(kind: RecordKind, id: string): Promise<void>;
+  /** Clears the pointer only when it names this record. */
+  clearCurrent(kind: RecordKind, id: string): Promise<void>;
   dir: string;
+  pid: number;
 }
 
 export interface StoreOptions {
   pid?: number;
   isAlive?: (pid: number) => boolean;
+  readStartTime?: (pid: number) => string | undefined;
 }
 
 function processIsAlive(pid: number): boolean {
@@ -38,6 +72,20 @@ function processIsAlive(pid: number): boolean {
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+// Field 22 of /proc/<pid>/stat is the 20th token after the last ')': the command name may contain spaces and parentheses.
+export function parseProcStartTime(stat: string): string | undefined {
+  const token = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19];
+  return token !== undefined && /^\d+$/.test(token) ? token : undefined;
+}
+
+function procStartTime(pid: number): string | undefined {
+  try {
+    return parseProcStartTime(readFileSync(`/proc/${pid}/stat`, 'utf8'));
+  } catch {
+    return undefined;
   }
 }
 
@@ -51,16 +99,31 @@ async function removeIfPresent(path: string): Promise<void> {
   await rm(path, { force: true });
 }
 
-async function readRun(path: string): Promise<Run | null> {
+async function readRecord<T>(path: string): Promise<T | null> {
   try {
-    return JSON.parse(await readFile(path, 'utf8')) as Run;
+    return JSON.parse(await readFile(path, 'utf8')) as T;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw new Error(`unreadable record ${path}: ${(error as Error).message}`);
   }
 }
 
-type Owner = { kind: 'missing' } | { kind: 'invalid' } | { kind: 'pid'; pid: number };
+// A missing folder counts as empty.
+async function readOpen<T extends { status: string }>(folder: string, sortKey: (record: T) => string, idOf: (record: T) => string): Promise<OpenEntry<T> | null> {
+  let names: string[];
+  try {
+    names = await readdir(folder);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  const records: (T | null)[] = await Promise.all<T | null>(names.filter((n) => n.endsWith('.json')).map((n) => readRecord<T>(join(folder, n))));
+  const open = records.filter((r): r is T => r?.status === 'open').sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || idOf(b).localeCompare(idOf(a)));
+  const [record, ...others] = open;
+  return record ? { record, others } : null;
+}
+
+type Owner = { kind: 'missing' } | { kind: 'invalid' } | ({ kind: 'owner' } & LockOwner);
 
 async function readOwner(path: string): Promise<Owner> {
   let text: string;
@@ -70,21 +133,25 @@ async function readOwner(path: string): Promise<Owner> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' };
     throw error;
   }
-  return /^\d+$/.test(text.trim()) ? { kind: 'pid', pid: Number(text.trim()) } : { kind: 'invalid' };
+  const match = /^(\d+)(?: (\d+))?$/.exec(text.trim());
+  if (!match) return { kind: 'invalid' };
+  return match[2] === undefined ? { kind: 'owner', pid: Number(match[1]) } : { kind: 'owner', pid: Number(match[1]), startTime: match[2] };
 }
 
 export function createRecordStore(dir: string, options: StoreOptions = {}): RecordStore {
   const pid = options.pid ?? process.pid;
   const isAlive = options.isAlive ?? processIsAlive;
-  const runPath = (runId: string) => join(dir, `${runId}.json`);
+  const readStartTime = options.readStartTime ?? procStartTime;
+  const pausesDir = join(dir, PAUSES);
+  const broadcastsDir = join(dir, BROADCASTS);
   const lockPath = join(dir, LOCK);
   const takeoverPath = join(dir, TAKEOVER);
   const pointerPath = join(dir, POINTER);
 
-  // The PID is written to a private file first, so the lock path is never observable empty.
-  async function createExclusive(path: string): Promise<boolean> {
+  // The content is written to a private file first, so the lock path is never observable empty.
+  async function createExclusive(path: string, content: string): Promise<boolean> {
     const tmp = `${path}.${pid}.tmp`;
-    await writeFile(tmp, `${pid}\n`);
+    await writeFile(tmp, content);
     try {
       await link(tmp, path);
       return true;
@@ -96,84 +163,133 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     }
   }
 
-  async function releaseIfOwned(path: string): Promise<void> {
+  async function releaseIfOwned(path: string, startTime?: string): Promise<void> {
     const owner = await readOwner(path);
-    if (owner.kind === 'pid' && owner.pid === pid) await removeIfPresent(path);
+    if (owner.kind === 'owner' && owner.pid === pid && owner.startTime === startTime) await removeIfPresent(path);
+  }
+
+  // A dead pid, or a live pid whose start time differs from the recorded one (pid reuse), is stale.
+  // When either start time is missing, only the pid rule applies.
+  function isStale(owner: LockOwner): boolean {
+    if (!isAlive(owner.pid)) return true;
+    const current = owner.startTime === undefined ? undefined : readStartTime(owner.pid);
+    return current !== undefined && current !== owner.startTime;
   }
 
   // The takeover file serialises stale-lock takeover. A leftover one is never reclaimed automatically:
-  // removing it would race with a contender that has just created its own.
-  async function takeOver(deadPid: number): Promise<void> {
-    if (!(await createExclusive(takeoverPath))) throw new LockHeldError(takeoverPath);
+  // removing it would race with a contender that has just created its own. It holds the pid only.
+  async function takeOver(observed: LockOwner, content: string): Promise<void> {
+    if (!(await createExclusive(takeoverPath, `${pid}\n`))) throw new LockHeldError(takeoverPath);
     try {
       const owner = await readOwner(lockPath);
-      if (owner.kind === 'invalid' || (owner.kind === 'pid' && owner.pid !== deadPid)) throw new LockHeldError();
-      if (owner.kind === 'pid') await removeIfPresent(lockPath);
-      if (!(await createExclusive(lockPath))) throw new LockHeldError();
+      if (owner.kind === 'invalid' || (owner.kind === 'owner' && (owner.pid !== observed.pid || owner.startTime !== observed.startTime))) throw new LockHeldError();
+      if (owner.kind === 'owner') await removeIfPresent(lockPath);
+      if (!(await createExclusive(lockPath, content))) throw new LockHeldError();
     } finally {
       await releaseIfOwned(takeoverPath);
     }
   }
 
-  async function setCurrent(runId: string): Promise<void> {
+  async function setCurrent(kind: RecordKind, id: string): Promise<void> {
     await mkdir(dir, { recursive: true });
-    await writeAtomic(pointerPath, `${runId}\n`);
+    await writeAtomic(pointerPath, `${JSON.stringify({ kind, id })}\n`);
+  }
+
+  // Anything but pointer JSON (including a pointer in the old plain-text layout) counts as missing.
+  async function readPointer(): Promise<{ kind: RecordKind; id: string } | null> {
+    let text: string;
+    try {
+      text = await readFile(pointerPath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+    try {
+      const value = JSON.parse(text) as { kind?: unknown; id?: unknown };
+      return (value.kind === 'pause' || value.kind === 'broadcast') && typeof value.id === 'string' ? { kind: value.kind, id: value.id } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function clearCurrent(kind: RecordKind, id: string): Promise<void> {
+    const pointer = await readPointer();
+    if (pointer?.kind === kind && pointer.id === id) await removeIfPresent(pointerPath);
+  }
+
+  async function peekOpen(): Promise<OpenRecords> {
+    const [pause, broadcast] = await Promise.all([
+      readOpen<Run>(pausesDir, (r) => r.startedAt, (r) => r.runId),
+      readOpen<BroadcastRecord>(broadcastsDir, (r) => r.createdAt, (r) => r.id),
+    ]);
+    return { pause, broadcast };
+  }
+
+  async function loadOpen(): Promise<OpenRecords> {
+    const open = await peekOpen();
+    // An open pause run wins the pointer; abandoning the broadcast is the pause command's job.
+    const winner: { kind: RecordKind; id: string } | null = open.pause
+      ? { kind: 'pause', id: open.pause.record.runId }
+      : open.broadcast
+        ? { kind: 'broadcast', id: open.broadcast.record.id }
+        : null;
+    if (!winner) {
+      await removeIfPresent(pointerPath);
+    } else {
+      const pointer = await readPointer();
+      if (pointer?.kind !== winner.kind || pointer.id !== winner.id) await setCurrent(winner.kind, winner.id);
+    }
+    return open;
   }
 
   return {
     dir,
+    pid,
     setCurrent,
-
-    async clearCurrent() {
-      await removeIfPresent(pointerPath);
-    },
+    clearCurrent,
+    loadOpen,
+    peekOpen,
 
     async findOpenRun() {
-      let pointed: string | null = null;
-      try {
-        pointed = (await readFile(pointerPath, 'utf8')).trim();
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      }
-      const current = pointed ? await readRun(runPath(pointed)) : null;
-      if (current?.status === 'open') return { run: current, others: [] };
+      const { pause } = await loadOpen();
+      return pause ? { run: pause.record, others: pause.others } : null;
+    },
 
-      let names: string[];
-      try {
-        names = await readdir(dir);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-        throw error;
-      }
-      const runs = await Promise.all(names.filter((n) => n.endsWith('.json')).map((n) => readRun(join(dir, n))));
-      const open = runs.filter((r): r is Run => r?.status === 'open').sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.runId.localeCompare(a.runId));
-      const [run, ...others] = open;
-      if (!run) {
-        await removeIfPresent(pointerPath);
-        return null;
-      }
-      await setCurrent(run.runId);
-      return { run, others };
+    async lockOwner() {
+      const owner = await readOwner(lockPath);
+      return owner.kind === 'owner' ? { pid: owner.pid, ...(owner.startTime === undefined ? {} : { startTime: owner.startTime }) } : null;
     },
 
     async acquireLock() {
-      const release = () => releaseIfOwned(lockPath);
       await mkdir(dir, { recursive: true });
+      const startTime = readStartTime(pid);
+      const content = `${pid}${startTime === undefined ? '' : ` ${startTime}`}\n`;
+      const release = () => releaseIfOwned(lockPath, startTime);
       for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt++) {
-        if (await createExclusive(lockPath)) return release;
+        if (await createExclusive(lockPath, content)) return release;
         const owner = await readOwner(lockPath);
         if (owner.kind === 'missing') continue;
         if (owner.kind === 'invalid') throw new LockHeldError(lockPath);
-        if (isAlive(owner.pid)) throw new LockHeldError();
-        await takeOver(owner.pid);
+        if (!isStale(owner)) throw new LockHeldError();
+        await takeOver(owner, content);
         return release;
       }
       throw new LockHeldError();
     },
 
     async save(run) {
-      await mkdir(dir, { recursive: true });
-      await writeAtomic(runPath(run.runId), `${JSON.stringify(run, null, 2)}\n`);
+      await mkdir(pausesDir, { recursive: true });
+      await writeAtomic(join(pausesDir, `${run.runId}.json`), `${JSON.stringify(run, null, 2)}\n`);
+    },
+
+    async saveBroadcast(record) {
+      await mkdir(broadcastsDir, { recursive: true });
+      await writeAtomic(join(broadcastsDir, `${record.id}.json`), `${JSON.stringify(record, null, 2)}\n`);
+    },
+
+    async removeRun(runId) {
+      await removeIfPresent(join(pausesDir, `${runId}.json`));
+      await clearCurrent('pause', runId);
     },
   };
 }
