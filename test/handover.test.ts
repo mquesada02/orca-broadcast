@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { Interrupted } from '../src/abort.js';
 import { HANDOVER_TIMEOUT_MS } from '../src/guard.js';
 import { createRecordStore } from '../src/store.js';
 import type { BroadcastRecord } from '../src/types.js';
@@ -442,4 +443,88 @@ describe('the broadcast and SIGTERM', () => {
     expect(record).not.toHaveProperty('startTime');
     expect(record.targets[0]).toMatchObject({ status: 'pending' });
   });
+});
+
+describe('pause stops a broadcast re-run', () => {
+  const RERUN_PID = 4242;
+  const RERUN_START = '77';
+  const PAUSE_PID = 5000;
+
+  // A clock whose sleeps really yield, so that the two commands, which run in this process, take turns.
+  const turnTakingClock = (onFirstSleep: () => void = () => {}) => {
+    let slept = 0;
+    let first = true;
+    return {
+      now: () => 1_000_000 + slept,
+      sleep: async (ms: number) => {
+        slept += ms;
+        if (first) {
+          first = false;
+          onFirstSleep();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      },
+    };
+  };
+
+  it.each<['its prompt' | 'its wait loop']>([['its prompt'], ['its wait loop']])(
+    'verifies the owner, sends SIGTERM to the re-run that waits at %s, then abandons its unacked targets as paused and closes the broadcast',
+    async (where) => {
+      const signals = new EventEmitter();
+      const kills: [number, NodeJS.Signals][] = [];
+      const pids = new Map([[RERUN_PID, RERUN_START], [PAUSE_PID, '1']]);
+      let stateHome = '';
+      let pausing: ReturnType<typeof runCli> | undefined;
+      // The pause starts while the re-run waits. Its fake kill delivers the SIGTERM to the re-run's signal source.
+      const startPause = () => {
+        pausing = runCli(['pause', '--yes'], [worker()], {
+          newToken,
+          env: { XDG_STATE_HOME: stateHome },
+          clock: turnTakingClock(),
+          storeOptions: { pid: PAUSE_PID, isAlive: (pid) => pids.has(pid), readStartTime: (pid) => pids.get(pid) },
+          kill: (pid, signal) => {
+            kills.push([pid, signal]);
+            signals.emit(signal);
+          },
+        });
+      };
+      const atPrompt = where === 'its prompt';
+      const { code, dir, port } = await runCli(['broadcast', '--timeout', '1h', ...(atPrompt ? [] : ['--yes'])], [{ paneKey: 'a:1', behavior: working }], {
+        newToken,
+        signals,
+        clock: turnTakingClock(atPrompt ? () => {} : startPause),
+        storeOptions: { pid: RERUN_PID, readStartTime: (pid) => pids.get(pid) },
+        // A target that still needs the message makes the re-run ask; a sent one makes it a pure wait.
+        seed: async (store, home) => {
+          stateHome = home;
+          const record = openBroadcastRecord([broadcastTarget('a:1', atPrompt ? { messagePending: true, reason: null } : { baseline: 'Earlier reply.' })]);
+          await store.saveBroadcast(record);
+          await store.setCurrent('broadcast', record.id);
+        },
+        ask: atPrompt
+          ? [
+              (signal) => {
+                // The record already holds this process's pid and start time: the proof the pause needs.
+                startPause();
+                return new Promise<string>((_, reject) => signal?.addEventListener('abort', () => reject(new Interrupted(signal)), { once: true }));
+              },
+            ]
+          : undefined,
+      });
+      const paused = await pausing;
+
+      expect(code).toBe(130); // the re-run took the SIGTERM like Ctrl-C
+      expect(port.sends).toEqual([]); // and sent nothing
+      expect(kills).toEqual([[RERUN_PID, 'SIGTERM']]);
+      expect(paused?.code).toBe(0);
+      expect(paused?.err).toContain('broadcast b-1 was closed by this pause: 1 agent had not acknowledged it and will not be waited for');
+      const stateDir = join(dir, 'orca-broadcast');
+      const record = JSON.parse(await readFile(join(stateDir, 'broadcasts', 'b-1.json'), 'utf8')) as BroadcastRecord;
+      expect(record).toMatchObject({ status: 'closed' });
+      expect(record).not.toHaveProperty('pid');
+      expect(record.targets[0]).toMatchObject({ status: 'abandoned', reason: 'paused' });
+      expect(await readdir(join(stateDir, 'pauses'))).toHaveLength(1);
+      expect(JSON.parse(await readFile(join(stateDir, 'current'), 'utf8'))).toMatchObject({ kind: 'pause' });
+    },
+  );
 });

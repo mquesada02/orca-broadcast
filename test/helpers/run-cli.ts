@@ -5,6 +5,7 @@ import { Interrupted } from '../../src/abort.js';
 import { PromptInterrupted } from '../../src/ask.js';
 import { main } from '../../src/cli.js';
 import { createRecordStore, type RecordStore, type StoreOptions } from '../../src/store.js';
+import type { Clock } from '../../src/types.js';
 import { fakeClock, FakeOrca, tempStateDir, type FakeAgent } from './fake-orca.js';
 
 export type Seed = (store: RecordStore, dir: string) => Promise<unknown>;
@@ -27,7 +28,7 @@ export const seedGroups =
 
 /** One scripted answer: text, a function (so a test can act while the prompt is open), CTRL_C, or 'SIGTERM' (signal while the prompt waits, then hang until aborted). */
 export const CTRL_C = Symbol('ctrl-c');
-export type Answer = string | (() => string) | typeof CTRL_C;
+export type Answer = string | ((signal?: AbortSignal) => string | Promise<string>) | typeof CTRL_C;
 
 export interface RunCliOptions {
   /** Makes the run interactive: the shell can ask, and gets these answers in order (an empty answer when they run out). */
@@ -37,7 +38,7 @@ export interface RunCliOptions {
   configure?: (port: FakeOrca) => void;
   env?: NodeJS.ProcessEnv;
   signals?: EventEmitter;
-  clock?: ReturnType<typeof fakeClock>;
+  clock?: Clock;
   newToken?: () => string;
   cwd?: string;
   /** The process-kill fake. A test that does not give one fails if the CLI tries to signal a process: it must never reach a real one. */
@@ -73,7 +74,7 @@ export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: Run
             signal?.addEventListener('abort', () => reject(new Interrupted(signal)), { once: true });
           });
         }
-        return Promise.resolve(typeof answer === 'function' ? answer() : answer);
+        return Promise.resolve(typeof answer === 'function' ? answer(signal) : answer);
       }
     : undefined;
   const code = await main(argv, { XDG_STATE_HOME: dir, XDG_CONFIG_HOME: configDirOf(dir), ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken, kill: opts.kill ?? noKill, storeOptions: opts.storeOptions, cwd: opts.cwd });
