@@ -7,7 +7,7 @@ import { HANDOVER_TIMEOUT_MS } from '../src/guard.js';
 import { createRecordStore } from '../src/store.js';
 import type { BroadcastRecord } from '../src/types.js';
 import { agentRecord, broadcastTarget, fakeClock, openBroadcastRecord, repliesWithToken, seedOpenRun, working, type FakeAgent } from './helpers/fake-orca.js';
-import { CTRL_C, runCli, type RunCliOptions } from './helpers/run-cli.js';
+import { CTRL_C, runCli, seedGroups, type RunCliOptions } from './helpers/run-cli.js';
 
 // The "broadcast process" is a fake pid that holds the lock and is named by the open record. Nothing here signals a real process.
 const BROADCAST_PID = 4242;
@@ -262,6 +262,46 @@ describe('pause stops a waiting broadcast', () => {
     expect(world.files()).toContain('lock');
     expect(world.record()).toMatchObject({ status: 'open', pid: BROADCAST_PID });
     expect(world.pauseRuns()).toEqual([]);
+  });
+
+  // The scenario with a groups.json next to the state folder, written when the scenario is seeded.
+  const withGroups = (world: ReturnType<typeof scenario>, groups: Record<string, Record<string, string[]>>): RunCliOptions => ({
+    ...world.opts,
+    seed: async (store, stateHome) => {
+      await world.opts.seed?.(store, stateHome);
+      await seedGroups(groups)(store, stateHome);
+    },
+  });
+
+  it.each([
+    ['an unknown name', ['--group', 'nope'], {}, 'unknown group "nope"'],
+    ['a state-only group', ['--group', 'idle'], { idle: { state: ['working'] } }, 'only filters by state'],
+    ['a group value that no longer resolves', ['--group', 'gone'], { gone: { repo: ['vanished'] } }, 'group gone: unknown --repo "vanished"'],
+    ['a second --group', ['--group', 'a', '--group', 'b'], { a: { role: ['session'] }, b: { role: ['session'] } }, 'use at most one --group'],
+  ])('sends no signal for %s, and leaves the broadcast and its lock alone', async (_label, flags, groups, message) => {
+    const world = scenario();
+    const { code, err, port } = await runCli(['pause', '--yes', ...flags], [worker()], withGroups(world, groups));
+    expect(code).toBe(2);
+    expect(err).toContain(message);
+    expect(world.kills).toEqual([]);
+    expect(port.sends).toEqual([]);
+    expect(world.files()).toContain('lock');
+    expect(world.record()).toMatchObject({ status: 'open', pid: BROADCAST_PID });
+    expect(world.pauseRuns()).toEqual([]);
+  });
+
+  it('does not signal when the group selects nobody, and stops the broadcast when it selects an agent', async () => {
+    const nobody = scenario();
+    const none = await runCli(['pause', '--yes', '--group', 'leads'], [worker()], withGroups(nobody, { leads: { role: ['coordinator'] } }));
+    expect(none.code).toBe(0);
+    expect(none.out).toContain('nothing to pause');
+    expect(nobody.kills).toEqual([]);
+    expect(nobody.record()).toMatchObject({ status: 'open', pid: BROADCAST_PID });
+
+    const some = scenario();
+    const hit = await runCli(['pause', '--yes', '--group', 'solo'], [worker()], withGroups(some, { solo: { role: ['session'] } }));
+    expect(hit.code).toBe(0);
+    expect(some.kills).toEqual([[BROADCAST_PID, 'SIGTERM']]);
   });
 
   it('does not signal when the filters select nobody, and leaves the broadcast alone', async () => {
