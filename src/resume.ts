@@ -93,7 +93,7 @@ async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<str
     .filter((a) => a.resumeStatus === 'pending')
     .map((agent) => {
       const located = locate(agent.paneKey, rows, terminals);
-      return { agent, located, info: 'gone' in located ? { role: agent.role, orchestrationRunIds: agent.orchestrationRunIds } : roleInfoOf(roles, agent.paneKey) };
+      return { agent, located, info: 'gone' in located ? agent : roleInfoOf(roles, agent.paneKey) };
     });
 
   // Workers and sessions first, then coordinators: a send order only.
@@ -105,8 +105,7 @@ async function sendAll(run: Run, rows: Map<string, AgentRow>, terminals: Map<str
       agent.resumeReason = located.gone;
       continue;
     }
-    agent.role = info.role;
-    agent.orchestrationRunIds = info.orchestrationRunIds;
+    Object.assign(agent, { role: info.role, orchestrationRunIds: info.orchestrationRunIds });
     const { row, handle } = located;
     if (isProven(agent, row)) {
       agent.resumeStatus = 'resumed';

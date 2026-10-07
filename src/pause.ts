@@ -94,8 +94,7 @@ function newAgent(row: AgentRow, info: RoleInfo): AgentRecord {
     worktreeId: row.worktreeId,
     worktree: row.worktree,
     repo: row.repo,
-    role: info.role,
-    orchestrationRunIds: info.orchestrationRunIds,
+    ...info,
     lastHandle: null,
     pauseStatus: 'unconfirmed',
     pauseReason: null,
@@ -116,8 +115,7 @@ function markSelf(existing: AgentRecord | undefined, row: AgentRow, handle: stri
   Object.assign(agent, {
     worktree: row.worktree,
     repo: row.repo,
-    role: info.role,
-    orchestrationRunIds: info.orchestrationRunIds,
+    ...info,
     lastHandle: handle,
     pauseReason: 'self',
     messagePending: false,
@@ -319,9 +317,7 @@ function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string,
   for (const agent of run.agents.filter((a) => !isGone(a))) {
     const located = markLocated(agent, agents, terminals);
     if (located) {
-      const info = roleInfoOf(roles, agent.paneKey);
-      agent.role = info.role;
-      agent.orchestrationRunIds = info.orchestrationRunIds;
+      Object.assign(agent, roleInfoOf(roles, agent.paneKey));
       if (agent.paneKey !== selfKey) live.push({ agent, row: located.row });
     }
   }

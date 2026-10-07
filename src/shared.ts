@@ -31,11 +31,17 @@ export async function listAgentsFresh({ port, clock, signal }: ListDeps): Promis
   return newestByPane(await withRetry(() => port.listAgents(), clock, signal));
 }
 
+// Waits for every promise, then fails with the interrupt if there was one, else with the first failure.
+async function allSettledOrThrow<T extends unknown[]>(promises: { [K in keyof T]: Promise<T[K]> }): Promise<T> {
+  const settled = await Promise.allSettled(promises);
+  const failures = settled.flatMap((r) => (r.status === 'rejected' ? [r.reason] : []));
+  if (failures.length > 0) throw failures.find((reason) => reason instanceof Interrupted) ?? failures[0];
+  return settled.map((r) => (r as PromiseFulfilledResult<unknown>).value) as T;
+}
+
 export async function listFresh({ port, clock, signal }: ListDeps): Promise<[Map<string, AgentRow>, Map<string, TerminalRow>]> {
-  const [rows, terminals] = await Promise.allSettled([listAgentsFresh({ port, clock, signal }), withRetry(() => port.listTerminals(), clock, signal)]);
-  if (rows.status === 'fulfilled' && terminals.status === 'fulfilled') return [rows.value, terminalsByPane(terminals.value)];
-  const failures = [rows, terminals].flatMap((r) => (r.status === 'rejected' ? [r.reason] : []));
-  throw failures.find((reason) => reason instanceof Interrupted) ?? failures[0];
+  const [rows, terminals] = await allSettledOrThrow([listAgentsFresh({ port, clock, signal }), withRetry(() => port.listTerminals(), clock, signal)]);
+  return [rows, terminalsByPane(terminals)];
 }
 
 export interface RoleInfo {
@@ -90,15 +96,15 @@ export function computeRoles(agents: Map<string, AgentRow>, terminals: Map<strin
     return parent && parent !== paneKey && live.has(parent) ? parent : null;
   };
   const parents = new Set([...live.keys()].flatMap((paneKey) => parentOf(paneKey) ?? []));
-  const own = (paneKey: string): string[] => [...(idsOfHandle.get((live.get(paneKey) as { handle: string }).handle) ?? [])].sort();
+  const own = new Map([...live].map(([paneKey, { handle }]) => [paneKey, [...(idsOfHandle.get(handle) ?? [])].sort()]));
 
   const roles: Roles = new Map();
   for (const [paneKey, { handle }] of live) {
     const parent = parentOf(paneKey);
     const role: Role = coordinatorHandles.has(handle) || parents.has(paneKey) ? 'coordinator' : workerHandles.has(handle) || parent ? 'worker' : 'session';
     // A worker without a run of its own takes the own run ids of its parent (one hop, never inherited ones).
-    const ids = own(paneKey);
-    roles.set(paneKey, { role, orchestrationRunIds: role === 'worker' && ids.length === 0 && parent ? own(parent) : ids });
+    const ids = own.get(paneKey) as string[];
+    roles.set(paneKey, { role, orchestrationRunIds: role === 'worker' && ids.length === 0 && parent ? [...(own.get(parent) as string[])] : ids });
   }
   return roles;
 }
@@ -112,19 +118,19 @@ export interface Snapshot {
 // One pass of all four listings, taken together: roles are never computed from listings of different moments.
 export async function listSnapshot(deps: ListDeps): Promise<Snapshot> {
   const { port, clock, signal } = deps;
-  const [agents, terminals] = await listFresh(deps);
-  const runs = await withRetry(() => port.listRuns(), clock, signal);
-  const workers = await withRetry(() => port.listWorkers(), clock, signal);
+  const [[agents, terminals], runs, workers] = await allSettledOrThrow([listFresh(deps), withRetry(() => port.listRuns(), clock, signal), withRetry(() => port.listWorkers(), clock, signal)]);
   return { agents, terminals, roles: computeRoles(agents, terminals, runs, workers) };
 }
 
 // Stable partitions: coordinators come first (or last), and each group keeps its order.
+const splitCoordinators = <T>(items: T[], roleOfItem: (item: T) => Role): [T[], T[]] => [items.filter((item) => roleOfItem(item) === 'coordinator'), items.filter((item) => roleOfItem(item) !== 'coordinator')];
+
 export function coordinatorsFirst<T>(items: T[], roleOfItem: (item: T) => Role): T[] {
-  return [...items.filter((item) => roleOfItem(item) === 'coordinator'), ...items.filter((item) => roleOfItem(item) !== 'coordinator')];
+  return splitCoordinators(items, roleOfItem).flat();
 }
 
 export function coordinatorsLast<T>(items: T[], roleOfItem: (item: T) => Role): T[] {
-  return [...items.filter((item) => roleOfItem(item) !== 'coordinator'), ...items.filter((item) => roleOfItem(item) === 'coordinator')];
+  return splitCoordinators(items, roleOfItem).reverse().flat();
 }
 
 export function failure(error: unknown, run: Run | null): RunSummary {

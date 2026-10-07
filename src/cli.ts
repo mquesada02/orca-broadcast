@@ -143,14 +143,16 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     }
     if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
 
+    // The agents of this output: the rows, and self where the output has a self block.
+    const shown = summary.self ? [...summary.rows, summary.self] : summary.rows;
     if (summary.outcome === 'error') {
       io.stderr(`orca-broadcast: ${summary.error}\n`);
     } else if (summary.outcome === 'nothing-to-do') {
       const selfBlock = summary.self ? `${renderSelfBlock(summary.self)}\n` : '';
-      io.stdout(`nothing to ${command}\n${selfBlock}${summary.self ? renderUnknownRuns([summary.self]) : ''}`);
+      io.stdout(`nothing to ${command}\n${selfBlock}${renderUnknownRuns(shown)}`);
     } else {
       const table = command === 'pause' ? renderTable(summary.rows, summary.self) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows);
-      io.stdout(`${table}${renderUnknownRuns(summary.self ? [...summary.rows, summary.self] : summary.rows)}`);
+      io.stdout(`${table}${renderUnknownRuns(shown)}`);
     }
     return summary.exitCode;
   } catch (error) {
