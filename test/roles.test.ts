@@ -15,8 +15,9 @@ async function setupPause(agents: FakeAgent[], selfPaneKey?: string) {
   const port = new FakeOrca(agents);
   const run = (timeoutMs = 60_000) => pause(timeoutMs, { port, clock: fakeClock(), store: createRecordStore(dir), newToken: () => TOKEN, selfPaneKey });
   const readRun = async (): Promise<Run> => {
-    const file = (await readdir(dir)).find((n) => n.endsWith('.json')) ?? '';
-    return JSON.parse(await readFile(join(dir, file), 'utf8')) as Run;
+    const folder = join(dir, 'pauses');
+    const file = (await readdir(folder)).find((n) => n.endsWith('.json')) ?? '';
+    return JSON.parse(await readFile(join(folder, file), 'utf8')) as Run;
   };
   return { port, run, readRun };
 }
@@ -271,7 +272,7 @@ describe('roles in resume', () => {
     await seedOpenRun(createRecordStore(dir), records);
     const port = new FakeOrca(agents);
     const go = () => resume({ port, clock: fakeClock(), store: createRecordStore(dir) });
-    const readRun = async (): Promise<Run> => JSON.parse(await readFile(join(dir, 'run-1.json'), 'utf8')) as Run;
+    const readRun = async (): Promise<Run> => JSON.parse(await readFile(join(dir, 'pauses', 'run-1.json'), 'utf8')) as Run;
     return { port, go, readRun };
   }
 
