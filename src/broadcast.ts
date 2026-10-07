@@ -1,6 +1,6 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { isFiltered, matches, NO_FILTERS, type Subject } from './filters.js';
-import { BROADCAST_OPEN_MESSAGE, cancelled, clearPid, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, cancelled, clearPid, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, setPid, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
@@ -157,12 +157,6 @@ async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDe
   return wait({ record, scope: new Set(record.targets.map((t) => t.paneKey)), snapshot, self }, timeoutMs, deps);
 }
 
-const setPid = (record: BroadcastRecord, { pid, startTime }: RecordStore): void => {
-  record.pid = pid;
-  if (startTime === undefined) delete record.startTime;
-  else record.startTime = startTime;
-};
-
 // Continues the open broadcast: same token, only the in-scope targets, and a send only to targets that never got the message.
 async function rerun(loaded: BroadcastRecord, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
   const { store } = deps;
@@ -240,7 +234,6 @@ function savedSubject(target: BroadcastTarget, { agents, terminals }: Snapshot):
 // The wait loop shared by a first broadcast and a re-run: poll, save, sleep, until the targets in scope are settled, none can progress, or the timeout.
 async function wait({ record, scope, snapshot: first, self }: Plan, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
   const { clock, store } = deps;
-  const inScope = () => record.targets.filter((t) => scope.has(t.paneKey));
   let snapshot = first;
   const startedAt = clock.now();
   let summary: RunSummary;
@@ -252,14 +245,15 @@ async function wait({ record, scope, snapshot: first, self }: Plan, timeoutMs: n
       await poll(record, scope, snapshot, deps);
       if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
       await store.saveBroadcast(record);
-      deps.onProgress?.({ acked: inScope().filter((t) => t.status === 'acked').length, total: inScope().length });
+      const scoped = record.targets.filter((t) => scope.has(t.paneKey));
+      deps.onProgress?.({ acked: scoped.filter((t) => t.status === 'acked').length, total: scoped.length });
       // Ends when nothing in scope is pending, or every pending target in scope is send-failed (no target can progress).
-      if (record.status === 'closed' || inScope().filter((t) => t.status === 'pending').every((t) => t.reason === 'send-failed')) break;
+      if (record.status === 'closed' || scoped.filter((t) => t.status === 'pending').every((t) => t.reason === 'send-failed')) break;
       await sleepOrAbort(clock, POLL_INTERVAL_MS, deps.signal);
       if (clock.now() - startedAt >= timeoutMs) break;
       snapshot = await listSnapshot(deps);
     }
-    summary = { outcome: 'done', exitCode: inScope().every((t) => t.status === 'acked') ? 0 : 1, run: null, error: null, rows: [], record, broadcastSelf: self };
+    summary = { outcome: 'done', exitCode: record.targets.every((t) => !scope.has(t.paneKey) || t.status === 'acked') ? 0 : 1, run: null, error: null, rows: [], record, broadcastSelf: self };
   } catch (error) {
     summary = { ...failure(error, null), record, broadcastSelf: self };
   }
