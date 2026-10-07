@@ -160,6 +160,14 @@ export interface FilterSet {
   roles?: Role[];
   runIds?: string[];
   typed: Partial<FilterSpec>;
+  /** The saved group this set came from, for display only. */
+  group?: string;
+}
+
+// A saved group as a command uses it: its name and its filters, without the `state` kind that pause, resume and close skip.
+export interface GroupFilter {
+  name: string;
+  spec: FilterSpec;
 }
 
 export interface Run {

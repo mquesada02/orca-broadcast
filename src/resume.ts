@@ -1,9 +1,9 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { continueSentence, type Preset } from './reasons.js';
-import { hasFilters, matches, NO_FILTERS } from './filters.js';
+import { isFiltered, matches, NO_FILTERS } from './filters.js';
 import { assertCurrentFormat, cancelled, coordinatorsLast, failure, identityOf, iso, listAgentsFresh, listSnapshot, nothingToDo, locate, POLL_INTERVAL_MS, liveSources, resolveFilterSet, roleInfoOf, withWarnings, type Roles } from './shared.js';
 import type { RecordStore } from './store.js';
-import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, ContinueBaseline, FilterSpec, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
+import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, ContinueBaseline, FilterSpec, GroupFilter, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
 const PROOF_WINDOW_MS = 60_000;
 
@@ -12,6 +12,7 @@ export interface ResumeDeps {
   clock: Clock;
   store: RecordStore;
   filters?: FilterSpec;
+  group?: GroupFilter;
   cwd?: string;
   onProgress?: (progress: ResumeProgress) => void;
   confirm?: Confirm;
@@ -72,9 +73,9 @@ async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSumma
     const snapshot = await listSnapshot(deps);
     ({ agents: rows, terminals, roles } = snapshot);
     const filters = deps.filters ?? NO_FILTERS;
-    const set = resolveFilterSet(filters, hasFilters(filters) ? await liveSources(snapshot, deps) : null, run.agents, deps.cwd);
+    const set = resolveFilterSet(filters, isFiltered(filters, deps.group) ? await liveSources(snapshot, deps) : null, run.agents, deps.cwd, deps.group);
     selected = run.agents.filter((a) => a.resumeStatus === 'pending' && matches(set, a));
-    if (hasFilters(filters) && selected.length === 0) return nothingToDo();
+    if (isFiltered(filters, deps.group) && selected.length === 0) return nothingToDo();
     if (deps.confirm) {
       const targets = sendTargets(selected, rows, terminals, roles);
       if (targets.length > 0) {

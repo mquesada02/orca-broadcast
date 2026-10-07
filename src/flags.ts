@@ -1,4 +1,4 @@
-import { ROLES } from './filters.js';
+import { isRole, ROLES } from './filters.js';
 
 export const COMMANDS = ['broadcast', 'pause', 'resume', 'close'] as const;
 // The commands that take the filters; the filters of `broadcast` belong to #69.
@@ -30,6 +30,7 @@ const FLAGS: Record<string, FlagSpec> = {
   role: { type: 'string', multiple: true, commands: FILTERED },
   run: { type: 'string', multiple: true, commands: FILTERED },
   state: { type: 'string', multiple: true, commands: [], appliesTo: 'broadcast' },
+  group: { type: 'string', multiple: true, commands: FILTERED },
 };
 
 export const PARSE_OPTIONS = Object.fromEntries(Object.entries(FLAGS).map(([name, { type, multiple }]) => [name, multiple ? { type, multiple } : { type }]));
@@ -45,7 +46,24 @@ export function validateFlags(command: Command, values: FlagValues): void {
       throw new UsageError(`--${name} applies only to ${spec.appliesTo ?? joinList(spec.commands)}`);
     }
   }
+  if (((values.group as string[] | undefined) ?? []).length > 1) throw new UsageError('use at most one --group');
+  checkRoles(values);
+}
+
+function checkRoles(values: FlagValues): void {
   for (const role of (values.role as string[] | undefined) ?? []) {
-    if (!(ROLES as readonly string[]).includes(role)) throw new UsageError(`invalid --role "${role}": use one of ${ROLES.join(', ')}`);
+    if (!isRole(role)) throw new UsageError(`invalid --role "${role}": use one of ${ROLES.join(', ')}`);
   }
+}
+
+// The flags of the `group` subcommands: their own table, so the messages of the four send commands do not change.
+export function validateGroupArgs(sub: string, rest: string[], values: FlagValues): void {
+  const allowed = sub === 'add' ? ['help', 'json', 'repo', 'worktree', 'role', 'run', 'state'] : ['help', 'json'];
+  for (const name of Object.keys(FLAGS)) {
+    if (values[name] !== undefined && !allowed.includes(name)) throw new UsageError(`--${name} does not apply to group ${sub}`);
+  }
+  const arity = sub === 'list' ? 0 : 1;
+  if (rest.length < arity) throw new UsageError(`group ${sub} needs a group name`);
+  if (rest.length > arity) throw new UsageError(`group ${sub} takes ${arity === 0 ? 'no argument' : 'one group name'}`);
+  checkRoles(values);
 }

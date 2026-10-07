@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { Interrupted } from './abort.js';
-import { ALL_AGENTS, hasFilters, resolveFilters } from './filters.js';
+import { ALL_AGENTS, combineSets, isFiltered, resolveFilters, type FilterSources, type Subject } from './filters.js';
 import { withRetry } from './retry.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -17,6 +17,9 @@ export function randomToken(): string {
 export function isWaitingLike(state: string): boolean {
   return state !== 'working' && state !== 'done';
 }
+
+// The rows a broadcast targets: Claude agents that are working or done.
+export const isSendable = (row: AgentRow): boolean => row.agentType === 'claude' && !isWaitingLike(row.state);
 
 // A reply written since the baseline. Orca shows null mid-turn, and that is not a reply.
 export function hasNewReply(baseline: string | null, row: AgentRow): boolean {
@@ -172,19 +175,27 @@ export async function liveSources({ runIds }: Pick<Snapshot, 'runIds'>, { port, 
   return { runIds, repos, worktrees };
 }
 
-// Resolves once per invocation. Without filters the set matches every agent.
-export function resolveFilterSet(spec: FilterSpec, live: LiveSources | null, recorded: AgentRecord[], cwd: string = process.cwd()): FilterSet {
-  if (!hasFilters(spec)) return ALL_AGENTS;
-  return resolveFilters(
-    spec,
-    {
-      repos: [...(live?.repos ?? []).map((repo) => ({ id: repo.id, path: repo.path, name: repo.displayName })), ...recorded.map((agent) => ({ id: agent.repoId, name: agent.repo }))],
-      worktrees: [...(live?.worktrees ?? []).map((worktree) => ({ id: worktree.id, path: worktree.path, name: worktree.displayName, repoId: worktree.repoId })), ...recorded.map((agent) => ({ id: agent.worktreeId, path: agent.worktreePath, name: agent.worktree, repoId: agent.repoId }))],
-      runIds: [...new Set([...(live?.runIds ?? []), ...recorded.flatMap((agent) => agent.orchestrationRunIds)])],
-    },
-    cwd,
-  );
+// Resolves once per invocation. Without filters or a group the set matches every agent. A group is resolved on its own, then narrowed by the ad-hoc filters.
+export function resolveFilterSet(spec: FilterSpec, live: LiveSources | null, recorded: AgentRecord[], cwd: string = process.cwd(), group?: GroupFilter): FilterSet {
+  if (!isFiltered(spec, group)) return ALL_AGENTS;
+  const sources: FilterSources = {
+    repos: [...(live?.repos ?? []).map((repo) => ({ id: repo.id, path: repo.path, name: repo.displayName })), ...recorded.map((agent) => ({ id: agent.repoId, name: agent.repo }))],
+    worktrees: [...(live?.worktrees ?? []).map((worktree) => ({ id: worktree.id, path: worktree.path, name: worktree.displayName, repoId: worktree.repoId })), ...recorded.map((agent) => ({ id: agent.worktreeId, path: agent.worktreePath, name: agent.worktree, repoId: agent.repoId }))],
+    runIds: [...new Set([...(live?.runIds ?? []), ...recorded.flatMap((agent) => agent.orchestrationRunIds)])],
+  };
+  const adhoc = resolveFilters(spec, sources, cwd);
+  if (!group) return adhoc;
+  let fromGroup: FilterSet;
+  try {
+    fromGroup = resolveFilters(group.spec, sources, cwd);
+  } catch (error) {
+    throw new Error(`group ${group.name}: ${(error as Error).message}`);
+  }
+  return combineSets(fromGroup, adhoc, group.name);
 }
+
+// The values a live row is matched on.
+export const subjectOfRow = (row: AgentRow, roles: Roles): Subject => ({ ...identityOf(row), ...roleInfoOf(roles, row.paneKey) });
 
 // Stable partitions: coordinators come first (or last), and each group keeps its order.
 const splitCoordinators = <T>(items: T[], roleOfItem: (item: T) => Role): [T[], T[]] => [items.filter((item) => roleOfItem(item) === 'coordinator'), items.filter((item) => roleOfItem(item) !== 'coordinator')];

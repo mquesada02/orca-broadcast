@@ -10,13 +10,15 @@ import { createOrcaAdapter } from './orca-adapter.js';
 import { close } from './close.js';
 import { systemClock } from './clock.js';
 import { DEFAULT_TIMEOUT_MS, pause, precheckPause, prelockPause, type PauseDeps } from './pause.js';
-import { describeFilters, hasFilters } from './filters.js';
-import { isCommand, PARSE_OPTIONS, UsageError, validateFlags, type Command, type FlagValues } from './flags.js';
+import { describeFilters, hasFilters, isFiltered } from './filters.js';
+import { isGroupSubcommand, runGroup, type GroupResult } from './group-cmd.js';
+import { GROUP_STATES, isGroupState, loadGroups, lookupGroup, resolveGroupsPath, toGroupFilter, type GroupSpec } from './groups.js';
+import { isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, type Command, type FlagValues } from './flags.js';
 import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
 import { resume } from './resume.js';
 import { createRecordStore, type StoreOptions } from './store.js';
-import type { Clock, Confirm, FilterSpec, OrcaPort, Role, RunSummary } from './types.js';
+import type { Clock, Confirm, FilterSpec, GroupFilter, OrcaPort, Role, RunSummary } from './types.js';
 
 const CLEAR_LINE = '\r\x1b[K';
 
@@ -45,6 +47,7 @@ const USAGE = `Usage: orca-broadcast broadcast "<text>" | --file <path> [--timeo
        orca-broadcast pause [filters] [--timeout <n>s|m|h] [--reason <name>] [--yes]
        orca-broadcast resume [filters] [--yes]
        orca-broadcast close [filters]
+       orca-broadcast group add <name> [filters] [--state working|done] | list | show <name> | remove <name>
 
 Commands:
   broadcast  Send one line of text to every working or done Claude Code agent and prove each
@@ -56,12 +59,16 @@ Commands:
            run closed (or there was nothing to resume), 1 if any is pending.
   close    Abandon the open run without resuming it: pending agents become
            abandoned, nothing is sent. Exit 0 (also when there is nothing to close).
+  group    Save, list, show and remove named filters. add checks that every value resolves now;
+           show lists the agents the group matches now. They only read Orca and send nothing.
 
 Filters (pause, resume and close; repeat a flag for several values; kinds are ANDed, values of one kind ORed):
   --repo <id|path|name>          Agents in that repo
   --worktree <path|id|name>      Agents in that worktree (a name is looked up in the --repo values)
   --role <role>                  coordinator, worker or session
   --run <id>                     Agents of that orchestration run
+  --group <name>                 A saved group; one per command. Other filters narrow it. Its state
+                                 kind is skipped here (one line on stderr); a state-only group is refused
   Without filters a command acts on every agent. resume and close act only on recorded agents.
 
 Options:
@@ -71,8 +78,9 @@ Options:
   --file <path>        Read the broadcast text from a file instead of the command line. broadcast only
   --yes                Skip the confirmation before broadcast, pause or resume sends. Without a terminal
                        (a script, an agent's shell) they refuse to send unless you pass it
-  --json               With a command, print one JSON object on stdout and nothing on stderr.
-                       It never asks for confirmation, so broadcast, pause and resume need --yes
+  --json               With a command, print one JSON object on stdout and nothing on stderr (except
+                       the one line about a skipped group state kind). It never asks for confirmation,
+                       so broadcast, pause and resume need --yes
   --help               Show this help
 `;
 
@@ -94,6 +102,20 @@ export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()
   const base = env.XDG_STATE_HOME || join(home, '.local', 'state');
   return join(base, 'orca-broadcast');
 }
+
+// What the user typed for each filter kind.
+const filterSpecOf = (values: FlagValues): FilterSpec => {
+  const list = (kind: keyof FilterSpec) => (values[kind] as string[] | undefined) ?? [];
+  return { repo: list('repo'), worktree: list('worktree'), role: list('role') as Role[], run: list('run') };
+};
+
+// The JSON object of a group command: the groups it touched, and no run or record.
+function groupJsonLine(command: string, result: Pick<GroupResult, 'outcome' | 'groups'> | null, error: string | null = null): string {
+  return `${JSON.stringify({ command, outcome: result?.outcome ?? 'error', exitCode: result ? 0 : 2, error, groups: result?.groups ?? null })}\n`;
+}
+
+// The group command a call names, as far as it is known: `group` when the subcommand is missing or unknown.
+const groupLabel = (positionals: string[]): string | null => (positionals[0] === 'group' ? (isGroupSubcommand(positionals[1]) ? `group ${positionals[1]}` : 'group') : null);
 
 function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'run' | 'error' | 'record'>): string {
   const { outcome, exitCode, run, error, record } = summary;
@@ -139,6 +161,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
   // Read from the raw argv so that an argument parse failure still gets a JSON answer.
   const json = argv.includes('--json');
   let command: Command | null = null;
+  // The first words of argv until the parser has run: enough to answer a failed parse of a group call in the group shape.
+  let group = groupLabel(argv.filter((arg) => !arg.startsWith('-')));
   try {
     const { values, positionals } = parseUsage(argv);
     if (values.help) {
@@ -146,6 +170,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       return 0;
     }
     const [name, ...rest] = positionals;
+    group = groupLabel(positionals);
+    if (name === 'group') return await mainGroup(rest, values as FlagValues, json, env, io, deps);
     if (name === 'broadcast' && rest.length > 1) throw new UsageError('broadcast takes one text: put it in quotes');
     if (!isCommand(name) || (name !== 'broadcast' && rest.length > 0)) {
       throw new UsageError(positionals.length === 0 ? 'missing command' : `unknown command "${positionals.join(' ')}"`);
@@ -156,12 +182,14 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const reason = values.reason as string | undefined;
     if (reason !== undefined && !isPreset(reason)) throw new UsageError(`invalid --reason "${reason}": use one of ${PRESET_NAMES.join(', ')}`);
     const timeoutMs = values.timeout === undefined ? DEFAULT_TIMEOUT_MS : parseTimeout(values.timeout as string);
-    const filterSpec: FilterSpec = { repo: (values.repo as string[] | undefined) ?? [], worktree: (values.worktree as string[] | undefined) ?? [], role: (values.role as Role[] | undefined) ?? [], run: (values.run as string[] | undefined) ?? [] };
+    const filterSpec = filterSpecOf(values as FlagValues);
     const filters = hasFilters(filterSpec) ? filterSpec : undefined;
     // The safety switch: nothing is sent without a yes from the user, or --yes. This runs before anything is read, locked or listed.
     const needsConfirm = command !== 'close' && !values.yes;
     if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
     const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask) : undefined;
+    const groupFilter = await loadGroupFilter(values.group as string[] | undefined, command, env, io);
+    const filtered = isFiltered(filterSpec, groupFilter);
     // No text and no --file is not an error here: the records decide whether there is a broadcast to refuse or to continue.
     const rawText = values.file === undefined ? rest[0] : await readTextFile(values.file as string);
     const text = rawText === undefined ? undefined : normaliseText(rawText);
@@ -172,9 +200,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const clock = deps.clock ?? systemClock;
     const { cwd } = deps;
     // A plain close never uses the port; only a filtered one needs live listings.
-    const port = command === 'close' && !filters ? null : (deps.port ?? createOrcaAdapter());
-    // Only `pause` may stop a broadcast that holds the lock: it is the one urgent command. Its filter values are checked before the lock.
-    const scope = { port, clock, filters, cwd };
+    const port = command === 'close' && !filtered ? null : (deps.port ?? createOrcaAdapter());
+    // Only `pause` may stop a broadcast that holds the lock: it is the one urgent command. Its filter and group values are checked before the lock.
+    const scope = { port, clock, filters, group: groupFilter, cwd };
     const guardOptions: GuardOptions =
       command === 'pause' && port
         ? {
@@ -183,11 +211,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
           }
         : {};
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
-      if (!port || command === 'close') return close(store, signal, port && filters ? { filters, port, clock, cwd } : undefined);
+      if (!port || command === 'close') return close(store, signal, port && filtered ? { filters: filterSpec, group: groupFilter, port, clock, cwd } : undefined);
       if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal });
       return command === 'pause'
-        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, cwd, onProgress: progressLine(renderProgress), confirm, signal })
-        : resume({ port, clock, store, filters, cwd, onProgress: progressLine(renderResumeProgress), confirm, signal });
+        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, group: groupFilter, cwd, onProgress: progressLine(renderProgress), confirm, signal })
+        : resume({ port, clock, store, filters, group: groupFilter, cwd, onProgress: progressLine(renderResumeProgress), confirm, signal });
     }, guardOptions);
     if (json) {
       io.stdout(jsonLine(command, summary));
@@ -204,7 +232,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       io.stdout(renderBroadcastOutput(command, summary));
     } else if (summary.outcome === 'nothing-to-do') {
       const selfBlock = summary.self ? `${renderSelfBlock(summary.self)}\n` : '';
-      const filterLine = filters ? `filters: ${describeFilters(filters)}\n` : '';
+      const filterLine = filtered ? `filters: ${[groupFilter && `--group ${groupFilter.name}`, filters && describeFilters(filters)].filter(Boolean).join(' ')}\n` : '';
       io.stdout(`nothing to ${command}\n${filterLine}${selfBlock}${renderUnknownRuns(shown)}`);
     } else {
       const table = command === 'pause' ? renderTable(summary.rows, summary.self) : command === 'resume' ? renderResumeTable(summary.rows) : renderCloseTable(summary.rows);
@@ -213,11 +241,36 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     return summary.exitCode;
   } catch (error) {
     if (json) {
-      io.stdout(jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
+      io.stdout(group ? groupJsonLine(group, null, (error as Error).message) : jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
       return 2;
     }
     io.stderr(`orca-broadcast: ${(error as Error).message}\n`);
     if (error instanceof UsageError) io.stderr(USAGE);
     return 2;
   }
+}
+
+// Loads the group a send command names. The `state` kind is skipped with one stderr line, in text and in --json mode; a state-only group is refused.
+async function loadGroupFilter(names: string[] | undefined, command: Command, env: NodeJS.ProcessEnv, io: CliIo): Promise<GroupFilter | undefined> {
+  const name = names?.[0];
+  if (name === undefined) return undefined;
+  const spec = lookupGroup(await loadGroups(resolveGroupsPath(env)), name);
+  const filter = toGroupFilter(name, spec);
+  if (!hasFilters(filter.spec)) throw new Error(`Group ${name} only filters by state, which ${command} does not use.`);
+  if (spec.state.length > 0) io.stderr(`orca-broadcast: group ${name}: state filter skipped (${command} does not use it)\n`);
+  return filter;
+}
+
+// `group add|list|show|remove`: runs before the safety switch, the store and the lock, because it never sends and never touches a run.
+async function mainGroup(rest: string[], values: FlagValues, json: boolean, env: NodeJS.ProcessEnv, io: CliIo, deps: CliDeps): Promise<number> {
+  const [sub, ...args] = rest;
+  if (!isGroupSubcommand(sub)) throw new UsageError(sub === undefined ? 'missing group subcommand' : `unknown group subcommand "${sub}"`);
+  validateGroupArgs(sub, args, values);
+  const states = (values.state as string[] | undefined) ?? [];
+  const bad = states.find((state) => !isGroupState(state));
+  if (bad !== undefined) throw new UsageError(`invalid --state "${bad}": use one of ${GROUP_STATES.join(', ')}`);
+  const spec: GroupSpec = { ...filterSpecOf(values), state: states as GroupSpec['state'] };
+  const result = await runGroup(sub, args[0], spec, { path: resolveGroupsPath(env), port: () => deps.port ?? createOrcaAdapter(), clock: deps.clock ?? systemClock, cwd: deps.cwd ?? process.cwd() });
+  io.stdout(json ? groupJsonLine(`group ${sub}`, result) : result.text);
+  return 0;
 }

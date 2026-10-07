@@ -1,5 +1,6 @@
 import type { EventEmitter } from 'node:events';
-import { join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { Interrupted } from '../../src/abort.js';
 import { PromptInterrupted } from '../../src/ask.js';
 import { main } from '../../src/cli.js';
@@ -7,6 +8,22 @@ import { createRecordStore, type RecordStore, type StoreOptions } from '../../sr
 import { fakeClock, FakeOrca, tempStateDir, type FakeAgent } from './fake-orca.js';
 
 export type Seed = (store: RecordStore, dir: string) => Promise<unknown>;
+
+/** Where `runCli` points XDG_CONFIG_HOME for a state folder: next to it, so a test never touches the real ~/.config. */
+const configDirOf = (stateDir: string): string => join(dirname(stateDir), 'config');
+export const groupsFile = (stateDir: string): string => join(configDirOf(stateDir), 'orca-broadcast', 'groups.json');
+
+/** Writes groups.json (an object is saved as JSON; a string is written as it is, to test a broken file). */
+export async function writeGroups(stateDir: string, content: unknown): Promise<void> {
+  await mkdir(dirname(groupsFile(stateDir)), { recursive: true });
+  await writeFile(groupsFile(stateDir), typeof content === 'string' ? content : JSON.stringify(content));
+}
+
+/** A seed that saves these groups. */
+export const seedGroups =
+  (groups: Record<string, Record<string, string[]>>): Seed =>
+  (_store, dir) =>
+    writeGroups(dir, { version: 1, groups });
 
 /** One scripted answer: text, a function (so a test can act while the prompt is open), CTRL_C, or 'SIGTERM' (signal while the prompt waits, then hang until aborted). */
 export const CTRL_C = Symbol('ctrl-c');
@@ -59,6 +76,6 @@ export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: Run
         return Promise.resolve(typeof answer === 'function' ? answer() : answer);
       }
     : undefined;
-  const code = await main(argv, { XDG_STATE_HOME: dir, ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken, kill: opts.kill ?? noKill, storeOptions: opts.storeOptions, cwd: opts.cwd });
+  const code = await main(argv, { XDG_STATE_HOME: dir, XDG_CONFIG_HOME: configDirOf(dir), ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken, kill: opts.kill ?? noKill, storeOptions: opts.storeOptions, cwd: opts.cwd });
   return { code, out: out.join(''), err: err.join(''), port, questions, dir };
 }

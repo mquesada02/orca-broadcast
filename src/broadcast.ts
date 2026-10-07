@@ -1,5 +1,5 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, roleInfoOf, withWarnings, type Roles, type Snapshot } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, roleInfoOf, withWarnings, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastTarget, Clock, Confirm, ConfirmTarget, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
@@ -40,8 +40,6 @@ export function normaliseText(raw: string): string {
   if (length > MAX_TEXT_LENGTH) throw new Error(`the text is ${length} characters; the limit is ${MAX_TEXT_LENGTH}`);
   return text;
 }
-
-const isSendable = (row: AgentRow): boolean => row.agentType === 'claude' && !isWaitingLike(row.state);
 
 function newTarget(row: AgentRow, roles: Roles): BroadcastTarget {
   return {
