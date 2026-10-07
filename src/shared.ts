@@ -26,6 +26,11 @@ export function iso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
+// The id of a pause run or a broadcast record: the compact ISO time, then the token.
+export function recordId(ms: number, token: string): string {
+  return `${iso(ms).replace(/[-:.]/g, '')}-${token}`;
+}
+
 export function newestByPane(rows: AgentRow[]): Map<string, AgentRow> {
   const byPane = new Map<string, AgentRow>();
   for (const row of rows) {

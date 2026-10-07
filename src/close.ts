@@ -1,4 +1,5 @@
 import { throwIfAborted } from './abort.js';
+import { releaseBroadcast } from './broadcast.js';
 import { failure } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { BroadcastRecord, RunSummary } from './types.js';
@@ -37,9 +38,7 @@ async function closeBroadcast(store: RecordStore, record: BroadcastRecord): Prom
     target.status = 'abandoned';
     target.reason = 'closed';
   }
-  record.status = 'closed';
-  delete record.pid;
-  delete record.startTime;
+  releaseBroadcast(record);
   try {
     await store.saveBroadcast(record);
     await store.clearCurrent('broadcast', record.id);

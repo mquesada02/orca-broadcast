@@ -1,7 +1,7 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import type { RecordStore } from './store.js';
-import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, POLL_INTERVAL_MS, randomToken, roleInfoOf, type RoleInfo, type Roles } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, POLL_INTERVAL_MS, randomToken, recordId, roleInfoOf, type RoleInfo, type Roles } from './shared.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
@@ -147,7 +147,7 @@ function prepare(loaded: Run | null, startedAt: number, newToken: () => string, 
   }
   const token = newToken();
   const run: Run = {
-    runId: `${iso(startedAt).replace(/[-:.]/g, '')}-${token}`,
+    runId: recordId(startedAt, token),
     token,
     startedAt: iso(startedAt),
     status: 'open',

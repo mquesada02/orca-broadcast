@@ -1,7 +1,7 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, roleInfoOf, type Roles, type Snapshot } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, isWaitingLike, iso, listFresh, listSnapshot, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, roleInfoOf, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
-import type { AgentRow, BroadcastRecord, BroadcastTarget, Clock, Confirm, ConfirmTarget, OrcaPort, RunSummary, TerminalRow } from './types.js';
+import type { AgentRow, BroadcastRecord, BroadcastTarget, Clock, Confirm, ConfirmTarget, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
 export const DEFAULT_BROADCAST_TIMEOUT_MS = 10 * 60 * 1000;
 export const MAX_TEXT_LENGTH = 1000;
@@ -87,6 +87,7 @@ export async function broadcast(givenText: string | undefined, timeoutMs: number
   const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
   let snapshot: Snapshot;
   let record: BroadcastRecord;
+  let self: ConfirmTarget | null;
   try {
     throwIfAborted(deps.signal);
     const text = await textOrRefuse(store, givenText);
@@ -97,7 +98,7 @@ export async function broadcast(givenText: string | undefined, timeoutMs: number
       const found = locate(row.paneKey, snapshot.agents, snapshot.terminals);
       return !('gone' in found) && row.paneKey !== selfKey && isSendable(row);
     });
-    const self = selfLine(selfKey, snapshot);
+    self = selfLine(selfKey, snapshot);
     if (selected.length === 0) return nothingToBroadcast(self);
 
     const token = (deps.newToken ?? randomToken)();
@@ -110,15 +111,15 @@ export async function broadcast(givenText: string | undefined, timeoutMs: number
     const gone = markGone(targets, snapshot.agents, snapshot.terminals);
     if (gone === targets.length) return nothingToBroadcast(self);
 
-    const createdAt = iso(clock.now());
-    record = { id: `${createdAt.replace(/[-:.]/g, '')}-${token}`, token, text, createdAt, status: 'open', pid: store.pid, ...(store.startTime === undefined ? {} : { startTime: store.startTime }), targets };
+    const now = clock.now();
+    const { startTime } = store;
+    record = { id: recordId(now, token), token, text, createdAt: iso(now), status: 'open', pid: store.pid, ...(startTime === undefined ? {} : { startTime }), targets };
     await store.saveBroadcast(record);
     try {
       await store.setCurrent('broadcast', record.id);
     } catch (error) {
       // The record exists, so the pid must not stay in it: nothing was sent yet.
-      delete record.pid;
-      delete record.startTime;
+      releaseBroadcast(record);
       await store.saveBroadcast(record).catch(() => {});
       return { ...failure(error, null), record };
     }
@@ -126,7 +127,6 @@ export async function broadcast(givenText: string | undefined, timeoutMs: number
     return failure(error, null);
   }
 
-  const self = selfLine(selfKey, snapshot);
   const startedAt = clock.now();
   let summary: RunSummary;
   try {
@@ -149,9 +149,7 @@ export async function broadcast(givenText: string | undefined, timeoutMs: number
 
   // Every exit path clears the pid, so a stale one is never taken for a running broadcast.
   try {
-    delete record.pid;
-    delete record.startTime;
-    if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
+    releaseBroadcast(record);
     await store.saveBroadcast(record);
     if (record.status === 'closed') await store.clearCurrent('broadcast', record.id);
   } catch (error) {
@@ -160,14 +158,23 @@ export async function broadcast(givenText: string | undefined, timeoutMs: number
   return summary;
 }
 
+// The process no longer runs this broadcast: drop its pid, and close the record when no target can still progress.
+export function releaseBroadcast(record: BroadcastRecord): void {
+  delete record.pid;
+  delete record.startTime;
+  if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
+}
+
+const setGone = (target: BroadcastTarget, reason: LocateReason): void => {
+  target.status = 'gone';
+  target.reason = reason;
+};
+
 // Marks the targets that cannot be located any more; returns how many are gone.
 function markGone(targets: BroadcastTarget[], agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>): number {
   for (const target of targets) {
     const found = locate(target.paneKey, agents, terminals);
-    if ('gone' in found) {
-      target.status = 'gone';
-      target.reason = found.gone;
-    }
+    if ('gone' in found) setGone(target, found.gone);
   }
   return targets.filter((t) => t.status === 'gone').length;
 }
@@ -183,8 +190,7 @@ async function poll(record: BroadcastRecord, snapshot: Snapshot, deps: Broadcast
   for (const target of record.targets.filter((t) => t.status === 'pending')) {
     const found = locate(target.paneKey, agents, terminals);
     if ('gone' in found) {
-      target.status = 'gone';
-      target.reason = found.gone;
+      setGone(target, found.gone);
       continue;
     }
     target.lastHandle = found.handle;
@@ -200,13 +206,14 @@ async function poll(record: BroadcastRecord, snapshot: Snapshot, deps: Broadcast
   }
 
   const message = broadcastMessage(record.text, record.token);
-  for (const { target } of coordinatorsFirst(live, ({ target }) => target.role).filter(({ target, row }) => target.messagePending && target.reason !== 'send-failed' && !isWaitingLike(row.state))) {
+  const needsSend = ({ target, row }: { target: BroadcastTarget; row: AgentRow }) => target.messagePending && target.reason !== 'send-failed' && !isWaitingLike(row.state);
+  for (const { target } of coordinatorsFirst(live.filter(needsSend), ({ target }) => target.role)) {
     throwIfAborted(deps.signal);
     await deps.store.saveBroadcast(record);
     const [freshAgents, freshTerminals] = await listFresh(deps);
     const found = locate(target.paneKey, freshAgents, freshTerminals);
     if ('gone' in found) {
-      markGone([target], freshAgents, freshTerminals);
+      setGone(target, found.gone);
       continue;
     }
     if (isWaitingLike(found.row.state)) {
