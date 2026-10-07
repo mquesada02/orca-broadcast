@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { releaseBroadcast } from './shared.js';
-import type { BroadcastReason, BroadcastRecord, Run } from './types.js';
+import type { BroadcastReason, BroadcastRecord, BroadcastTarget, Run } from './types.js';
 
 const POINTER = 'current';
 const LOCK = 'lock';
@@ -106,14 +106,14 @@ function procStartTime(pid: number): string | undefined {
   }
 }
 
-// The pending targets of a broadcast that nobody runs any more are no longer waited on: the record closes and drops its pid.
-export function abandonPending(record: BroadcastRecord, reason: Extract<BroadcastReason, 'paused' | 'closed'>): number {
-  const pending = record.targets.filter((t) => t.status === 'pending');
+// Abandons the pending targets (all, or those `select` picks) of a broadcast that nobody runs any more: the record drops its pid and closes when nothing is pending.
+export function abandonPending(record: BroadcastRecord, reason: Extract<BroadcastReason, 'paused' | 'closed'>, select: (target: BroadcastTarget) => boolean = () => true): number {
+  const pending = record.targets.filter((t) => t.status === 'pending' && select(t));
   for (const target of pending) {
     target.status = 'abandoned';
     target.reason = reason;
   }
-  releaseBroadcast(record); // nothing is pending now, so this also closes the record
+  releaseBroadcast(record); // this closes the record when nothing is pending now
   return pending.length;
 }
 

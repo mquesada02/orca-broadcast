@@ -8,6 +8,18 @@ A command-line tool that sends instructions to the Claude Code agents running in
 The durable record of one broadcast: its text, its token, and the state of each target agent. It stays open until every target is acked, gone or abandoned.
 _Avoid_: Broadcast run, message log
 
+**Re-run**:
+`broadcast` with no text, or with the open broadcast's own text: it continues that broadcast with the same token and a fresh timeout.
+_Avoid_: Resume (that is `resume`), retry
+
+**Scope**:
+The recorded targets that a re-run, or `close` with filters, acts on: those that match the filters and are `pending`, `acked` or `gone`. Abandoned targets are never in scope.
+_Avoid_: Selection (that is the first choice of targets at the prompt)
+
+**No-ack**:
+The reason on a pending target that replied after the send without the ack line. The target is not sent the message again, and a later ack still counts.
+_Avoid_: Failed ack, nack
+
 **Hand-over**:
 The step in which `pause` stops a broadcast that is still waiting for acks, so that the pause does not wait for the broadcast's timeout.
 _Avoid_: Takeover, kill, preemption

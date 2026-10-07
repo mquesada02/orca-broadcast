@@ -1,5 +1,5 @@
 import type { BroadcastProgress } from './broadcast.js';
-import type { AgentRecord, BroadcastTarget, ConfirmTarget, PauseStatus, Progress, ResumeProgress, ResumeStatus } from './types.js';
+import type { AgentRecord, BroadcastSelf, BroadcastTarget, PauseStatus, Progress, ResumeProgress, ResumeStatus } from './types.js';
 
 const HINTS: Partial<Record<PauseStatus, string>> = {
   unconfirmed: 'not confirmed paused; check these agents before you leave',
@@ -100,6 +100,8 @@ export function renderBroadcastTable(targets: BroadcastTarget[]): string {
 
 const BROADCAST_SELF_HEADING = 'self (not sent) — this session cannot ack while its own command waits';
 
-export function renderBroadcastSelfBlock(self: ConfirmTarget): string {
-  return [BROADCAST_SELF_HEADING, ...formatTable(['repo', 'worktree', 'role'], [[self.repo, self.worktree, self.role]]), ''].join('\n');
+export function renderBroadcastSelfBlock(self: BroadcastSelf): string {
+  const columns: [string, string][] = [['repo', self.repo], ['worktree', self.worktree], ['role', self.role]];
+  if (self.status !== undefined) columns.push(['status', self.status], ['reason', self.reason ?? '-']);
+  return [BROADCAST_SELF_HEADING, ...formatTable(columns.map(([name]) => name), [columns.map(([, value]) => value)]), ''].join('\n');
 }

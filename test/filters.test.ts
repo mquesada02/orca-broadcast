@@ -238,7 +238,7 @@ describe('flag table', () => {
     [['resume', '--timeout', '5s'], '--timeout applies only to pause'],
     [['close', '--reason', 'away'], '--reason applies only to pause'],
     [['pause', '--role', 'boss'], 'invalid --role "boss"'],
-    [['broadcast', 'hi', '--repo', 'alpha'], '--repo applies only to pause, resume and close'],
+    [['broadcast', 'hi', '--state', 'busy'], 'invalid --state "busy": use one of working, done'],
   ])('%j exits 2 with a message from the table', async (argv, message) => {
     const { code, err, port } = await runCli(argv as string[], fleet(), withRepos());
     expect(code).toBe(2);
@@ -582,7 +582,7 @@ describe('filters beside an open broadcast record', () => {
     await store.setCurrent('broadcast', 'b-1');
   };
 
-  it('a filtered close leaves a broadcast alone and prints "nothing to close"', async () => {
+  it('a filtered close that matches no pending target of a broadcast prints "nothing to close" and leaves it open', async () => {
     const { code, out, dir } = await runCli(['close', '--repo', 'alpha'], [], withRepos({ seed: broadcastSeed }));
     expect(code).toBe(0);
     expect(out).toContain('nothing to close');

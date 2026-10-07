@@ -1,8 +1,9 @@
 import { isRole, ROLES } from './filters.js';
+import { GROUP_STATES, isGroupState } from './groups.js';
 
 export const COMMANDS = ['broadcast', 'pause', 'resume', 'close'] as const;
-// The commands that take the filters; the filters of `broadcast` belong to #69.
-const FILTERED = ['pause', 'resume', 'close'] as const;
+// The commands that take the filters.
+const FILTERED = ['broadcast', 'pause', 'resume', 'close'] as const;
 export type Command = (typeof COMMANDS)[number];
 export const isCommand = (value: string | undefined): value is Command => COMMANDS.some((name) => name === value);
 
@@ -13,8 +14,6 @@ interface FlagSpec {
   multiple?: true;
   /** The commands that accept the flag. */
   commands: readonly Command[];
-  /** Names the place where the flag applies, when it is not one of these three commands. */
-  appliesTo?: string;
 }
 
 // One table drives the parser and the "flag not valid here" messages of every command.
@@ -29,7 +28,7 @@ const FLAGS: Record<string, FlagSpec> = {
   worktree: { type: 'string', multiple: true, commands: FILTERED },
   role: { type: 'string', multiple: true, commands: FILTERED },
   run: { type: 'string', multiple: true, commands: FILTERED },
-  state: { type: 'string', multiple: true, commands: [], appliesTo: 'broadcast' },
+  state: { type: 'string', multiple: true, commands: ['broadcast'] },
   group: { type: 'string', multiple: true, commands: FILTERED },
 };
 
@@ -43,11 +42,18 @@ const joinList = (items: readonly string[]) => (items.length < 2 ? items.join(''
 export function validateFlags(command: Command, values: FlagValues): void {
   for (const [name, spec] of Object.entries(FLAGS)) {
     if (values[name] !== undefined && !spec.commands.includes(command)) {
-      throw new UsageError(`--${name} applies only to ${spec.appliesTo ?? joinList(spec.commands)}`);
+      throw new UsageError(`--${name} applies only to ${joinList(spec.commands)}`);
     }
   }
   if (((values.group as string[] | undefined) ?? []).length > 1) throw new UsageError('use at most one --group');
   checkRoles(values);
+  checkStates(values);
+}
+
+export function checkStates(values: FlagValues): void {
+  for (const state of (values.state as string[] | undefined) ?? []) {
+    if (!isGroupState(state)) throw new UsageError(`invalid --state "${state}": use one of ${GROUP_STATES.join(', ')}`);
+  }
 }
 
 function checkRoles(values: FlagValues): void {

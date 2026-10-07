@@ -248,8 +248,8 @@ describe('group usage', () => {
   it('keeps the existing messages of the send commands', async () => {
     const state = await runCli(['pause', '--yes', '--state', 'done'], fleet(), withRepos());
     expect(state.err).toContain('--state applies only to broadcast');
-    const group = await runCli(['broadcast', 'hi', '--yes', '--group', 'web'], fleet(), withRepos());
-    expect(group.err).toContain('--group applies only to pause, resume and close');
+    const resume = await runCli(['resume', '--yes', '--state', 'done'], fleet(), withRepos());
+    expect(resume.err).toContain('--state applies only to broadcast');
   });
 });
 

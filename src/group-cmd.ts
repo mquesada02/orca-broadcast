@@ -1,5 +1,5 @@
-import { matches, NO_FILTERS } from './filters.js';
-import { absoluteWorktrees, describeGroup, groupKinds, hasGroupKinds, isGroupName, loadGroups, lookupGroup, saveGroups, toGroupFilter, type GroupSpec } from './groups.js';
+import { describeFilters, matches, NO_FILTERS } from './filters.js';
+import { absoluteWorktrees, groupKinds, hasGroupKinds, isGroupName, loadGroups, lookupGroup, saveGroups, toGroupFilter, type GroupSpec } from './groups.js';
 import { isSendable, listSnapshot, liveSources, locate, resolveFilterSet, subjectOfRow } from './shared.js';
 import type { Clock, OrcaPort } from './types.js';
 
@@ -33,7 +33,7 @@ export async function runGroup(sub: GroupSubcommand, name: string | undefined, s
   const groups = await loadGroups(deps.path);
   const entry = (group: GroupSpec) => ({ filters: groupKinds(group) });
   if (sub === 'list') {
-    const text = groups.size === 0 ? 'no groups\n' : [...groups].map(([groupName, group]) => `${groupName}: ${describeGroup(group)}\n`).join('');
+    const text = groups.size === 0 ? 'no groups\n' : [...groups].map(([groupName, group]) => `${groupName}: ${describeFilters(group)}\n`).join('');
     return { outcome: 'done', text, groups: Object.fromEntries([...groups].map(([groupName, group]) => [groupName, entry(group)])) };
   }
 
@@ -72,7 +72,7 @@ export async function runGroup(sub: GroupSubcommand, name: string | undefined, s
     const subject = subjectOfRow(row, snapshot.roles);
     if (matches(set, subject)) agents.push({ repo: row.repo, worktree: row.worktree, role: subject.role, state: row.state });
   }
-  const header = `group ${groupName}: ${describeGroup(group)}\n`;
+  const header = `group ${groupName}: ${describeFilters(group)}\n`;
   const body = agents.length === 0 ? 'no agents match\n' : agents.map((a) => `${a.repo}/${a.worktree}  ${a.role}  ${a.state}\n`).join('');
   return { outcome: agents.length === 0 ? 'nothing-to-do' : 'done', text: header + body, groups: { [groupName]: { ...entry(group), agents } } };
 }
