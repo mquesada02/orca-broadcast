@@ -290,6 +290,15 @@ describe('pause stops a waiting broadcast', () => {
     expect(world.pauseRuns()).toEqual([]);
   });
 
+  it('checks the group values before the lock: a stale value is reported even while another process holds the lock', async () => {
+    const world = scenario({ noRecord: true });
+    const { code, err } = await runCli(['pause', '--yes', '--group', 'gone'], [worker()], withGroups(world, { gone: { repo: ['vanished'] } }));
+    expect(code).toBe(2);
+    expect(err).toContain('group gone: unknown --repo "vanished"');
+    expect(err).not.toContain('another orca-broadcast is running');
+    expect(world.kills).toEqual([]);
+  });
+
   it('does not signal when the group selects nobody, and stops the broadcast when it selects an agent', async () => {
     const nobody = scenario();
     const none = await runCli(['pause', '--yes', '--group', 'leads'], [worker()], withGroups(nobody, { leads: { role: ['coordinator'] } }));
