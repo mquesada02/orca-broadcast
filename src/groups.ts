@@ -1,11 +1,11 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { describeFilters, FILTER_KINDS, isRole } from './filters.js';
-import type { FilterSpec, GroupFilter } from './types.js';
+import { FILTER_KINDS, isRole } from './filters.js';
+import type { AgentState, FilterSpec, GroupFilter } from './types.js';
 
-export const GROUP_STATES = ['working', 'done'] as const;
-export type GroupState = (typeof GROUP_STATES)[number];
+export const GROUP_STATES: readonly AgentState[] = ['working', 'done'];
+export type GroupState = AgentState;
 
 // The filter kinds of a saved group: the four every command knows, plus `state` for broadcast.
 export const GROUP_KINDS = [...FILTER_KINDS, 'state'] as const;
@@ -24,11 +24,6 @@ export function resolveGroupsPath(env: NodeJS.ProcessEnv, home: string = homedir
 }
 
 export const hasGroupKinds = (spec: GroupSpec): boolean => GROUP_KINDS.some((kind) => spec[kind].length > 0);
-
-// What a group is called in output: its kinds as flags.
-export function describeGroup(spec: GroupSpec): string {
-  return describeFilters(spec);
-}
 
 // The kinds that are set, as the file and the JSON output write them.
 export function groupKinds(spec: GroupSpec): Partial<Record<(typeof GROUP_KINDS)[number], string[]>> {

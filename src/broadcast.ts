@@ -161,7 +161,7 @@ async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDe
 async function rerun(loaded: BroadcastRecord, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
   const { store } = deps;
   // `saved` is the record as loaded. Every exit before the working copy's first save writes it back with only the pid fields changed.
-  const saved = structuredClone(loaded);
+  const saved = loaded;
   setPid(saved, store);
   try {
     await store.saveBroadcast(saved);
@@ -169,7 +169,7 @@ async function rerun(loaded: BroadcastRecord, timeoutMs: number, deps: Broadcast
     return failure(error, null);
   }
 
-  const record = structuredClone(loaded);
+  const record = structuredClone(saved);
   let prepared: Prepared;
   try {
     prepared = await prepareRerun(record, deps);
@@ -177,7 +177,6 @@ async function rerun(loaded: BroadcastRecord, timeoutMs: number, deps: Broadcast
     prepared = { summary: failure(error, null) };
   }
   if ('plan' in prepared) {
-    setPid(record, store);
     return wait(prepared.plan, timeoutMs, deps);
   }
   try {

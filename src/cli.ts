@@ -18,7 +18,7 @@ import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable
 import { isPreset, PRESET_NAMES } from './reasons.js';
 import { resume } from './resume.js';
 import { createRecordStore, type StoreOptions } from './store.js';
-import type { Clock, Confirm, FilterSpec, GroupFilter, OrcaPort, Role, RunSummary } from './types.js';
+import type { AgentState, Clock, Confirm, FilterSpec, GroupFilter, OrcaPort, Role, RunSummary } from './types.js';
 
 const CLEAR_LINE = '\r\x1b[K';
 
@@ -110,7 +110,7 @@ export function resolveStateDir(env: NodeJS.ProcessEnv, home: string = homedir()
 // What the user typed for each filter kind.
 const filterSpecOf = (values: FlagValues): FilterSpec => {
   const list = (kind: keyof FilterSpec) => (values[kind] as string[] | undefined) ?? [];
-  return { repo: list('repo'), worktree: list('worktree'), role: list('role') as Role[], run: list('run'), state: list('state') as GroupSpec['state'] };
+  return { repo: list('repo'), worktree: list('worktree'), role: list('role') as Role[], run: list('run'), state: list('state') as AgentState[] };
 };
 
 // The JSON object of a group command: the groups it touched, and no run or record.
@@ -157,8 +157,7 @@ function renderBroadcastOutput(command: Command | null, summary: RunSummary, fil
   const self = summary.broadcastSelf ? `${renderBroadcastSelfBlock(summary.broadcastSelf)}\n` : '';
   if (summary.outcome === 'nothing-to-do') return `nothing to ${command === 'broadcast' ? 'broadcast' : 'close'}\n${filterLine}${self}`;
   const record = summary.record;
-  const closeHeading = record?.status === 'closed' ? `closed broadcast ${record.id}` : `broadcast ${record?.id} stays open: ${summary.abandoned} ${summary.abandoned === 1 ? 'target' : 'targets'} abandoned`;
-  const heading = command === 'close' ? `${closeHeading}\n` : '';
+  const heading = command !== 'close' ? '' : record?.status === 'closed' ? `closed broadcast ${record.id}\n` : `broadcast ${record?.id} stays open: ${summary.abandoned} ${summary.abandoned === 1 ? 'target' : 'targets'} abandoned\n`;
   const targets = (record?.targets ?? []).filter((t) => command === 'close' || t.paneKey !== selfPaneKey);
   return `${heading}${renderBroadcastTable(targets)}${self}`;
 }

@@ -211,7 +211,6 @@ export function coordinatorsLast<T>(items: T[], roleOfItem: (item: T) => Role): 
   return splitCoordinators(items, roleOfItem).reverse().flat();
 }
 
-// The process no longer runs this broadcast: drop its pid, and close the record when no target can still progress.
 // The process that runs a broadcast: its pid, and its start time when the store can read it.
 export function setPid(record: BroadcastRecord, { pid, startTime }: { pid: number; startTime?: string }): void {
   record.pid = pid;
@@ -224,6 +223,7 @@ export function clearPid(record: BroadcastRecord): void {
   delete record.startTime;
 }
 
+// The process no longer runs this broadcast: drop its pid, and close the record when no target can still progress.
 export function releaseBroadcast(record: BroadcastRecord): void {
   clearPid(record);
   if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
