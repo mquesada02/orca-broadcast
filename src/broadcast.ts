@@ -246,6 +246,8 @@ async function wait({ record, scope, snapshot: first, self }: Plan, timeoutMs: n
   const startedAt = clock.now();
   let summary: RunSummary;
   try {
+    // The first save of the working copy: a re-run's changes (send-failed cleared, targets gone) become durable here and not before.
+    await store.saveBroadcast(record);
     while (true) {
       throwIfAborted(deps.signal);
       await poll(record, scope, snapshot, deps);
