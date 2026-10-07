@@ -19,6 +19,7 @@ import {
   seedOpenRun,
   tempStateDir,
   working,
+  wokenWorking,
 } from './helpers/fake-orca.js';
 
 const TIMEOUT = 60_000;
@@ -60,6 +61,9 @@ const wakesAfterConfirm = (): Behavior => {
     return { state: 'done', message: `extra turn ${received.length}-${calls}` };
   };
 };
+
+/** An agent that a background task has woken since the run confirmed it: working, with a newer reply and no token line. */
+const wokenAgent: Behavior = (ctx) => (ctx.received.length === 0 ? wokenWorking(ctx) : cycleAgent(ctx));
 
 const confirmedRecord = (paneKey: string) => agentRecord(paneKey, { pauseBaseline: OLD_REPLY });
 
@@ -169,7 +173,7 @@ describe('extending an open run', () => {
   });
 
   it('clears a stale continue proof when it re-pauses, so resume sends a fresh CONTINUE', async () => {
-    const t = await setup([{ paneKey: 'a:1', behavior: cycleAgent }]);
+    const t = await setup([{ paneKey: 'a:1', behavior: wokenAgent }]);
     await seedOpenRun(t.store(), [
       agentRecord('a:1', {
         pauseBaseline: OLD_REPLY,
@@ -179,7 +183,7 @@ describe('extending an open run', () => {
       }),
     ]);
 
-    await t.runPause(); // the agent is working, so the wake check re-pauses it and clears the proof
+    await t.runPause(); // the agent has a newer reply without the token, so the wake check re-pauses it and clears the proof
     const [paused] = (await t.readRun()).agents;
     expect(paused).toMatchObject({ pauseStatus: 'confirmed', wakeCount: 1 });
     expect(paused).not.toHaveProperty('continueSentAt');

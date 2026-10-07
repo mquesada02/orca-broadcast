@@ -42,6 +42,18 @@ export async function listCoordinators({ port, clock, signal }: ListDeps): Promi
   return new Set((await withRetry(() => port.listRuns(), clock, signal)).map((run) => run.coordinatorHandle));
 }
 
+// The last non-blank line of a reply, trimmed, with one wrapping backtick pair removed.
+function lastLine(message: string | null): string | null {
+  const last = message?.trimEnd().split(/\r?\n/).at(-1)?.trim();
+  if (!last) return null;
+  return last.length >= 2 && last.startsWith('`') && last.endsWith('`') ? last.slice(1, -1) : last;
+}
+
+// The exact last-line check. It lives here so the later ack proof uses the same normalisation as the pause proof.
+export function endsWithLine(message: string | null, line: string): boolean {
+  return lastLine(message) === line;
+}
+
 export function roleOf(handle: string, coordinators: Set<string>): Role {
   return coordinators.has(handle) ? 'coordinator' : 'worker';
 }

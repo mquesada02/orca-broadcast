@@ -1,0 +1,77 @@
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "ok": true,
+  "result": {
+    "worktrees": [
+      {
+        "workspaceKind": "git",
+        "worktreeId": "00000000-0000-4000-8000-000000000002::/home/user/work/dir-1",
+        "repoId": "00000000-0000-4000-8000-000000000002",
+        "hostId": "local",
+        "terminalPlatform": "linux",
+        "repo": "repo-1",
+        "path": "/home/user/work/dir-1",
+        "branch": "refs/heads/branch-2",
+        "isArchived": false,
+        "isMainWorktree": false,
+        "hasHostSidebarActivity": true,
+        "worktreeInstanceId": "00000000-0000-4000-8000-000000000003",
+        "lineageWorktreeInstanceId": "00000000-0000-4000-8000-000000000003",
+        "parentWorktreeInstanceId": "00000000-0000-4000-8000-000000000004",
+        "parentWorktreeId": "00000000-0000-4000-8000-000000000002::/home/user/work/dir-2",
+        "childWorktreeIds": [],
+        "displayName": "<redacted displayName>",
+        "workspaceStatus": "in-progress",
+        "sortOrder": 1791229015324,
+        "lastActivityAt": 1791228844863,
+        "createdAt": 1791228701626,
+        "creatorProvenance": {
+          "kind": "host"
+        },
+        "linkedIssue": null,
+        "linkedPR": null,
+        "linkedLinearIssue": null,
+        "linkedGitLabMR": null,
+        "linkedGitLabIssue": null,
+        "comment": "<redacted comment>",
+        "isPinned": false,
+        "isActive": false,
+        "unread": true,
+        "liveTerminalCount": 2,
+        "hasAttachedPty": true,
+        "lastOutputAt": 1791229050184,
+        "preview": "<redacted preview>",
+        "status": "working",
+        "agents": [
+          {
+            "paneKey": "00000000-0000-4000-8000-000000000005:00000000-0000-4000-8000-000000000006",
+            "parentPaneKey": null,
+            "state": "working",
+            "workingMode": "monitoring",
+            "agentType": "claude",
+            "prompt": "<redacted prompt>",
+            "taskTitle": null,
+            "displayName": null,
+            "lastAssistantMessage": "I started the 25-second sleep in the background.\nORCA-PAUSED 0a1b2c3d",
+            "toolName": "Bash",
+            "toolInput": "<redacted toolInput>",
+            "interrupted": false,
+            "stateStartedAt": 1791332190885,
+            "updatedAt": 1791332196030
+          }
+        ]
+      }
+    ],
+    "hostScope": {
+      "hostIds": [
+        "local"
+      ],
+      "omittedHostIds": []
+    },
+    "totalCount": 1,
+    "truncated": false
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-4000-8000-000000000019"
+  }
+}
