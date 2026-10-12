@@ -488,6 +488,45 @@ describe('safety rails', () => {
     const record = JSON.parse(await readFile(join(stateDir, 'pauses', name as string), 'utf8'));
     expect(record.agents[0]).toMatchObject({ paneKey: 'a:1', messagePending: true });
   });
+
+  describe('when terminal list is incomplete before anything is sent', () => {
+    const terminalFixture = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', `${name}.json`), 'utf8');
+    const psComplete = terminalFixture('worktree-ps');
+    const expectNothingSent = (calls: string[][]) => expect(calls.filter((args) => args[0] === 'terminal' && args[1] === 'send')).toEqual([]);
+    const attempt = async (terminalList: string, extra: string[] = []) => {
+      const calls: string[][] = [];
+      const exec: Exec = async (_file, args) => {
+        calls.push(args);
+        const key = args.slice(0, 2).join(' ');
+        return { stdout: key === 'worktree ps' ? psComplete : key === 'terminal list' ? terminalList : JSON.stringify({ ok: true, result: {} }), stderr: '', code: 0 };
+      };
+      const result = await invoke(['pause', '--yes', ...extra], [], await tempStateDir(), { port: createOrcaAdapter(exec) });
+      return { ...result, calls };
+    };
+
+    it('stops with exit 2 and the omitted-host message when Orca omits the local host (the 2026-10-09 host scope)', async () => {
+      const { code, err, calls, stateDir } = await attempt(terminalFixture('terminal-list-local-omitted'));
+      expect(code).toBe(2);
+      expect(err).toContain('orca-ide terminal list listing is incomplete: Orca reports the local host as omitted. Restart Orca');
+      expectNothingSent(calls);
+      expect(await readdir(stateDir)).not.toContain('pauses');
+    });
+
+    it('keeps the same error text in --json', async () => {
+      const { code, out } = await attempt(terminalFixture('terminal-list-local-omitted'), ['--json']);
+      expect(code).toBe(2);
+      expect(JSON.parse(out)).toMatchObject({ outcome: 'error', exitCode: 2, error: expect.stringContaining('Orca reports the local host as omitted') });
+    });
+
+    it('stops with exit 2 and the truncation message when terminal list is truncated', async () => {
+      const truncated = JSON.parse(terminalFixture('terminal-list'));
+      truncated.result.truncated = true;
+      const { code, err, calls } = await attempt(JSON.stringify(truncated));
+      expect(code).toBe(2);
+      expect(err).toContain('orca-ide terminal list listing is incomplete: Orca reports it as truncated');
+      expectNothingSent(calls);
+    });
+  });
 });
 
 describe('--reason', () => {

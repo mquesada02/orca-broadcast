@@ -278,26 +278,51 @@ describe('orca adapter listing errors', () => {
     return JSON.stringify(doc);
   };
 
+  const expectTruncated = async (listing: Promise<unknown>, label: string) => {
+    const error = (await listing.catch((e: Error) => e)) as Error;
+    expect(error.message).toMatch(new RegExp(`^orca-ide ${label} listing is incomplete: Orca reports it as truncated`));
+    expect(error.message).not.toMatch(/local/);
+  };
+
+  const expectLocalOmitted = (listing: Promise<unknown>, label: string) =>
+    expect(listing).rejects.toThrow(new RegExp(`^orca-ide ${label} listing is incomplete: Orca reports the local host as omitted\\. Restart Orca`));
+
   it('throws on a truncated listing', async () => {
     const { exec } = fakeExec({
       'worktree ps': withScope('worktree-ps', (r) => (r.truncated = true)),
       'terminal list': withScope('terminal-list', (r) => (r.truncated = true)),
     });
-    await expect(createOrcaAdapter(exec).listAgents()).rejects.toThrow(/incomplete/);
-    await expect(createOrcaAdapter(exec).listTerminals()).rejects.toThrow(/incomplete/);
+    await expectTruncated(createOrcaAdapter(exec).listAgents(), 'worktree ps');
+    await expectTruncated(createOrcaAdapter(exec).listTerminals(), 'terminal list');
+  });
+
+  it('names the listing and suggests a restart when Orca omits the local host (the 2026-10-09 host scope)', async () => {
+    const { exec, calls } = fakeExec({ 'terminal list': fixture('terminal-list-local-omitted') });
+    await expect(createOrcaAdapter(exec).listTerminals()).rejects.toThrow(/orca-ide terminal list listing is incomplete: Orca reports the local host as omitted\. Restart Orca and run the command again\. Restarting Orca fixed this on 2026-10-12\.$/);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('reports truncation first, without the local host, when both are true', async () => {
+    const { exec } = fakeExec({
+      'terminal list': withScope('terminal-list', (r) => {
+        r.truncated = true;
+        r.hostScope.omittedHostIds = ['local'];
+      }),
+    });
+    await expectTruncated(createOrcaAdapter(exec).listTerminals(), 'terminal list');
   });
 
   it('fails on a truncated worktree list (a real page captured with --limit 2) and on an omitted local host', async () => {
     const truncated = fakeExec({ 'worktree list': fixture('worktree-list-truncated') });
     expect(json('worktree-list-truncated').result).toMatchObject({ truncated: true });
-    await expect(createOrcaAdapter(truncated.exec).listWorktrees()).rejects.toThrow(/worktree list listing is incomplete/);
+    await expectTruncated(createOrcaAdapter(truncated.exec).listWorktrees(), 'worktree list');
     const local = fakeExec({ 'worktree list': withScope('worktree-list', (r) => (r.hostScope.omittedHostIds = ['local'])) });
-    await expect(createOrcaAdapter(local.exec).listWorktrees()).rejects.toThrow(/incomplete/);
+    await expectLocalOmitted(createOrcaAdapter(local.exec).listWorktrees(), 'worktree list');
   });
 
   it('throws when the local host is omitted but ignores omitted remote hosts', async () => {
     const local = fakeExec({ 'worktree ps': withScope('worktree-ps', (r) => (r.hostScope.omittedHostIds = ['local'])) });
-    await expect(createOrcaAdapter(local.exec).listAgents()).rejects.toThrow(/incomplete/);
+    await expectLocalOmitted(createOrcaAdapter(local.exec).listAgents(), 'worktree ps');
     const remote = fakeExec({ 'worktree ps': withScope('worktree-ps', (r) => (r.hostScope.omittedHostIds = ['remote-1'])) });
     await expect(createOrcaAdapter(remote.exec).listAgents()).resolves.toBeDefined();
   });
