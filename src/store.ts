@@ -146,6 +146,11 @@ function backfillRunIds(run: Run): void {
   for (const agent of run.agents) agent.orchestrationRunIds ??= [];
 }
 
+// A broadcast record in the older three-field shape has no targets: it has nothing pending.
+function backfillTargets(record: BroadcastRecord): void {
+  record.targets ??= [];
+}
+
 // A missing folder counts as empty.
 async function readOpen<T extends { status: string }>(folder: string, sortKey: (record: T) => string, idOf: (record: T) => string, normalise: (record: T) => void = () => {}): Promise<OpenEntry<T> | null> {
   let names: string[];
@@ -260,7 +265,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   async function peekOpen(): Promise<OpenRecords> {
     const [pause, broadcast] = await Promise.all([
       readOpen<Run>(pausesDir, (r) => r.startedAt, (r) => r.runId, backfillRunIds),
-      readOpen<BroadcastRecord>(broadcastsDir, (r) => r.createdAt, (r) => r.id),
+      readOpen<BroadcastRecord>(broadcastsDir, (r) => r.createdAt, (r) => r.id, backfillTargets),
     ]);
     return { pause, broadcast };
   }
