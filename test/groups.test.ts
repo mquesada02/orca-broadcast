@@ -2,7 +2,8 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRecordStore } from '../src/store.js';
-import type { Run } from '../src/types.js';
+import { matches } from '../src/filters.js';
+import type { FilterSet, Role, Run } from '../src/types.js';
 import { type FakeAgent, FakeOrca, pausedDone, repliesWithToken, seedOpenRun, agentRecord, working } from './helpers/fake-orca.js';
 import { groupsFile, runCli, seedGroups, writeGroups, type RunCliOptions, type Seed } from './helpers/run-cli.js';
 
@@ -527,10 +528,13 @@ describe('repeated --group is a union', () => {
     expect(err).toBe('orca-broadcast: group web: state filter skipped (pause does not use it)\n');
   });
 
-  it('naming a group twice is the same as once', async () => {
-    const twice = await run(['pause', '--yes', '--group', 'beta', '--group', 'beta']);
-    expect(sentPanes(twice.port)).toEqual(['b:1']);
-    expect(twice.err).toBe('');
+  it('naming a group twice is the same as once: one skip line, one name on the filter line', async () => {
+    const seed = seedGroups({ web: { repo: ['alpha'], state: ['working'] } });
+    const twice = await run(['pause', '--yes', '--group', 'web', '--group', 'web', '--role', 'coordinator'], seed);
+    expect(twice.err).toBe('orca-broadcast: group web: state filter skipped (pause does not use it)\n');
+    expect(twice.out).toContain('filters: --group web --role coordinator\n');
+    const sends = await run(['pause', '--yes', '--group', 'web', '--group', 'web'], seed);
+    expect(sentPanes(sends.port)).toEqual(['a:1', 'a:2']);
   });
 
   it('an unknown name among several exits 2 and sends nothing', async () => {
@@ -548,6 +552,8 @@ describe('repeated --group is a union', () => {
     expect(code).toBe(0);
     expect(err).toBe('orca-broadcast: group web: state filter skipped (pause does not use it)\norca-broadcast: group onlystate: state filter skipped (pause does not use it)\n');
     expect(sentPanes(port)).toEqual(['a:1', 'a:2', 'b:1']);
+    const line = await run(['pause', '--yes', '--group', 'web', '--group', 'onlystate', '--group', 'beta', '--role', 'coordinator'], seed);
+    expect(line.out).toContain('filters: --group web --group beta --role coordinator\n');
   });
 
   it('a dropped state-only group never widens the union to every agent', async () => {
@@ -568,10 +574,19 @@ describe('repeated --group is a union', () => {
     const stored = await open();
     expect(stored.scope).toHaveLength(1);
     expect(stored.scope[0]).toMatchObject({ typed: {}, anyOf: [{ group: 'alpha', repoIds: ['repo-alpha'], roles: ['worker'] }, { group: 'beta', repoIds: ['repo-beta'] }] });
+    const subject = (repoId: string, role: Role) => ({ repoId, worktreeId: 'wt', role, orchestrationRunIds: [] });
+    // The scope as read back from disk still selects by union.
+    const union = stored.scope[0] as FilterSet;
+    expect(matches(union, subject('repo-beta', 'session'))).toBe(true);
+    expect(matches(union, subject('repo-alpha', 'worker'))).toBe(true);
+    expect(matches(union, subject('repo-alpha', 'session'))).toBe(false);
 
     const env = { XDG_STATE_HOME: first.dir, XDG_CONFIG_HOME: join(dirname(first.dir), 'config') };
-    const second = await runCli(['pause', '--yes', '--group', 'nothing'], fleet(), withRepos({ env }));
+    // b:9 starts working later: only the stored union can sweep it in, because the second pause itself selects nobody.
+    const later: FakeAgent = { paneKey: 'b:9', repo: 'beta', worktree: 'late', behavior: repliesWithToken() };
+    const second = await runCli(['pause', '--yes', '--group', 'nothing'], [...fleet(), later], withRepos({ env }));
     expect(second.code).toBe(0);
+    expect(sentPanes(second.port)).toEqual(['b:9']);
     expect((await open()).scope).toHaveLength(2);
     const resumed = await runCli(['resume', '--yes', '--group', 'alpha', '--group', 'beta'], fleet(), withRepos({ env }));
     expect(sentPanes(resumed.port)).toEqual(['a:2', 'b:1']);
