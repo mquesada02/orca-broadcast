@@ -60,6 +60,16 @@ describe('broadcast: the text', () => {
     expect(port.sends).toHaveLength(1);
   });
 
+  it('shows a format character (Cf) as an escape in the preview and sends the raw text', async () => {
+    const text = 'pay \u202Eevil\u{E0001} 👩\u200D💻';
+    const { code, err, port } = await run(['broadcast', text, '--timeout', '10s'], [{ paneKey: 'a:1', behavior: acks }], { ask: ['y'] });
+    expect(code).toBe(0);
+    const preview = err.slice(err.indexOf('Message:'));
+    expect(preview).toContain('pay \\u{202E}evil\\u{E0001} 👩\\u{200D}💻');
+    expect(preview).not.toMatch(/[\u202E\u200D\u{E0001}]/u);
+    expect(port.sends[0]?.text).toBe(broadcastMessage(text, TOKEN));
+  });
+
   it('trims both ends and sends the exact one-line message with double quotes as typed', async () => {
     const { code, port } = await send('  say "hi" now \n', [{ paneKey: 'a:1', behavior: acks }]);
     expect(code).toBe(0);
@@ -169,7 +179,7 @@ describe('broadcast: the targets', () => {
     expect(code).toBe(1);
     expect(port.sendsTo('b:2')).toBe(0);
     const [record] = await records(dir);
-    expect(record?.targets.map((t) => [t.paneKey, t.status, t.reason])).toEqual([['a:1', 'acked', null], ['b:2', 'gone', 'terminal-closed']]);
+    expect(Object.fromEntries(record?.targets.map((t) => [t.paneKey, [t.status, t.reason]]) ?? [])).toEqual({ 'a:1': ['acked', null], 'b:2': ['gone', 'terminal-closed'] });
   });
 
   it('prints "nothing to broadcast" and writes nothing when every target vanished after the yes', async () => {
@@ -357,7 +367,7 @@ describe('broadcast: the outcome', () => {
     ]);
     expect(code).toBe(1);
     const [record] = await records(dir);
-    expect(record?.targets.map((t) => t.status)).toEqual(['acked', 'gone']);
+    expect(Object.fromEntries(record?.targets.map((t) => [t.paneKey, t.status]) ?? [])).toEqual({ 'a:1': 'acked', 'b:2': 'gone' });
     expect(record?.status).toBe('closed');
     expect(await hasPointer(dir)).toBe(false);
   });
@@ -445,6 +455,19 @@ describe('close and a broadcast', () => {
     expect(record).not.toHaveProperty('pid');
     expect(record?.targets.map((t) => [t.status, t.reason])).toEqual([['abandoned', 'closed'], ['acked', null], ['gone', 'terminal-closed']]);
     expect(await hasPointer(dir)).toBe(false);
+  });
+
+  it('closes an old-shape record that has no targets', async () => {
+    const seed = async (_store: RecordStore, dir: string) => {
+      const folder = join(storeDir(dir), 'broadcasts');
+      await mkdir(folder, { recursive: true });
+      await writeFile(join(folder, 'old-1.json'), JSON.stringify({ id: 'old-1', createdAt: '2026-01-01T00:00:00.000Z', status: 'open' }));
+    };
+    const { code, out, dir, port } = await run(['close'], [], { seed });
+    expect(code).toBe(0);
+    expect(out).toContain('closed broadcast old-1');
+    expect(port.sends).toEqual([]);
+    expect(await records(dir)).toMatchObject([{ id: 'old-1', status: 'closed', targets: [] }]);
   });
 
   it('gives the JSON shape with the closed record and no run', async () => {

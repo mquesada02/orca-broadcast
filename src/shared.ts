@@ -6,7 +6,6 @@ import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSp
 
 export const POLL_INTERVAL_MS = 2000;
 
-export const PAUSE_OPEN_MESSAGE = 'A pause run is open; resume or close it first.';
 export const BROADCAST_OPEN_MESSAGE = 'A broadcast is open; run broadcast with no text to keep waiting, or close it first.';
 
 export function randomToken(): string {

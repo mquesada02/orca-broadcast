@@ -1,11 +1,12 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { isFiltered, matches, NO_FILTERS, type Subject } from './filters.js';
-import { BROADCAST_OPEN_MESSAGE, cancelled, clearPid, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, PAUSE_OPEN_MESSAGE, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, setPid, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, cancelled, clearPid, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, setPid, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
 const MAX_TEXT_LENGTH = 1000;
 const NO_BROADCAST_MESSAGE = 'No broadcast is open; give a text.';
+const PAUSE_OPEN_MESSAGE = 'A pause run is open; resume or close it first.';
 
 export interface BroadcastProgress {
   acked: number;
