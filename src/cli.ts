@@ -1,6 +1,6 @@
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { Interrupted, throwIfAborted } from './abort.js';
 import { PromptInterrupted } from './ask.js';
@@ -22,6 +22,9 @@ import { createRecordStore, type StoreOptions } from './store.js';
 import type { AgentState, Clock, Confirm, FilterSpec, GroupFilter, OrcaPort, Role, RunSummary } from './types.js';
 
 const CLEAR_LINE = '\r\x1b[K';
+
+// Shows each format character (category Cf, such as U+202E) as \u{HEX}, so a preview cannot read differently from the text sent.
+const escapeFormatChars = (text: string): string => text.replace(/\p{Cf}/gu, (c) => `\\u{${c.codePointAt(0)!.toString(16).toUpperCase()}}`);
 
 export interface CliIo {
   stdout: (text: string) => void;
@@ -87,7 +90,7 @@ function confirmOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>): Confirm {
   return async (targets, signal, details) => {
     if (io.isTTY) io.stderr(CLEAR_LINE);
     io.stderr(targets.map((t) => `  ${t.repo}/${t.worktree} (${t.role})\n`).join(''));
-    if (details) io.stderr(`\nMessage:\n  ${details.message}\n${details.self ? `\nNot sent to this session: ${details.self.repo}/${details.self.worktree} (${details.self.role})\n` : ''}\n`);
+    if (details) io.stderr(`\nMessage:\n  ${escapeFormatChars(details.message)}\n${details.self ? `\nNot sent to this session: ${details.self.repo}/${details.self.worktree} (${details.self.role})\n` : ''}\n`);
     let answer: string;
     try {
       answer = await ask(`Send to ${targets.length} ${targets.length === 1 ? 'agent' : 'agents'}? [y/N] `, signal);
