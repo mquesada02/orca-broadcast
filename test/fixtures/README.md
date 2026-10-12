@@ -16,6 +16,10 @@ agent has `parentPaneKey: null`, so a plain handoff child is not a worker). All 
 `main` worktree, so a name repeats across repos), and `worktree-list-truncated.json` is the same call with `--limit 2`, a real page with `truncated: true` and
 `totalCount: 57`. Ids, paths, branch names and other names are placeholders; the generic names `main` stay. Captured 2026-10-07 and redacted the same way.
 
+`terminal-list-local-omitted.json` is derived, not a pure capture: `terminal-list.json` (captured 2026-10-06) with its `hostScope` replaced by the one
+`terminal list --json` returned on 2026-10-09 after an Orca crash (Orca 1.4.223; quoted in issue #99): `hostIds: []`, `omittedHostIds: ["local"]` and
+`omittedHostSelectors: [{hostId: "local", selector: "--host local"}]`. The rows, `truncated: false` and everything else are from the 2026-10-06 capture.
+
 `terminal-send-truncated.txt` is synthetic: the stale-handle output cut off mid-JSON, as left by a timed-out
 `terminal send` that still reported its request id.
 

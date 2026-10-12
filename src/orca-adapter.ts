@@ -90,8 +90,13 @@ export function createOrcaAdapter(exec: Exec = execOrca): OrcaPort {
 
   function assertComplete(label: string, result: Record<string, any>): void {
     const omitted: unknown[] = result.hostScope?.omittedHostIds ?? [];
-    if (result.truncated === true || omitted.includes('local')) {
-      throw new Error(`orca-ide ${label} listing is incomplete (truncated or local host omitted)`);
+    if (result.truncated === true) {
+      throw new Error(`orca-ide ${label} listing is incomplete: Orca reports it as truncated`);
+    }
+    if (omitted.includes('local')) {
+      throw new Error(
+        `orca-ide ${label} listing is incomplete: Orca reports the local host as omitted. Restart Orca and run the command again. Restarting Orca fixed this on 2026-10-12.`,
+      );
     }
   }
 

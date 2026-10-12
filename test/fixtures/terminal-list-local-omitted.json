@@ -1,0 +1,118 @@
+{
+  "id": "00000000-0000-4000-8000-000000000020",
+  "ok": true,
+  "result": {
+    "terminals": [
+      {
+        "handle": "term_00000000-0000-4000-8000-000000000021",
+        "ptyId": "00000000-0000-4000-8000-000000000009::/home/user/work/dir-3@@e4370aab",
+        "incarnationId": "00000000-0000-4000-8000-000000000022",
+        "orphaned": false,
+        "worktreeId": "00000000-0000-4000-8000-000000000009::/home/user/work/dir-3",
+        "worktreePath": "/home/user/work/dir-3",
+        "branch": "refs/heads/branch-4",
+        "tabId": "00000000-0000-4000-8000-000000000013",
+        "leafId": "00000000-0000-4000-8000-000000000014",
+        "title": "<redacted title>",
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": 1791228272539,
+        "preview": "<redacted preview>",
+        "executionHostId": "local",
+        "agentIdentity": "claude"
+      },
+      {
+        "handle": "term_00000000-0000-4000-8000-000000000023",
+        "ptyId": "00000000-0000-4000-8000-000000000009::/home/user/work/dir-3@@80897576",
+        "incarnationId": "00000000-0000-4000-8000-000000000024",
+        "orphaned": false,
+        "worktreeId": "00000000-0000-4000-8000-000000000009::/home/user/work/dir-3",
+        "worktreePath": "/home/user/work/dir-3",
+        "branch": "refs/heads/branch-4",
+        "tabId": "00000000-0000-4000-8000-000000000011",
+        "leafId": "00000000-0000-4000-8000-000000000012",
+        "title": "<redacted title>",
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": 1791228283859,
+        "preview": "<redacted preview>",
+        "executionHostId": "local",
+        "agentIdentity": "claude"
+      },
+      {
+        "handle": "term_00000000-0000-4000-8000-000000000025",
+        "ptyId": "00000000-0000-4000-8000-000000000009::/home/user/work/dir-3@@842dfabd",
+        "incarnationId": "00000000-0000-4000-8000-000000000026",
+        "orphaned": false,
+        "worktreeId": "00000000-0000-4000-8000-000000000009::/home/user/work/dir-3",
+        "worktreePath": "/home/user/work/dir-3",
+        "branch": "refs/heads/branch-4",
+        "tabId": "00000000-0000-4000-8000-000000000015",
+        "leafId": "00000000-0000-4000-8000-000000000016",
+        "title": "<redacted title>",
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": 1791228756885,
+        "preview": "<redacted preview>",
+        "executionHostId": "local",
+        "agentIdentity": "claude"
+      },
+      {
+        "handle": "term_00000000-0000-4000-8000-000000000027",
+        "ptyId": "00000000-0000-4000-8000-000000000002::/home/user/work/dir-1@@dd4df586",
+        "incarnationId": "00000000-0000-4000-8000-000000000028",
+        "orphaned": false,
+        "worktreeId": "00000000-0000-4000-8000-000000000002::/home/user/work/dir-1",
+        "worktreePath": "/home/user/work/dir-1",
+        "branch": "refs/heads/branch-2",
+        "tabId": "00000000-0000-4000-8000-000000000005",
+        "leafId": "00000000-0000-4000-8000-000000000006",
+        "title": "<redacted title>",
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": 1791229050734,
+        "preview": "<redacted preview>",
+        "executionHostId": "local",
+        "agentIdentity": "claude"
+      },
+      {
+        "handle": "term_00000000-0000-4000-8000-000000000029",
+        "ptyId": "00000000-0000-4000-8000-000000000030::/home/user/work/dir-5@@736bee2d",
+        "incarnationId": "00000000-0000-4000-8000-000000000031",
+        "orphaned": false,
+        "worktreeId": "00000000-0000-4000-8000-000000000030::/home/user/work/dir-5",
+        "worktreePath": "/home/user/work/dir-5",
+        "branch": "refs/heads/branch-7",
+        "tabId": "00000000-0000-4000-8000-000000000032",
+        "leafId": "00000000-0000-4000-8000-000000000033",
+        "title": "<redacted title>",
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": 1791083640546,
+        "preview": "<redacted preview>",
+        "executionHostId": "local"
+      }
+    ],
+    "hostScope": {
+      "hostIds": [],
+      "omittedHostIds": [
+        "local"
+      ],
+      "omittedHostSelectors": [
+        {
+          "hostId": "local",
+          "selector": "--host local"
+        }
+      ]
+    },
+    "topologyRevisions": {
+      "00000000-0000-4000-8000-000000000009::/home/user/work/dir-3": 191,
+      "00000000-0000-4000-8000-000000000002::/home/user/work/dir-1": 12
+    },
+    "totalCount": 5,
+    "truncated": false
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-4000-8000-000000000019"
+  }
+}
