@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { continueMessage, resume } from '../src/resume.js';
+import { continueMessage, resume, type ResumeDeps } from '../src/resume.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord, ResumeProgress, Run } from '../src/types.js';
 import { type FakeAgent, fakeClock, FakeOrca, PAUSED_REPLY, pausedDone, seedOpenRun, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
@@ -37,7 +37,7 @@ async function setup(agents: FakeAgent[], records: AgentRecord[] = agents.map((a
   const port = new FakeOrca(agents);
   const clock = fakeClock();
   const progress: ResumeProgress[] = [];
-  const go = (signal?: AbortSignal) => resume({ port, clock, store: createRecordStore(dir), onProgress: (p) => progress.push(p), signal });
+  const go = (signal?: AbortSignal, extra: Partial<ResumeDeps> = {}) => resume({ port, clock, store: createRecordStore(dir), onProgress: (p) => progress.push(p), signal, ...extra });
   const readRun = async (): Promise<Run> => JSON.parse(await readFile(join(dir, 'pauses', 'run-1.json'), 'utf8')) as Run;
   return { dir, port, clock, go, readRun, progress };
 }
@@ -385,4 +385,108 @@ describe('resume reasons', () => {
       expect(port.sends.map((s) => s.text)).toEqual([`[orca-broadcast] CONTINUE. ${sentence} Continue your task from the note in your last pause reply.`]);
     });
   }
+});
+
+describe('resume from the self session', () => {
+  const selfRecord = (extra: Partial<AgentRecord> = {}) => agentRecord('s:1', { role: 'session', pauseStatus: 'unconfirmed', pauseReason: 'self', confirmedAt: null, ...extra });
+  const seedSelf = (self: AgentRecord = selfRecord()) => [agentRecord('a:1'), self];
+  const other: FakeAgent = { paneKey: 'a:1', behavior: startsNewTurnAfterContinue };
+  const agents = (): FakeAgent[] => [other, { paneKey: 's:1', behavior: working }];
+
+  it('marks the self agent resumed with reason self, sends it nothing, and closes the run in one resume', async () => {
+    const { dir, port, go, readRun } = await setup(agents(), seedSelf());
+
+    const summary = await go(undefined, { selfPaneKey: 's:1' });
+
+    expect(summary.exitCode).toBe(0);
+    expect(port.sends.map((s) => s.handle)).toEqual(['term_a:1']);
+    const run = await readRun();
+    expect(run.status).toBe('closed');
+    expect(run.agents[1]).toMatchObject({ resumeStatus: 'resumed', resumeReason: 'self' });
+    expect(run.agents[1]?.continueBaseline).toBeUndefined();
+    expect(run.agents[1]?.continueSentAt).toBeUndefined();
+    expect(await readdir(dir)).not.toContain('current');
+  });
+
+  it.each([['other:9'], [undefined], ['']])('sends CONTINUE to the self row when selfPaneKey is %j', async (selfPaneKey) => {
+    const { port, go } = await setup(agents(), seedSelf());
+
+    await go(undefined, { selfPaneKey });
+
+    expect(port.sends.map((s) => s.handle).sort()).toEqual(['term_a:1', 'term_s:1']);
+  });
+
+  it('matches on the pane key only, whatever the pause reason', async () => {
+    const { port, go, readRun } = await setup(agents(), seedSelf(selfRecord({ pauseStatus: 'confirmed', pauseReason: null })));
+
+    await go(undefined, { selfPaneKey: 's:1' });
+
+    expect(port.sends.map((s) => s.handle)).toEqual(['term_a:1']);
+    expect((await readRun()).agents[1]).toMatchObject({ resumeStatus: 'resumed', resumeReason: 'self' });
+  });
+
+  it.each([
+    ['Orca has no row for it', { hasRow: false }],
+    ['it is on a permission prompt', { behavior: () => ({ state: 'waiting', message: PAUSED_REPLY }) }],
+  ])('marks the self agent resumed when %s', async (_name, change) => {
+    const { port, go, readRun } = await setup([other, { paneKey: 's:1', behavior: working, ...change }], seedSelf());
+
+    const summary = await go(undefined, { selfPaneKey: 's:1' });
+
+    expect(summary.exitCode).toBe(0);
+    expect(port.sends.map((s) => s.handle)).toEqual(['term_a:1']);
+    expect((await readRun()).agents[1]).toMatchObject({ resumeStatus: 'resumed', resumeReason: 'self' });
+  });
+
+  it('keeps the run open and exits 1 while another agent is pending', async () => {
+    const { go, readRun } = await setup([{ paneKey: 'a:1', behavior: pausedDone() }, { paneKey: 's:1', behavior: working }], seedSelf());
+
+    const summary = await go(undefined, { selfPaneKey: 's:1' });
+
+    expect(summary.exitCode).toBe(1);
+    const run = await readRun();
+    expect(run.status).toBe('open');
+    expect(run.agents.map((a) => a.resumeStatus)).toEqual(['pending', 'resumed']);
+  });
+
+  it('closes the run with no send when the self row is the only pending agent', async () => {
+    const { port, go, readRun } = await setup([{ paneKey: 's:1', behavior: working }], [selfRecord()]);
+
+    const summary = await go(undefined, { selfPaneKey: 's:1' });
+
+    expect(summary.exitCode).toBe(0);
+    expect(port.sends).toHaveLength(0);
+    expect((await readRun()).status).toBe('closed');
+  });
+
+  it('leaves the self row pending when a filter excludes it', async () => {
+    const { port, go, readRun } = await setup(agents(), seedSelf(selfRecord({ repo: 'other', repoId: 'repo-other' })));
+
+    const summary = await go(undefined, { selfPaneKey: 's:1', filters: { repo: ['repo'], worktree: [], role: [], run: [] } });
+
+    expect(summary.exitCode).toBe(0);
+    expect(port.sends.map((s) => s.handle)).toEqual(['term_a:1']);
+    const run = await readRun();
+    expect(run.status).toBe('open');
+    expect(run.agents[1]).toMatchObject({ resumeStatus: 'pending' });
+    expect(run.agents[1]?.resumeReason).toBeUndefined();
+  });
+
+  it('does not ask for confirmation for the self row', async () => {
+    const { go } = await setup(agents(), seedSelf());
+    const asked: unknown[][] = [];
+
+    await go(undefined, { selfPaneKey: 's:1', confirm: async (targets) => (asked.push(targets), true) });
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toHaveLength(1);
+  });
+
+  it('counts the self row as resumed in the progress', async () => {
+    const { go, progress } = await setup(agents(), seedSelf());
+
+    await go(undefined, { selfPaneKey: 's:1' });
+
+    expect(progress.at(-1)).toEqual({ resumed: 2, total: 2 });
+  });
 });

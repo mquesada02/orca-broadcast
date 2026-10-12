@@ -179,7 +179,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal, filters, group: groupFilter, cwd });
       return command === 'pause'
         ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, group: groupFilter, cwd, onProgress: progressLine(renderProgress), confirm, signal })
-        : resume({ port, clock, store, filters, group: groupFilter, cwd, onProgress: progressLine(renderResumeProgress), confirm, signal });
+        : resume({ port, clock, store, filters, group: groupFilter, cwd, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderResumeProgress), confirm, signal });
     }, guardOptions);
     if (json) {
       io.stdout(jsonLine(command, summary));

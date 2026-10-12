@@ -17,6 +17,7 @@ async function run(
   isTTY = false,
   configure: (port: FakeOrca) => void = () => {},
   seed: (store: ReturnType<typeof createRecordStore>) => Promise<unknown> = async () => {},
+  env: NodeJS.ProcessEnv = {},
 ) {
   const dir = await tempStateDir();
   await seed(createRecordStore(`${dir}/orca-broadcast`));
@@ -25,7 +26,7 @@ async function run(
   const port = new FakeOrca(agents);
   configure(port);
   const clock = fakeClock();
-  const code = await main(argv, { XDG_STATE_HOME: dir }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY }, { port, clock, kill: noKill });
+  const code = await main(argv, { XDG_STATE_HOME: dir, ...env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY }, { port, clock, kill: noKill });
   return { code, out: out.join(''), err: err.join(''), dir, port, clock };
 }
 
@@ -220,6 +221,37 @@ describe('orca-broadcast resume', () => {
     const { err } = await run(['resume', '--yes'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], true, () => {}, seedRun([{ paneKey: 'a:1' }]));
     expect(err).toContain('\r\x1b[Kresuming… 0/1 resumed');
     expect(err).toContain('\r\x1b[Kresuming… 1/1 resumed');
+  });
+
+  it('marks the session that runs resume as resumed without a send, when ORCA_PANE_KEY is its pane key', async () => {
+    const { code, out, port } = await run(
+      ['resume', '--yes'],
+      [{ paneKey: 's:1', behavior: working }],
+      false,
+      () => {},
+      seedRun([{ paneKey: 's:1', repo: 'alpha', worktree: 'wt-s', role: 'session', pauseStatus: 'unconfirmed', pauseReason: 'self' }]),
+      { ORCA_PANE_KEY: 's:1' },
+    );
+    expect(code).toBe(0);
+    expect(port.sends).toHaveLength(0);
+    expect(out).toMatch(/alpha\s+wt-s\s+session\s+run: unknown\s+resumed\s+self/);
+  });
+
+  it('shows the self reason in the --json output', async () => {
+    const { out } = await run(['resume', '--yes', '--json'], [{ paneKey: 's:1', behavior: working }], false, () => {}, seedRun([{ paneKey: 's:1', pauseReason: 'self' }]), { ORCA_PANE_KEY: 's:1' });
+    expect(JSON.parse(out).run.agents[0]).toMatchObject({ resumeStatus: 'resumed', resumeReason: 'self' });
+  });
+
+  it('sends CONTINUE to the self row when ORCA_PANE_KEY is empty', async () => {
+    const { port } = await run(
+      ['resume', '--yes'],
+      [{ paneKey: 's:1', behavior: working }],
+      false,
+      () => {},
+      seedRun([{ paneKey: 's:1', pauseStatus: 'unconfirmed', pauseReason: 'self' }]),
+      { ORCA_PANE_KEY: '' },
+    );
+    expect(port.sends).toHaveLength(1);
   });
 
   it('lists resume in the usage text', async () => {

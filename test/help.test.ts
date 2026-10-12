@@ -49,7 +49,9 @@ describe('per-command help', () => {
     const pause = (await runCli(['pause', '--help'])).out;
     expect(pause).toContain('--reason <name>');
     expect(pause).not.toContain('--state');
-    expect((await runCli(['resume', '--help'])).out).not.toContain('--timeout');
+    const resume = (await runCli(['resume', '--help'])).out;
+    expect(resume).not.toContain('--timeout');
+    expect(resume).toContain('marked resumed with reason self');
     expect((await runCli(['close', '--help'])).out).not.toContain('--yes');
     const broadcast = (await runCli(['broadcast', '--help'])).out;
     expect(broadcast).toContain('--file <path>');
