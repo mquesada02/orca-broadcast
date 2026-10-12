@@ -156,7 +156,10 @@ orca-broadcast pause --group web --role worker
 | `away` | The user is stepping away for a while. | The user is back. |
 | `end-of-day` | The user is stopping work for the day. | The user is back for a new session. |
 | `limit` | The user is close to a usage or rate limit. | The limit has reset. |
+| `restart` | The user will restart the PC soon, and everything in /tmp will be erased; first copy anything you still need from /tmp to a place outside it. | The PC has restarted; anything you left in /tmp is gone. |
 | *(no flag)* | The user asked all agents to pause. | The user asked you to continue. |
+
+After a real reboot, `resume` finds the restored agents only when #92 is done. Until then they show as `gone`, because agents are keyed on `paneKey`, which an Orca restart can change.
 
 An unknown name, or `--reason` on `resume`, `close` or `broadcast`, is a usage error (exit 2). Running `pause` again on an open run keeps its reason; give the same `--reason` or none. A different one is refused (exit 2, nothing sent): use `close` first. The `reason` column in the output tables is a different thing: it says why one agent is not confirmed or not resumed.
 

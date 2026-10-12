@@ -1,4 +1,4 @@
-export const PRESET_NAMES = ['network', 'away', 'end-of-day', 'limit'] as const;
+export const PRESET_NAMES = ['network', 'away', 'end-of-day', 'limit', 'restart'] as const;
 export type Preset = (typeof PRESET_NAMES)[number];
 
 interface Sentences {
@@ -13,6 +13,10 @@ const PRESETS: Record<Preset, Sentences> = {
   away: { pause: 'The user is stepping away for a while.', continue: 'The user is back.' },
   'end-of-day': { pause: 'The user is stopping work for the day.', continue: 'The user is back for a new session.' },
   limit: { pause: 'The user is close to a usage or rate limit.', continue: 'The limit has reset.' },
+  restart: {
+    pause: 'The user will restart the PC soon, and everything in /tmp will be erased; first copy anything you still need from /tmp to a place outside it.',
+    continue: 'The PC has restarted; anything you left in /tmp is gone.',
+  },
 };
 
 export function isPreset(value: unknown): value is Preset {

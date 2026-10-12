@@ -758,6 +758,7 @@ describe('pause reasons', () => {
     ['away', 'The user is stepping away for a while.'],
     ['end-of-day', 'The user is stopping work for the day.'],
     ['limit', 'The user is close to a usage or rate limit.'],
+    ['restart', 'The user will restart the PC soon, and everything in /tmp will be erased; first copy anything you still need from /tmp to a place outside it.'],
     [undefined, 'The user asked all agents to pause.'],
   ];
 

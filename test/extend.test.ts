@@ -504,6 +504,8 @@ describe('extending an open run with a reason', () => {
 
   const refusals: [string, Run['reason'], Preset, string][] = [
     ['a different reason', 'away', 'limit', 'This run was paused with --reason away; use --reason away, or close it first.'],
+    ['a different reason than a stored restart', 'restart', 'away', 'This run was paused with --reason restart; use --reason restart, or close it first.'],
+    ['restart over a different stored reason', 'away', 'restart', 'This run was paused with --reason away; use --reason away, or close it first.'],
     ['an explicit reason on a run without one', undefined, 'network', 'This run was paused without --reason; run pause without --reason, or close it first.'],
   ];
   for (const [name, stored, flag, message] of refusals) {

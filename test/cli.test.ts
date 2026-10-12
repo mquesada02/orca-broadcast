@@ -495,7 +495,7 @@ describe('--reason', () => {
 
   it('lists the presets in --help', async () => {
     const { out } = await run(['pause', '--help']);
-    for (const name of ['--reason <name>', 'network', 'away', 'end-of-day', 'limit']) expect(out).toContain(name);
+    for (const name of ['--reason <name>', 'network', 'away', 'end-of-day', 'limit', 'restart']) expect(out).toContain(name);
   });
 
   it('sends the preset sentence and stores it in the record', async () => {
@@ -506,8 +506,8 @@ describe('--reason', () => {
   });
 
   const bad: [string, string[], string][] = [
-    ['an unknown name', ['pause', '--yes', '--reason', 'bogus'], 'use one of network, away, end-of-day, limit'],
-    ['an empty name', ['pause', '--yes', '--reason', ''], 'use one of network, away, end-of-day, limit'],
+    ['an unknown name', ['pause', '--yes', '--reason', 'bogus'], 'use one of network, away, end-of-day, limit, restart'],
+    ['an empty name', ['pause', '--yes', '--reason', ''], 'use one of network, away, end-of-day, limit, restart'],
     ['resume', ['resume', '--yes', '--reason', 'away'], '--reason applies only to pause'],
     ['close', ['close', '--reason', 'away'], '--reason applies only to pause'],
     ['resume with an unknown name', ['resume', '--yes', '--reason', 'bogus'], '--reason applies only to pause'],
