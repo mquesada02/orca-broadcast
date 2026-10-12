@@ -87,7 +87,8 @@ export type ResumeReason =
   | 'waiting-permission'
   | 'send-failed'
   | 'no-proof'
-  | 'queued-while-working';
+  | 'queued-while-working'
+  | 'self';
 
 export interface ContinueBaseline {
   stateStartedAt: number;

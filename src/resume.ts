@@ -14,6 +14,7 @@ export interface ResumeDeps {
   filters?: FilterSpec;
   group?: GroupFilter;
   cwd?: string;
+  selfPaneKey?: string;
   onProgress?: (progress: ResumeProgress) => void;
   confirm?: Confirm;
   signal?: AbortSignal;
@@ -35,9 +36,10 @@ const isProven = (agent: AgentRecord, row: AgentRow): boolean => Boolean(agent.c
 const isSendable = (row: AgentRow): boolean => row.state === 'working' || row.state === 'done';
 
 // The agents sendAll would message, coordinators last.
-function sendTargets(selected: AgentRecord[], rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles): ConfirmTarget[] {
+function sendTargets(selected: AgentRecord[], rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, selfKey: string | undefined): ConfirmTarget[] {
   const targets: ConfirmTarget[] = [];
   for (const agent of selected) {
+    if (agent.paneKey === selfKey) continue;
     const located = locate(agent.paneKey, rows, terminals);
     if ('gone' in located || isProven(agent, located.row) || !isSendable(located.row)) continue;
     targets.push({ repo: agent.repo, worktree: agent.worktree, role: roleInfoOf(roles, agent.paneKey).role });
@@ -51,6 +53,7 @@ export function resume(deps: ResumeDeps): Promise<RunSummary> {
 
 async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSummary> {
   const { port, clock, store } = deps;
+  const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
 
   let run: Run | null;
   try {
@@ -77,7 +80,7 @@ async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSumma
     selected = run.agents.filter((a) => a.resumeStatus === 'pending' && matches(set, a));
     if (isFiltered(filters, deps.group) && selected.length === 0) return nothingToDo();
     if (deps.confirm) {
-      const targets = sendTargets(selected, rows, terminals, roles);
+      const targets = sendTargets(selected, rows, terminals, roles, selfKey);
       if (targets.length > 0) {
         if (!(await deps.confirm(targets, deps.signal))) return cancelled();
         throwIfAborted(deps.signal);
@@ -89,7 +92,7 @@ async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSumma
   }
 
   try {
-    const awaiting = await sendAll(run, selected, rows, terminals, roles, deps);
+    const awaiting = await sendAll(run, selected, rows, terminals, roles, selfKey, deps);
     reportProgress(selected, deps);
     await awaitProof(run, selected, awaiting, deps);
   } catch (error) {
@@ -105,7 +108,7 @@ async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSumma
   return { outcome: 'done', exitCode: settled ? 0 : 1, run, error: null, rows: run.agents };
 }
 
-async function sendAll(run: Run, selected: AgentRecord[], rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: ResumeDeps): Promise<Awaiting[]> {
+async function sendAll(run: Run, selected: AgentRecord[], rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, selfKey: string | undefined, deps: ResumeDeps): Promise<Awaiting[]> {
   const awaiting: Awaiting[] = [];
   // The records change only inside the send loop, so a signal leaves the agents it never reached untouched.
   const pending = selected
@@ -118,6 +121,12 @@ async function sendAll(run: Run, selected: AgentRecord[], rows: Map<string, Agen
   for (const { agent, located, info } of coordinatorsLast(pending, (p) => p.info.role)) {
     throwIfAborted(deps.signal);
     delete agent.resumeReason;
+    // The session that runs resume is active, and a CONTINUE to it would wait behind this command.
+    if (agent.paneKey === selfKey) {
+      agent.resumeStatus = 'resumed';
+      agent.resumeReason = 'self';
+      continue;
+    }
     if ('gone' in located) {
       agent.resumeStatus = 'gone';
       agent.resumeReason = located.gone;

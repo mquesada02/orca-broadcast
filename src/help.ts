@@ -21,6 +21,7 @@ const DETAILS: Record<Command, string[]> = {
   ],
   resume: [
     'Exit 0 if the run closed (or there was nothing to resume), 1 if any agent is pending. Filters only narrow the run; they never add agents.',
+    'The agent of the session that runs resume (its ORCA_PANE_KEY) is marked resumed with reason self and gets no message; from any other session it gets CONTINUE like the others.',
   ],
   close: [
     'Pending agents become abandoned. Exit 0, also when there is nothing to close. Filters only narrow the run; the record stays open while others are pending.',
