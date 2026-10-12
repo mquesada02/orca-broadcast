@@ -71,7 +71,7 @@ orca-broadcast broadcast                  # after a timeout: keep waiting on the
 - **Wait.** Up to `--timeout` (default `10m`). It ends early when every target still pending is `send-failed`, because nothing can progress. Exit `0` when every target acked, `1` otherwise (a `gone` target counts as not acked), `2` on a refusal, `130` when interrupted.
 - **Reasons.** A pending target shows one reason: `send-failed` (the send was rejected), `waiting-permission`, `no-ack` (it replied since the send, but the last line is not the ack line; it is not sent the message again, and a later ack still counts) or `still-working`.
 - **Re-run.** `broadcast` with no text, or with the same text, continues the open broadcast: same token, a fresh `--timeout`. It never adds targets and never includes the session that runs it. It sends again only to targets that never got the message or whose send failed, and asks first whenever there is one (even if that target is `waiting` now). When nothing needs a send it only waits, with no prompt; without a terminal it still needs `--yes`. A different text is refused (exit 2); `close` the broadcast first. A late ack on an abandoned target is ignored.
-- **Filters.** `--repo`, `--worktree`, `--role`, `--run`, `--state working|done` and `--group` (repeatable) select the agents of a first broadcast. Kinds are ANDed, values of one kind are ORed. A group's `state` kind applies to `broadcast`. On a re-run they narrow the recorded targets: role, runs, repo and worktree match the values saved in the record, `--state` matches the live state (a `gone` target never matches). The scope is the matching targets that are `pending`, `acked` or `gone`. Targets outside it keep their status and are not waited on, so the exit code covers only the scope, and the record stays open while others are pending. `abandoned` targets are shown but never in scope. A filter that leaves nothing in scope prints "nothing to broadcast" and the filters, exit 0.
+- **Filters.** `--repo`, `--worktree`, `--role`, `--run`, `--state working|done` and `--group` (repeatable) select the agents of a first broadcast. Kinds are ANDed, values of one kind are ORed. A group's `state` kind applies to `broadcast`. Several `--group` flags are a union of the groups (see "Groups"), and the other filters narrow it. On a re-run they narrow the recorded targets: role, runs, repo and worktree match the values saved in the record, `--state` matches the live state (a `gone` target never matches). The scope is the matching targets that are `pending`, `acked` or `gone`. Targets outside it keep their status and are not waited on, so the exit code covers only the scope, and the record stays open while others are pending. `abandoned` targets are shown but never in scope. A filter that leaves nothing in scope prints "nothing to broadcast" and the filters, exit 0.
 - **One record at a time.** `broadcast` is refused (exit 2) while a pause run is open. `resume` says "nothing to resume" while only a broadcast is open. `pause` is not refused because a broadcast is open: it stops a waiting broadcast (see "Pause stops a waiting broadcast").
 - **JSON.** `--json` prints the usual object with `record` (the broadcast record) in place of `run`; `run` is `null`. When nothing is in scope, `outcome` is `nothing-to-do` and `record` is `null`.
 - **Close.** `close` abandons every pending target. `close <filters>` (or one or more `--group`) abandons only the matching pending targets, resolved against Orca and the identity saved in the record; the record closes itself when nothing is pending and otherwise stays open ("broadcast <id> stays open: N targets abandoned"). Acked and gone targets are untouched. Nothing matching prints "nothing to close", exit 0.
@@ -91,7 +91,7 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
 
 ### Filters and groups
 
-By default a command acts on every agent. Filters narrow that, and a group is a saved set of filters (see "Groups"). `orca-broadcast <command> --help` lists the flags of one command.
+By default a command acts on every agent. Filters narrow that, and a group is a saved set of filters (see "Groups"). Repeat `--group` to act on the union of several groups. `orca-broadcast <command> --help` lists the flags of one command.
 
 | Flag | `broadcast` | `pause` | `resume` | `close` |
 |---|---|---|---|---|
@@ -103,7 +103,7 @@ By default a command acts on every agent. Filters narrow that, and a group is a 
 | `--group` | yes | yes | narrows the run | narrows the run |
 | `--reason` | refused (exit 2) | yes | refused (exit 2) | refused (exit 2) |
 
-"Narrows the run" means the flag only selects among the agents the open run (or, for a `broadcast` re-run, the open broadcast) already recorded; it never adds an agent. "Skipped in groups" means that `--state` itself is refused, but a group that has a `state` kind still works: the kind is skipped with one line on stderr per group.
+"Narrows the run" means the flag only selects among the agents the open run (or, for a `broadcast` re-run, the open broadcast) already recorded; it never adds an agent. Several `--group` flags select the union of their groups. On `resume` and `close` the union still only selects among the recorded agents. "Skipped in groups" means that `--state` itself is refused, but a group that has a `state` kind still works: the kind is skipped with one line on stderr per group.
 
 Different kinds of filter are ANDed, and several values of one kind are ORed. So `--repo alpha --repo beta --role worker` means the workers in `alpha` or `beta`.
 
@@ -114,6 +114,7 @@ orca-broadcast resume --role worker                     # resume only the worker
 orca-broadcast group add web --repo alpha --repo beta   # save a group ...
 orca-broadcast pause --group web                        # ... and use it
 orca-broadcast broadcast "push your branch" --group web --role worker   # a group, narrowed by a filter
+orca-broadcast pause --group web --group docs           # the agents of either group
 ```
 
 ### Groups
