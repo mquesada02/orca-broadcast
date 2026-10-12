@@ -17,7 +17,7 @@ export interface PauseDeps {
   selfPaneKey?: string;
   reason?: Preset;
   filters?: FilterSpec;
-  group?: GroupFilter;
+  groups?: GroupFilter[];
   cwd?: string;
   onProgress?: (progress: Progress) => void;
   confirm?: Confirm;
@@ -190,18 +190,18 @@ function nothingToPause(self: Found | null, roles: Roles): RunSummary {
   return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], self: onlySelf };
 }
 
-type ScopeDeps = Pick<PauseDeps, 'port' | 'clock' | 'signal' | 'filters' | 'group' | 'cwd'>;
+type ScopeDeps = Pick<PauseDeps, 'port' | 'clock' | 'signal' | 'filters' | 'groups' | 'cwd'>;
 
 // The listings and the filter set an invocation selects with. Read-only: `pause`, the pre-lock check and the pre-check share it.
 async function readScope(deps: ScopeDeps): Promise<{ snapshot: Snapshot; set: FilterSet }> {
   const snapshot = await listSnapshot(deps);
   const filters = deps.filters ?? NO_FILTERS;
-  return { snapshot, set: resolveFilterSet(filters, isFiltered(filters, deps.group) ? await liveSources(snapshot, deps) : null, [], deps.cwd, deps.group) };
+  return { snapshot, set: resolveFilterSet(filters, isFiltered(filters, deps.groups) ? await liveSources(snapshot, deps) : null, [], deps.cwd, deps.groups) };
 }
 
 // Before the lock: a filter or group value that no longer resolves fails here, before any broadcast is stopped.
 export async function prelockPause(deps: ScopeDeps): Promise<void> {
-  if (isFiltered(deps.filters ?? NO_FILTERS, deps.group)) await readScope(deps);
+  if (isFiltered(deps.filters ?? NO_FILTERS, deps.groups)) await readScope(deps);
 }
 
 // Before a waiting broadcast is stopped: would a pause select anybody? Fresh listings, the same selection as `pause`, nothing written.

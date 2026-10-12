@@ -27,6 +27,11 @@ describe('top help', () => {
 });
 
 describe('per-command help', () => {
+  it.each(['pause', 'resume', 'close', 'broadcast'])('%s help says --group can repeat as a union', async (command) => {
+    const { out } = await runCli([command, '--help'], agents);
+    expect(out).toMatch(/--group <name>\n\s+Use a saved group; repeat it for the union/);
+  });
+
   it.each(COMMANDS)('%s lists the flags it accepts and no other, and calls no Orca', async (command) => {
     const { code, out, port } = await runCli([command, '--help'], agents);
     expect(code).toBe(0);

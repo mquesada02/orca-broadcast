@@ -12,7 +12,7 @@ export interface ResumeDeps {
   clock: Clock;
   store: RecordStore;
   filters?: FilterSpec;
-  group?: GroupFilter;
+  groups?: GroupFilter[];
   cwd?: string;
   selfPaneKey?: string;
   onProgress?: (progress: ResumeProgress) => void;
@@ -76,9 +76,9 @@ async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSumma
     const snapshot = await listSnapshot(deps);
     ({ agents: rows, terminals, roles } = snapshot);
     const filters = deps.filters ?? NO_FILTERS;
-    const set = resolveFilterSet(filters, isFiltered(filters, deps.group) ? await liveSources(snapshot, deps) : null, run.agents, deps.cwd, deps.group);
+    const set = resolveFilterSet(filters, isFiltered(filters, deps.groups) ? await liveSources(snapshot, deps) : null, run.agents, deps.cwd, deps.groups);
     selected = run.agents.filter((a) => a.resumeStatus === 'pending' && matches(set, a));
-    if (isFiltered(filters, deps.group) && selected.length === 0) return nothingToDo();
+    if (isFiltered(filters, deps.groups) && selected.length === 0) return nothingToDo();
     if (deps.confirm) {
       const targets = sendTargets(selected, rows, terminals, roles, selfKey);
       if (targets.length > 0) {

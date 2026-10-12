@@ -15,7 +15,7 @@ export const NO_FILTERS: FilterSpec = { repo: [], worktree: [], role: [], run: [
 export const hasFilters = (spec: FilterSpec): boolean => FILTER_KINDS.some((kind) => spec[kind].length > 0) || (spec.state?.length ?? 0) > 0;
 
 // A command is filtered by ad-hoc filters, by a group, or by both.
-export const isFiltered = (spec: FilterSpec, group?: GroupFilter): boolean => hasFilters(spec) || group !== undefined;
+export const isFiltered = (spec: FilterSpec, groups?: GroupFilter[]): boolean => hasFilters(spec) || (groups?.length ?? 0) > 0;
 
 // The values an agent is matched on: live from a row and its computed roles, or saved in a record.
 export interface Subject {
@@ -27,8 +27,9 @@ export interface Subject {
   state?: string;
 }
 
-// AND across kinds, OR within a kind.
+// AND across kinds, OR within a kind. A union (`anyOf`) matches when any of its sets does.
 export function matches(set: FilterSet, subject: Subject): boolean {
+  if (set.anyOf) return set.anyOf.some((alternative) => matches(alternative, subject));
   return (
     (!set.repoIds || set.repoIds.includes(subject.repoId)) &&
     (!set.worktreeIds || set.worktreeIds.includes(subject.worktreeId)) &&

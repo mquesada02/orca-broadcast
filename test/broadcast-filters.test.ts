@@ -147,6 +147,17 @@ describe('broadcast filters: groups', () => {
       expect(err, command).toContain('only filters by state');
     }
   });
+  it('repeated --group sends to the union, applying the state kind of every group', async () => {
+    const seed = seedGroups({ working: { repo: ['alpha'], state: ['working'] }, finished: { repo: ['beta'], state: ['done'] } });
+    const { port } = await send(['--group', 'working', '--group', 'finished'], agents(), { seed });
+    expect(sentPanes(port)).toEqual(['a:2', 'b:1']);
+  });
+
+  it('an ad-hoc filter narrows a union of groups on broadcast', async () => {
+    const seed = seedGroups({ web: { repo: ['alpha'] }, finished: { state: ['done'] } });
+    const { port } = await send(['--group', 'web', '--group', 'finished', '--repo', 'beta'], agents(), { seed });
+    expect(sentPanes(port)).toEqual(['b:1']);
+  });
 });
 
 const target = (paneKey: string, repo: string, extra: Partial<BroadcastTarget> = {}) =>

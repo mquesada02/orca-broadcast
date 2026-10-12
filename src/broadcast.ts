@@ -22,9 +22,9 @@ interface BroadcastDeps {
   onProgress?: (progress: BroadcastProgress) => void;
   confirm?: Confirm;
   signal?: AbortSignal;
-  /** The filters and the group of the command line, and the folder a relative `--worktree` path is resolved from. */
+  /** The filters and the groups of the command line, and the folder a relative `--worktree` path is resolved from. */
   filters?: FilterSpec;
-  group?: GroupFilter;
+  groups?: GroupFilter[];
   cwd?: string;
 }
 
@@ -105,10 +105,10 @@ async function openBroadcast(store: RecordStore, text: string | undefined, warni
   return record;
 }
 
-// The filters and the group of this invocation, resolved once against the live listings and the identity saved in a record.
+// The filters and the groups of this invocation, resolved once against the live listings and the identity saved in a record.
 async function resolveScope(deps: BroadcastDeps, snapshot: Snapshot, recorded: RecordedIdentity[]): Promise<FilterSet> {
   const filters = deps.filters ?? NO_FILTERS;
-  return resolveFilterSet(filters, isFiltered(filters, deps.group) ? await liveSources(snapshot, deps) : null, recorded, deps.cwd, deps.group);
+  return resolveFilterSet(filters, isFiltered(filters, deps.groups) ? await liveSources(snapshot, deps) : null, recorded, deps.cwd, deps.groups);
 }
 
 async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
