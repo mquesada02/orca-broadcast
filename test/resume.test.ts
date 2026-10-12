@@ -370,6 +370,7 @@ describe('resume reasons', () => {
     ['away', 'The user is back.'],
     ['end-of-day', 'The user is back for a new session.'],
     ['limit', 'The limit has reset.'],
+    ['restart', 'The PC has restarted; anything you left in /tmp is gone.'],
     [undefined, 'The user asked you to continue.'],
   ];
 
