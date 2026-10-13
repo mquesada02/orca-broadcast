@@ -4,7 +4,7 @@ import { BROADCAST_OPEN_MESSAGE, cancelled, clearPid, coordinatorsFirst, endsWit
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
-const MAX_TEXT_LENGTH = 1000;
+const MAX_TEXT_LENGTH = 4000;
 const NO_BROADCAST_MESSAGE = 'No broadcast is open; give a text.';
 const PAUSE_OPEN_MESSAGE = 'A pause run is open; resume or close it first.';
 
@@ -30,18 +30,25 @@ interface BroadcastDeps {
 
 const ackLine = (token: string) => `ORCA-ACK ${token}`;
 
+const END_MARKER = '[end of message]';
+
+// A text with a newline goes on its own lines between a start and an end marker; the ack instruction always comes last.
 export function broadcastMessage(text: string, token: string): string {
+  const message = text.includes('\n')
+    ? `[orca-broadcast] The user sends you this message. It starts on the next line and ends at the line "${END_MARKER}".\n${text}\n${END_MARKER}\nHandle it now.`
+    : `[orca-broadcast] The user sends you this message: "${text}" Handle it now.`;
   return (
-    `[orca-broadcast] The user sends you this message: "${text}" Handle it now. If you are in the middle of a step, finish that step first. ` +
+    `${message} If you are in the middle of a step, finish that step first. ` +
     `When you have handled it, end your reply with a short note on what you did. The last line of your reply must be exactly: ${ackLine(token)}`
   );
 }
 
-// Trims the text, then refuses what cannot be sent as one line. Lengths count Unicode code points; Cc includes tab and newlines.
+// Trims the text, turns CRLF into LF, then refuses every control character except the newline. Lengths count Unicode code points, after the CRLF conversion.
 export function normaliseText(raw: string): string {
-  const text = raw.trim();
-  if (text === '') throw new Error('empty text: nothing to broadcast');
-  if (/\p{Cc}/u.test(text)) throw new Error('the text contains a control character (a newline or a tab, for example); a broadcast is one line');
+  const trimmed = raw.trim();
+  if (trimmed === '') throw new Error('empty text: nothing to broadcast');
+  const text = trimmed.replaceAll('\r\n', '\n');
+  if (/[^\P{Cc}\n]/u.test(text)) throw new Error('the text contains a control character; the only control character allowed is a newline (a tab or a lone carriage return is not)');
   const length = [...text].length;
   if (length > MAX_TEXT_LENGTH) throw new Error(`the text is ${length} characters; the limit is ${MAX_TEXT_LENGTH}`);
   return text;

@@ -32,6 +32,12 @@ describe('per-command help', () => {
     expect(out).toMatch(/--group <name>\n\s+Use a saved group; repeat it for the union/);
   });
 
+  it('broadcast help states the multi-line text rule', async () => {
+    const { out } = await runCli(['broadcast', '--help'], agents);
+    expect(out).toContain('at most 4000 characters; a newline is allowed');
+    expect(out).not.toContain('one line');
+  });
+
   it.each(COMMANDS)('%s lists the flags it accepts and no other, and calls no Orca', async (command) => {
     const { code, out, port } = await runCli([command, '--help'], agents);
     expect(code).toBe(0);
