@@ -64,7 +64,7 @@ export async function runGroup(sub: GroupSubcommand, name: string | undefined, s
   const group = lookupGroup(groups, groupName);
   const live = { port: deps.port(), clock: deps.clock };
   const snapshot = await listSnapshot(live);
-  const set = resolveFilterSet(NO_FILTERS, await liveSources(snapshot, live), [], deps.cwd, toGroupFilter(groupName, group));
+  const set = resolveFilterSet(NO_FILTERS, await liveSources(snapshot, live), [], deps.cwd, [toGroupFilter(groupName, group)]);
   const agents: ShownAgent[] = [];
   for (const [paneKey, row] of snapshot.agents) {
     if ('gone' in locate(paneKey, snapshot.agents, snapshot.terminals)) continue;

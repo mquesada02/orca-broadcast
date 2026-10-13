@@ -7,7 +7,7 @@ import type { BroadcastRecord, BroadcastTarget, Clock, FilterSpec, GroupFilter, 
 // Present only when a filter is given: a plain close never uses the port. The filters narrow the pause run or the broadcast that is open.
 export interface CloseFilters {
   filters: FilterSpec;
-  group?: GroupFilter;
+  groups?: GroupFilter[];
   port: OrcaPort;
   clock: Clock;
   cwd?: string;
@@ -35,10 +35,10 @@ async function runClose(store: RecordStore, warnings: string[], signal?: AbortSi
 
   try {
     abandoned = run.agents.filter((a) => a.resumeStatus === 'pending');
-    if (filtered && isFiltered(filtered.filters, filtered.group)) {
+    if (filtered && isFiltered(filtered.filters, filtered.groups)) {
       assertCurrentFormat(run);
       // The values resolve against the saved record, and against the live listings when Orca answers.
-      const set = resolveFilterSet(filtered.filters, await liveSourcesIfAnswered(filtered, signal), run.agents, filtered.cwd, filtered.group);
+      const set = resolveFilterSet(filtered.filters, await liveSourcesIfAnswered(filtered, signal), run.agents, filtered.cwd, filtered.groups);
       abandoned = abandoned.filter((a) => matches(set, a));
       if (abandoned.length === 0) return { ...nothingToDo(), record: null };
     }
@@ -63,9 +63,9 @@ async function runClose(store: RecordStore, warnings: string[], signal?: AbortSi
 async function closeBroadcast(store: RecordStore, record: BroadcastRecord, signal?: AbortSignal, filtered?: CloseFilters): Promise<RunSummary> {
   let select: (target: BroadcastTarget) => boolean = () => true;
   try {
-    if (filtered && isFiltered(filtered.filters, filtered.group)) {
+    if (filtered && isFiltered(filtered.filters, filtered.groups)) {
       const live = await liveSourcesIfAnswered(filtered, signal);
-      const set = resolveFilterSet(filtered.filters, live, record.targets, filtered.cwd, filtered.group);
+      const set = resolveFilterSet(filtered.filters, live, record.targets, filtered.cwd, filtered.groups);
       select = (target) => matches(set, target);
       if (!record.targets.some((t) => t.status === 'pending' && select(t))) return { ...nothingToDo(), record: null };
     }

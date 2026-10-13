@@ -278,7 +278,7 @@ describe('pause stops a waiting broadcast', () => {
     ['an unknown name', ['--group', 'nope'], {}, 'unknown group "nope"'],
     ['a state-only group', ['--group', 'idle'], { idle: { state: ['working'] } }, 'only filters by state'],
     ['a group value that no longer resolves', ['--group', 'gone'], { gone: { repo: ['vanished'] } }, 'group gone: unknown --repo "vanished"'],
-    ['a second --group', ['--group', 'a', '--group', 'b'], { a: { role: ['session'] }, b: { role: ['session'] } }, 'use at most one --group'],
+    ['an unknown name among several', ['--group', 'a', '--group', 'nope'], { a: { role: ['session'] } }, 'unknown group "nope"'],
   ])('sends no signal for %s, and leaves the broadcast and its lock alone', async (_label, flags, groups, message) => {
     const world = scenario();
     const { code, err, port } = await runCli(['pause', '--yes', ...flags], [worker()], withGroups(world, groups));
@@ -312,6 +312,19 @@ describe('pause stops a waiting broadcast', () => {
     const hit = await runCli(['pause', '--yes', '--group', 'solo'], [worker()], withGroups(some, { solo: { role: ['session'] } }));
     expect(hit.code).toBe(0);
     expect(some.kills).toEqual([[BROADCAST_PID, 'SIGTERM']]);
+  });
+
+  it('hands over for a union when any group selects an agent, and not when none does', async () => {
+    const some = scenario();
+    const hit = await runCli(['pause', '--yes', '--group', 'leads', '--group', 'solo'], [worker()], withGroups(some, { leads: { role: ['coordinator'] }, solo: { role: ['session'] } }));
+    expect(hit.code).toBe(0);
+    expect(some.kills).toEqual([[BROADCAST_PID, 'SIGTERM']]);
+
+    const nobody = scenario();
+    const none = await runCli(['pause', '--yes', '--group', 'leads', '--group', 'ops'], [worker()], withGroups(nobody, { leads: { role: ['coordinator'] }, ops: { role: ['worker'] } }));
+    expect(none.out).toContain('nothing to pause');
+    expect(nobody.kills).toEqual([]);
+    expect(nobody.record()).toMatchObject({ status: 'open', pid: BROADCAST_PID });
   });
 
   it('does not signal when the filters select nobody, and leaves the broadcast alone', async () => {

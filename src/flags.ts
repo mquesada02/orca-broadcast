@@ -32,7 +32,7 @@ export interface FlagSpec {
 // One table drives the parser and the "flag not valid here" messages of every command.
 const NARROWS_RUN = 'Only narrows the recorded agents of the open run.';
 const NEEDS_YES = 'It never asks for confirmation, so --yes is required.';
-const STATE_KIND_SKIPPED = "A group's state kind is skipped (one line on stderr); a group with only a state kind is refused.";
+const STATE_KIND_SKIPPED = "A group's state kind is skipped (one line on stderr per group). A group with only a state kind is dropped from a union, and refused when every group is like that.";
 const NARROWING_NOTES = { resume: NARROWS_RUN, close: NARROWS_RUN } as const;
 
 const FLAGS: Record<string, FlagSpec> = {
@@ -40,7 +40,7 @@ const FLAGS: Record<string, FlagSpec> = {
   json: {
     type: 'boolean',
     commands: COMMANDS,
-    help: 'Print one JSON object on stdout and nothing on stderr (except the one line about a skipped group state kind)',
+    help: 'Print one JSON object on stdout and nothing on stderr (except the line about each skipped group state kind)',
     notes: { broadcast: NEEDS_YES, pause: NEEDS_YES, resume: NEEDS_YES },
   },
   file: { type: 'string', arg: '<path>', commands: ['broadcast'], help: 'Read the text from a file instead of the command line; give the text or --file, not both' },
@@ -119,7 +119,7 @@ const FLAGS: Record<string, FlagSpec> = {
     multiple: true,
     commands: FILTERED,
     filter: true,
-    help: 'Use a saved group; one per command. Other filters narrow it',
+    help: 'Use a saved group; repeat it for the union of the groups. Other filters narrow every group',
     notes: {
       pause: STATE_KIND_SKIPPED,
       resume: `${STATE_KIND_SKIPPED} ${NARROWS_RUN}`,
@@ -149,7 +149,6 @@ export function validateFlags(command: Command, values: FlagValues): void {
       throw new UsageError(`--${name} applies only to ${joinList(spec.commands)}`);
     }
   }
-  if (((values.group as string[] | undefined) ?? []).length > 1) throw new UsageError('use at most one --group');
   checkRoles(values);
   checkStates(values);
 }

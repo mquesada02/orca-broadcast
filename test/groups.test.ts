@@ -2,7 +2,8 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRecordStore } from '../src/store.js';
-import type { Run } from '../src/types.js';
+import { matches } from '../src/filters.js';
+import type { FilterSet, Role, Run } from '../src/types.js';
 import { type FakeAgent, FakeOrca, pausedDone, repliesWithToken, seedOpenRun, agentRecord, working } from './helpers/fake-orca.js';
 import { groupsFile, runCli, seedGroups, writeGroups, type RunCliOptions, type Seed } from './helpers/run-cli.js';
 
@@ -312,13 +313,6 @@ describe('--group on pause, resume and close', () => {
     expect(sentPanes(port)).toEqual(['a:1', 'a:2']);
   });
 
-  it('a second --group is a usage error, whatever else is wrong', async () => {
-    const { code, err, port } = await runCli(['pause', '--group', 'web', '--group', 'workers'], fleet(), withRepos({ seed: web }));
-    expect(code).toBe(2);
-    expect(err).toContain('use at most one --group');
-    expect(port.sends).toEqual([]);
-  });
-
   it('an unknown name exits 2 listing the known names', async () => {
     const { code, err } = await runCli(['pause', '--yes', '--group', 'nope'], fleet(), withRepos({ seed: web }));
     expect(code).toBe(2);
@@ -482,5 +476,134 @@ describe('--group on pause, resume and close', () => {
     const { code, err } = await runCli(['close', '--group', 'old'], fleet(), withRepos({ seed }));
     expect(code).toBe(0);
     expect(err).toBe('');
+  });
+});
+
+describe('repeated --group is a union', () => {
+  const union = seedGroups({
+    alpha: { repo: ['alpha'], role: ['worker'] },
+    beta: { repo: ['beta'] },
+    nothing: { repo: ['alpha'], role: ['coordinator'] },
+    working: { state: ['working'] },
+    idle: { state: ['done'] },
+  });
+  const run = (argv: string[], seed: Seed = union) => runCli(argv, fleet(), withRepos({ seed }));
+
+  it('pause targets the agents of both groups, each group keeping its own AND of kinds', async () => {
+    const { code, port } = await run(['pause', '--yes', '--group', 'alpha', '--group', 'beta']);
+    expect(code).toBe(0);
+    expect(sentPanes(port)).toEqual(['a:2', 'b:1']);
+  });
+
+  it('the filter line names every group in the order given, then the ad-hoc filters', async () => {
+    const { out } = await run(['pause', '--yes', '--group', 'beta', '--group', 'alpha', '--role', 'coordinator']);
+    expect(out).toContain('nothing to pause');
+    expect(out).toContain('filters: --group beta --group alpha --role coordinator\n');
+  });
+
+  it('resume and close take both groups too', async () => {
+    const seed: Seed = async (store, dir) => {
+      await union(store, dir);
+      await seedOpenRun(store, [agentRecord('a:1', { repoId: 'repo-alpha', repo: 'alpha', role: 'session' }), agentRecord('a:2', { repoId: 'repo-alpha', repo: 'alpha' }), agentRecord('b:1', { repoId: 'repo-beta', repo: 'beta' })]);
+    };
+    const resumed = await run(['resume', '--yes', '--group', 'alpha', '--group', 'beta'], seed);
+    expect(sentPanes(resumed.port)).toEqual(['a:2', 'b:1']);
+    const closed = await run(['close', '--group', 'alpha', '--group', 'beta'], seed);
+    expect(closed.code).toBe(0);
+    const open = (await createRecordStore(join(closed.dir, 'orca-broadcast')).findOpenRun())?.run as Run;
+    expect(open.agents.map((a) => [a.paneKey, a.resumeStatus])).toEqual([['a:1', 'pending'], ['a:2', 'abandoned'], ['b:1', 'abandoned']]);
+  });
+
+  it('an ad-hoc filter narrows the whole union', async () => {
+    const { code, port } = await run(['pause', '--yes', '--group', 'alpha', '--group', 'beta', '--repo', 'beta']);
+    expect(code).toBe(0);
+    expect(sentPanes(port)).toEqual(['b:1']);
+  });
+
+  it('--json keeps its shape with a union, and the skip lines go to stderr', async () => {
+    const seed = seedGroups({ web: { repo: ['alpha'], state: ['working'] }, beta: { repo: ['beta'] } });
+    const { code, out, err } = await run(['pause', '--yes', '--json', '--group', 'web', '--group', 'beta'], seed);
+    expect(code).toBe(0);
+    expect(json(out)).toMatchObject({ command: 'pause', exitCode: 0 });
+    expect(err).toBe('orca-broadcast: group web: state filter skipped (pause does not use it)\n');
+  });
+
+  it('naming a group twice is the same as once: one skip line, one name on the filter line', async () => {
+    const seed = seedGroups({ web: { repo: ['alpha'], state: ['working'] } });
+    const twice = await run(['pause', '--yes', '--group', 'web', '--group', 'web', '--role', 'coordinator'], seed);
+    expect(twice.err).toBe('orca-broadcast: group web: state filter skipped (pause does not use it)\n');
+    expect(twice.out).toContain('filters: --group web --role coordinator\n');
+    const sends = await run(['pause', '--yes', '--group', 'web', '--group', 'web'], seed);
+    expect(sentPanes(sends.port)).toEqual(['a:1', 'a:2']);
+  });
+
+  it('an unknown name among several exits 2 and sends nothing', async () => {
+    for (const argv of [['pause', '--yes'], ['broadcast', '--yes', 'hello'], ['resume', '--yes'], ['close']]) {
+      const { code, err, port } = await run([...argv, '--group', 'beta', '--group', 'nope']);
+      expect(code).toBe(2);
+      expect(err).toContain('unknown group "nope"');
+      expect(port.sends).toEqual([]);
+    }
+  });
+
+  it('pause skips the state kind with one line per group, and drops a state-only group from a mixed union', async () => {
+    const seed = seedGroups({ web: { repo: ['alpha'], state: ['working'] }, beta: { repo: ['beta'] }, onlystate: { state: ['working'] } });
+    const { code, err, port } = await run(['pause', '--yes', '--group', 'web', '--group', 'onlystate', '--group', 'beta'], seed);
+    expect(code).toBe(0);
+    expect(err).toBe('orca-broadcast: group web: state filter skipped (pause does not use it)\norca-broadcast: group onlystate: state filter skipped (pause does not use it)\n');
+    expect(sentPanes(port)).toEqual(['a:1', 'a:2', 'b:1']);
+    const line = await run(['pause', '--yes', '--group', 'web', '--group', 'onlystate', '--group', 'beta', '--role', 'coordinator'], seed);
+    expect(line.out).toContain('filters: --group web --group beta --role coordinator\n');
+  });
+
+  it('a dropped state-only group never widens the union to every agent', async () => {
+    const { port } = await run(['pause', '--yes', '--group', 'beta', '--group', 'working']);
+    expect(sentPanes(port)).toEqual(['b:1']);
+  });
+
+  it.each([['pause', ['--yes']], ['resume', ['--yes']], ['close', []]])('%s refuses when every named group is state-only, naming them all', async (command, extra) => {
+    const { code, err, port } = await run([command as string, ...extra, '--group', 'working', '--group', 'idle']);
+    expect(code).toBe(2);
+    expect(err).toBe(`orca-broadcast: Group working, idle only filter by state, which ${command} does not use.\n`);
+    expect(port.sends).toEqual([]);
+  });
+
+  it('pause stores the union in the run, and a second pause and a resume reuse it', async () => {
+    const first = await run(['pause', '--yes', '--group', 'alpha', '--group', 'beta']);
+    const open = async () => (await createRecordStore(join(first.dir, 'orca-broadcast')).findOpenRun())?.run as Run;
+    const stored = await open();
+    expect(stored.scope).toHaveLength(1);
+    expect(stored.scope[0]).toMatchObject({ typed: {}, anyOf: [{ group: 'alpha', repoIds: ['repo-alpha'], roles: ['worker'] }, { group: 'beta', repoIds: ['repo-beta'] }] });
+    const subject = (repoId: string, role: Role) => ({ repoId, worktreeId: 'wt', role, orchestrationRunIds: [] });
+    // The scope as read back from disk still selects by union.
+    const union = stored.scope[0] as FilterSet;
+    expect(matches(union, subject('repo-beta', 'session'))).toBe(true);
+    expect(matches(union, subject('repo-alpha', 'worker'))).toBe(true);
+    expect(matches(union, subject('repo-alpha', 'session'))).toBe(false);
+
+    const env = { XDG_STATE_HOME: first.dir, XDG_CONFIG_HOME: join(dirname(first.dir), 'config') };
+    // b:9 starts working later: only the stored union can sweep it in, because the second pause itself selects nobody.
+    const later: FakeAgent = { paneKey: 'b:9', repo: 'beta', worktree: 'late', behavior: repliesWithToken() };
+    const second = await runCli(['pause', '--yes', '--group', 'nothing'], [...fleet(), later], withRepos({ env }));
+    expect(second.code).toBe(0);
+    expect(sentPanes(second.port)).toEqual(['b:9']);
+    expect((await open()).scope).toHaveLength(2);
+    const resumed = await runCli(['resume', '--yes', '--group', 'alpha', '--group', 'beta'], fleet(), withRepos({ env }));
+    expect(sentPanes(resumed.port)).toEqual(['a:2', 'b:1']);
+  });
+
+  it('a value that no longer resolves in one group exits 2 naming that group', async () => {
+    const seed = seedGroups({ beta: { repo: ['beta'] }, gone: { repo: ['vanished'] } });
+    const { code, err, port } = await run(['pause', '--yes', '--group', 'beta', '--group', 'gone'], seed);
+    expect(code).toBe(2);
+    expect(err).toContain('group gone: unknown --repo "vanished"');
+    expect(port.sends).toEqual([]);
+  });
+
+  it('a single group keeps its resolved shape', async () => {
+    const first = await run(['pause', '--yes', '--group', 'beta']);
+    const stored = (await createRecordStore(join(first.dir, 'orca-broadcast')).findOpenRun())?.run as Run;
+    expect(stored.scope[0]).toMatchObject({ group: 'beta', repoIds: ['repo-beta'], typed: { repo: ['beta'] } });
+    expect(stored.scope[0]).not.toHaveProperty('anyOf');
   });
 });

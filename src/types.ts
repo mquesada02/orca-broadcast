@@ -178,6 +178,8 @@ export interface FilterSet {
   typed: Partial<FilterSpec>;
   /** The saved group this set came from, for display only. */
   group?: string;
+  /** A union of groups: the set matches an agent when any of these sets does. It then holds no kind of its own. */
+  anyOf?: FilterSet[];
 }
 
 // A saved group as a command uses it: its name and its filters, without the `state` kind that pause, resume and close skip.

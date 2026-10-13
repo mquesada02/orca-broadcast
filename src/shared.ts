@@ -177,23 +177,24 @@ export async function liveSources({ runIds }: Pick<Snapshot, 'runIds'>, { port, 
 // What a saved record keeps of an agent's identity, which filter values resolve against.
 export type RecordedIdentity = Pick<AgentRecord, 'repoId' | 'repo' | 'worktreeId' | 'worktreePath' | 'worktree' | 'orchestrationRunIds'>;
 
-// Resolves once per invocation. Without filters or a group the set matches every agent. A group is resolved on its own, then narrowed by the ad-hoc filters.
-export function resolveFilterSet(spec: FilterSpec, live: LiveSources | null, recorded: RecordedIdentity[], cwd: string = process.cwd(), group?: GroupFilter): FilterSet {
-  if (!isFiltered(spec, group)) return ALL_AGENTS;
+// Resolves once per invocation. Without filters or a group the set matches every agent. Each group is resolved on its own, then narrowed by the ad-hoc filters; several groups are a union of those sets.
+export function resolveFilterSet(spec: FilterSpec, live: LiveSources | null, recorded: RecordedIdentity[], cwd: string = process.cwd(), groups: GroupFilter[] = []): FilterSet {
+  if (!isFiltered(spec, groups)) return ALL_AGENTS;
   const sources: FilterSources = {
     repos: [...(live?.repos ?? []).map((repo) => ({ id: repo.id, path: repo.path, name: repo.displayName })), ...recorded.map((agent) => ({ id: agent.repoId, name: agent.repo }))],
     worktrees: [...(live?.worktrees ?? []).map((worktree) => ({ id: worktree.id, path: worktree.path, name: worktree.displayName, repoId: worktree.repoId })), ...recorded.map((agent) => ({ id: agent.worktreeId, path: agent.worktreePath, name: agent.worktree, repoId: agent.repoId }))],
     runIds: [...new Set([...(live?.runIds ?? []), ...recorded.flatMap((agent) => agent.orchestrationRunIds)])],
   };
   const adhoc = resolveFilters(spec, sources, cwd);
-  if (!group) return adhoc;
-  let fromGroup: FilterSet;
-  try {
-    fromGroup = resolveFilters(group.spec, sources, cwd);
-  } catch (error) {
-    throw new Error(`group ${group.name}: ${(error as Error).message}`);
-  }
-  return combineSets(fromGroup, adhoc, group.name);
+  if (groups.length === 0) return adhoc;
+  const sets = groups.map((group) => {
+    try {
+      return combineSets(resolveFilters(group.spec, sources, cwd), adhoc, group.name);
+    } catch (error) {
+      throw new Error(`group ${group.name}: ${(error as Error).message}`);
+    }
+  });
+  return sets.length === 1 ? (sets[0] as FilterSet) : { typed: {}, anyOf: sets };
 }
 
 // The values a live row is matched on.

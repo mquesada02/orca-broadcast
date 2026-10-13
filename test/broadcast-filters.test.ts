@@ -147,6 +147,17 @@ describe('broadcast filters: groups', () => {
       expect(err, command).toContain('only filters by state');
     }
   });
+  it('repeated --group sends to the union, applying the state kind of every group', async () => {
+    const seed = seedGroups({ working: { repo: ['alpha'], state: ['working'] }, finished: { repo: ['beta'], state: ['done'] } });
+    const { port } = await send(['--group', 'working', '--group', 'finished'], agents(), { seed });
+    expect(sentPanes(port)).toEqual(['a:2', 'b:1']);
+  });
+
+  it('an ad-hoc filter narrows a union of groups on broadcast', async () => {
+    const seed = seedGroups({ web: { repo: ['alpha'] }, finished: { state: ['done'] } });
+    const { port } = await send(['--group', 'web', '--group', 'finished', '--repo', 'beta'], agents(), { seed });
+    expect(sentPanes(port)).toEqual(['b:1']);
+  });
 });
 
 const target = (paneKey: string, repo: string, extra: Partial<BroadcastTarget> = {}) =>
@@ -179,6 +190,16 @@ describe('broadcast filters: a re-run', () => {
     expect(record.targets[2]?.reason).toBe('still-working'); // the saved reason: never polled
     expect(record.status).toBe('open');
     expect(out).toContain('beta'); // out-of-scope rows are shown
+  });
+
+  it('takes several --group flags: the scope is the union of the groups, and the other targets stay pending', async () => {
+    const groups = seedGroups({ a: { repo: ['alpha'] }, b: { repo: ['beta'] } });
+    const acks = (paneKey: string, repo: string): FakeAgent => ({ paneKey, repo, behavior: () => ({ state: 'done', message: `Done.\n${ACK}` }) });
+    const { code, dir } = await rerun(['--group', 'b', '--group', 'a'], [acks('a:1', 'alpha'), acks('a:2', 'alpha'), acks('b:1', 'beta'), acks('d:1', 'delta')], {
+      seed: async (store, d) => { await groups(store, d); await seed([...TARGETS(), target('d:1', 'delta')])(store, d); },
+    });
+    expect(code).toBe(0);
+    expect(status(await recordOf(dir))).toEqual({ 'a:1': 'acked', 'a:2': 'acked', 'b:1': 'acked', 'g:1': 'gone', 'd:1': 'pending' });
   });
 
   it('counts a gone target in scope as not acked (exit 1), and closes the record when nothing is pending', async () => {
@@ -295,6 +316,17 @@ describe('close <filters> on a broadcast', () => {
     expect(code).toBe(0);
     expect(err).toContain('state filter skipped');
     expect(status(await recordOf(dir))).toMatchObject({ 'a:1': 'abandoned', 'a:2': 'abandoned', 'b:1': 'pending' });
+  });
+
+  it('takes several --group flags: abandons the pending targets of every group and leaves the others', async () => {
+    const seedUnion: Seed = async (store, d) => {
+      await seedGroups({ a: { repo: ['alpha'] }, b: { repo: ['beta'] } })(store, d);
+      await seed([...TARGETS(), target('d:1', 'delta')], { pid: 999_999, startTime: '1' })(store, d);
+    };
+    const { code, out, dir } = await close(['--group', 'a', '--group', 'b'], { seed: seedUnion });
+    expect(code).toBe(0);
+    expect(out.split('\n')[0]).toBe('broadcast b-1 stays open: 3 targets abandoned');
+    expect(status(await recordOf(dir))).toEqual({ 'a:1': 'abandoned', 'a:2': 'abandoned', 'b:1': 'abandoned', 'g:1': 'gone', 'd:1': 'pending' });
   });
 
   it('exits 2 for an unknown value and leaves the record as it was', async () => {

@@ -155,8 +155,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const needsConfirm = command !== 'close' && !values.yes;
     if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
     const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask) : undefined;
-    const groupFilter = await loadGroupFilter(values.group as string[] | undefined, command, env, io);
-    const filtered = isFiltered(filterSpec, groupFilter);
+    const groupFilters = await loadGroupFilters(values.group as string[] | undefined, command, env, io);
+    const filtered = isFiltered(filterSpec, groupFilters);
     // No text and no --file is not an error here: the records decide whether there is a broadcast to refuse or to continue.
     const rawText = values.file === undefined ? rest[0] : await readTextFile(values.file as string);
     const text = rawText === undefined ? undefined : normaliseText(rawText);
@@ -169,7 +169,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     // A plain close never uses the port; only a filtered one needs live listings.
     const port = command === 'close' && !filtered ? null : (deps.port ?? createOrcaAdapter());
     // Only `pause` may stop a broadcast that holds the lock: it is the one urgent command. Its filter and group values are checked before the lock.
-    const scope = { port, clock, filters, group: groupFilter, cwd };
+    const scope = { port, clock, filters, groups: groupFilters, cwd };
     const guardOptions: GuardOptions =
       command === 'pause' && port
         ? {
@@ -178,11 +178,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
           }
         : {};
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
-      if (!port || command === 'close') return close(store, signal, port && filtered ? { filters: filterSpec, group: groupFilter, port, clock, cwd } : undefined);
-      if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal, filters, group: groupFilter, cwd });
+      if (!port || command === 'close') return close(store, signal, port && filtered ? { filters: filterSpec, groups: groupFilters, port, clock, cwd } : undefined);
+      if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal, filters, groups: groupFilters, cwd });
       return command === 'pause'
-        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, group: groupFilter, cwd, onProgress: progressLine(renderProgress), confirm, signal })
-        : resume({ port, clock, store, filters, group: groupFilter, cwd, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderResumeProgress), confirm, signal });
+        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, groups: groupFilters, cwd, onProgress: progressLine(renderProgress), confirm, signal })
+        : resume({ port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderResumeProgress), confirm, signal });
     }, guardOptions);
     if (json) {
       io.stdout(jsonLine(command, summary));
@@ -190,7 +190,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     }
     if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
 
-    const filterLine = filtered ? `filters: ${[groupFilter && `--group ${groupFilter.name}`, filters && describeFilters(filters)].filter(Boolean).join(' ')}\n` : '';
+    const filterLine = filtered ? `filters: ${[...groupFilters.map((group) => `--group ${group.name}`), filters && describeFilters(filters)].filter(Boolean).join(' ')}\n` : '';
     // The agents of this output: the rows, and self where the output has a self block.
     const shown = summary.self ? [...summary.rows, summary.self] : summary.rows;
     for (const warning of summary.warnings ?? []) io.stderr(`orca-broadcast: ${warning}\n`);
@@ -217,16 +217,17 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
   }
 }
 
-// Loads the group a command names. For `broadcast` every kind applies. Elsewhere the `state` kind is skipped with one stderr line, in text and in --json mode, and a state-only group is refused.
-async function loadGroupFilter(names: string[] | undefined, command: Command, env: NodeJS.ProcessEnv, io: CliIo): Promise<GroupFilter | undefined> {
-  const name = names?.[0];
-  if (name === undefined) return undefined;
-  const spec = lookupGroup(await loadGroups(resolveGroupsPath(env)), name);
-  if (command === 'broadcast') return { name, spec };
-  const filter = toGroupFilter(name, spec);
-  if (!hasFilters(filter.spec)) throw new Error(`Group ${name} only filters by state, which ${command} does not use.`);
-  if (spec.state.length > 0) io.stderr(`orca-broadcast: group ${name}: state filter skipped (${command} does not use it)\n`);
-  return filter;
+// Loads the groups a command names, each once. For `broadcast` every kind applies. Elsewhere the `state` kind is skipped with one stderr line per group, in text and in --json mode; a group left with no other kind is dropped from the union, and the command is refused when none is left.
+async function loadGroupFilters(names: string[] | undefined, command: Command, env: NodeJS.ProcessEnv, io: CliIo): Promise<GroupFilter[]> {
+  const unique = [...new Set(names ?? [])];
+  if (unique.length === 0) return [];
+  const saved = await loadGroups(resolveGroupsPath(env));
+  const specs = unique.map((name) => ({ name, spec: lookupGroup(saved, name) }));
+  if (command === 'broadcast') return specs;
+  const used = specs.map(({ name, spec }) => toGroupFilter(name, spec)).filter((filter) => hasFilters(filter.spec));
+  if (used.length === 0) throw new Error(`Group ${unique.join(', ')} only filter${unique.length === 1 ? 's' : ''} by state, which ${command} does not use.`);
+  for (const { name, spec } of specs) if (spec.state.length > 0) io.stderr(`orca-broadcast: group ${name}: state filter skipped (${command} does not use it)\n`);
+  return used;
 }
 
 // `group add|list|show|remove`: runs before the safety switch, the store and the lock, because it never sends and never touches a run.
