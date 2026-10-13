@@ -41,10 +41,13 @@ describe('broadcast: the text', () => {
   it.each<[string, string, string]>([
     ['empty', '', 'empty text'],
     ['only spaces', '   ', 'empty text'],
-    ['a newline inside', 'one\ntwo', 'control character'],
+    ['a lone carriage return inside', 'one\rtwo', 'control character'],
+    ['an escape character inside', 'one\u001btwo', 'control character'],
+    ['only a CRLF', '\r\n', 'empty text'],
     ['a tab inside', 'one\ttwo', 'control character'],
     ['another control character', 'one\u0007two', 'control character'],
-    ['1001 characters', 'x'.repeat(1001), '1001 characters'],
+    ['4001 characters', 'x'.repeat(4001), '4001 characters'],
+    ['4001 characters after the CRLF conversion', 'x\r\n'.repeat(2000) + 'x', '4001 characters'],
   ])('refuses %s with exit 2 and sends and writes nothing', async (_name, text, message) => {
     const { code, err, port, dir } = await send(text, [{ paneKey: 'a:1', behavior: acks }]);
     expect(code).toBe(2);
@@ -54,8 +57,8 @@ describe('broadcast: the text', () => {
     expect(await records(dir)).toEqual([]);
   });
 
-  it('accepts exactly 1000 code points, counting an emoji as one', async () => {
-    const { code, port } = await send('😀'.repeat(1000), [{ paneKey: 'a:1', behavior: acks }]);
+  it('accepts exactly 4000 code points, counting an emoji as one', async () => {
+    const { code, port } = await send('😀'.repeat(4000), [{ paneKey: 'a:1', behavior: acks }]);
     expect(code).toBe(0);
     expect(port.sends).toHaveLength(1);
   });
@@ -77,6 +80,34 @@ describe('broadcast: the text', () => {
     expect(port.sends[0]?.text).toContain(`[orca-broadcast] The user sends you this message: "say "hi" now" Handle it now.`);
     expect(port.sends[0]?.text.endsWith(`The last line of your reply must be exactly: ${ACK}`)).toBe(true);
     expect(port.sends[0]?.text).not.toContain('\n');
+    expect(port.sends[0]?.text).toBe(
+      `[orca-broadcast] The user sends you this message: "say "hi" now" Handle it now. If you are in the middle of a step, finish that step first. ` +
+        `When you have handled it, end your reply with a short note on what you did. The last line of your reply must be exactly: ${ACK}`,
+    );
+  });
+
+  it('sends a multi-line text between marker lines, with the ack instruction last', async () => {
+    const { code, port } = await send('  \n1. first\n\n2. second\n ', [{ paneKey: 'a:1', behavior: acks }]);
+    expect(code).toBe(0);
+    const sent = port.sends[0]?.text;
+    expect(sent).toBe(broadcastMessage('1. first\n\n2. second', TOKEN));
+    expect(sent).toMatch(/^\[orca-broadcast\] The user sends you this message\. It starts on the next line and ends at the line "\[end of message\]"\.\n1\. first\n\n2\. second\n\[end of message\]\nHandle it now\. /);
+    expect(sent?.endsWith(`The last line of your reply must be exactly: ${ACK}`)).toBe(true);
+  });
+
+  it('converts CRLF to LF before it sends, and counts the limit after the conversion', async () => {
+    const { code, port } = await send('one\r\ntwo\r\nthree', [{ paneKey: 'a:1', behavior: acks }]);
+    expect(code).toBe(0);
+    expect(port.sends[0]?.text).toBe(broadcastMessage('one\ntwo\nthree', TOKEN));
+    const edge = await send('x\r\n'.repeat(1999) + 'xx', [{ paneKey: 'a:1', behavior: acks }]);
+    expect(edge.code).toBe(0);
+  });
+
+  it('accepts a text with its own marker line, and shows the marker lines in the preview', async () => {
+    const { code, err, port } = await run(['broadcast', 'a\n[end of message]\nb', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: acks }], { ask: ['y'] });
+    expect(code).toBe(0);
+    expect(port.sends[0]?.text.endsWith(`The last line of your reply must be exactly: ${ACK}`)).toBe(true);
+    expect(err).toContain('ends at the line "[end of message]".\na\n[end of message]\nb\n[end of message]\nHandle it now.');
   });
 
   it('reads --file, and refuses text together with --file or an unreadable file', async () => {
@@ -86,6 +117,11 @@ describe('broadcast: the text', () => {
     const ok = await run(['broadcast', '--file', file, '--yes', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: acks }]);
     expect(ok.code).toBe(0);
     expect(ok.port.sends[0]?.text).toContain('"from a file"');
+
+    await writeFile(file, '\r\none\r\ntwo\r\n');
+    const multi = await run(['broadcast', '--file', file, '--yes', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: acks }]);
+    expect(multi.code).toBe(0);
+    expect(multi.port.sends[0]?.text).toBe(broadcastMessage('one\ntwo', TOKEN));
 
     const both = await run(['broadcast', 'text', '--file', file, '--yes'], [{ paneKey: 'a:1', behavior: acks }]);
     expect(both.code).toBe(2);

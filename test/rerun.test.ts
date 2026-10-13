@@ -112,6 +112,14 @@ describe('re-run: what is sent again', () => {
     expect(code).toBe(1); // a:1 never replies
   });
 
+  it('re-sends a multi-line text in the multi-line form, and the same multi-line text counts as the same text', async () => {
+    const multi = 'first\nsecond';
+    const { code, port } = await run(['broadcast', 'first\r\nsecond', '--yes', '--timeout', '10s'], [{ paneKey: 'b:2', behavior: acksWhenSent }], { seed: seed([unsent('b:2')], { text: multi }) });
+    expect(code).toBe(0);
+    expect(port.sends.map((s) => s.text)).toEqual([broadcastMessage(multi, TOKEN)]);
+    expect(port.sends[0]?.text).toContain('\nfirst\nsecond\n[end of message]\n');
+  });
+
   it('prompts even when the target to send to is waiting now, and sends after it leaves waiting', async () => {
     const behavior: Behavior = ({ listCalls, received }) => (received.length > 0 ? { state: 'done', message: `Done.\n${ACK}` } : listCalls < 4 ? { state: 'waiting', message: null } : { state: 'working', message: null });
     const { code, questions, port } = await run(['broadcast', '--timeout', '30s'], [{ paneKey: 'b:2', behavior }], { seed: seed([unsent('b:2')]), ask: ['y'] });
