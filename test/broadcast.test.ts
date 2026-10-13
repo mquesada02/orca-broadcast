@@ -80,6 +80,10 @@ describe('broadcast: the text', () => {
     expect(port.sends[0]?.text).toContain(`[orca-broadcast] The user sends you this message: "say "hi" now" Handle it now.`);
     expect(port.sends[0]?.text.endsWith(`The last line of your reply must be exactly: ${ACK}`)).toBe(true);
     expect(port.sends[0]?.text).not.toContain('\n');
+    expect(port.sends[0]?.text).toBe(
+      `[orca-broadcast] The user sends you this message: "say "hi" now" Handle it now. If you are in the middle of a step, finish that step first. ` +
+        `When you have handled it, end your reply with a short note on what you did. The last line of your reply must be exactly: ORCA-ACK abcd1234`,
+    );
   });
 
   it('sends a multi-line text between marker lines, with the ack instruction last', async () => {
@@ -100,7 +104,7 @@ describe('broadcast: the text', () => {
     expect(edge.code).toBe(0);
   });
 
-  it('keeps the ack line last when the text has its own marker line, and shows the marker lines in the preview', async () => {
+  it('accepts a text with its own marker line, and shows the marker lines in the preview', async () => {
     const { code, err, port } = await run(['broadcast', 'a\n[end of message]\nb', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: acks }], { ask: ['y'] });
     expect(code).toBe(0);
     expect(port.sends[0]?.text.endsWith(`The last line of your reply must be exactly: ${ACK}`)).toBe(true);
