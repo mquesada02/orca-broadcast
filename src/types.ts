@@ -12,6 +12,8 @@ export interface AgentRow {
   state: string;
   stateStartedAt: number;
   lastAssistantMessage: string | null;
+  /** `mainAgent.state` of the worktree ps row. Omitted when Orca sends no `mainAgent` (it is undocumented). */
+  mainAgentState?: string;
 }
 
 export interface TerminalRow {
@@ -78,7 +80,7 @@ export interface Clock {
 }
 
 export type PauseStatus = 'confirmed' | 'unconfirmed';
-export type PauseReason = 'still-working' | 'waiting-permission' | 'done-no-token' | 'send-failed' | 're-woken' | 'self';
+export type PauseReason = 'still-working' | 'background' | 'waiting-permission' | 'done-no-token' | 'send-failed' | 're-woken' | 'self';
 export type ResumeStatus = 'pending' | 'resumed' | 'gone' | 'abandoned';
 // Why an agent cannot be located any more.
 export type LocateReason = 'terminal-closed' | 'terminal-orphaned' | 'agent-missing' | 'agent-exited';
@@ -200,7 +202,7 @@ export interface Run {
 }
 
 export type BroadcastStatus = 'pending' | 'acked' | 'gone' | 'abandoned';
-export type BroadcastReason = LocateReason | 'waiting-permission' | 'still-working' | 'no-ack' | 'send-failed' | 'closed' | 'paused';
+export type BroadcastReason = LocateReason | 'waiting-permission' | 'still-working' | 'background' | 'no-ack' | 'send-failed' | 'closed' | 'paused';
 
 export interface BroadcastTarget {
   paneKey: string;

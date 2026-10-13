@@ -2,7 +2,7 @@ import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import { abandonPending, type RecordStore } from './store.js';
 import { ALL_AGENTS, isFiltered, matches, NO_FILTERS } from './filters.js';
-import { assertCurrentFormat, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, resolveFilterSet, roleInfoOf, subjectOfRow, withWarnings, type RoleInfo, type Roles, type Snapshot } from './shared.js';
+import { assertCurrentFormat, busyReason, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, resolveFilterSet, roleInfoOf, subjectOfRow, withWarnings, type RoleInfo, type Roles, type Snapshot } from './shared.js';
 import type { AgentRecord, AgentRow, BroadcastRecord, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
@@ -69,7 +69,7 @@ function reopen(agent: AgentRecord, row: AgentRow): void {
 
 function requestPause(agent: AgentRecord, row: AgentRow): void {
   reopen(agent, row);
-  agent.pauseReason = isWaitingLike(row.state) ? 'waiting-permission' : 'still-working';
+  agent.pauseReason = isWaitingLike(row.state) ? 'waiting-permission' : busyReason(row);
   agent.messagePending = true;
 }
 
@@ -140,8 +140,8 @@ function recheckReason(agent: AgentRecord, row: AgentRow): PauseReason {
   if (agent.pauseReason === 'send-failed') return 'send-failed';
   if (!agent.messagePending && agent.pauseReason === 're-woken') return 're-woken';
   if (isWaitingLike(row.state)) return 'waiting-permission';
-  if (agent.messagePending) return 'still-working';
-  return row.state === 'working' ? 'still-working' : 'done-no-token';
+  if (agent.messagePending) return busyReason(row);
+  return row.state === 'working' ? busyReason(row) : 'done-no-token';
 }
 
 type Prepared = { run: Run; extending: boolean } | { summary: RunSummary };

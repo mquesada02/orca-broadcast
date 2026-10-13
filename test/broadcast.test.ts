@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { broadcastMessage } from '../src/broadcast.js';
 import type { RecordStore } from '../src/store.js';
 import type { BroadcastRecord, BroadcastTarget } from '../src/types.js';
-import { agentRecord, broadcastTarget, fakeClock, openBroadcastRecord, seedOpenRun, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
+import { agentRecord, broadcastTarget, fakeClock, inBackground, openBroadcastRecord, seedOpenRun, turnRunning, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
 import { CTRL_C, runCli, type RunCliOptions } from './helpers/run-cli.js';
 
 const TOKEN = 'abcd1234';
@@ -331,6 +331,66 @@ describe('broadcast: the record and the sending', () => {
     const { code, dir } = await send('hello', [{ paneKey: 'a:1', behavior: ({ received }) => (received.length === 0 ? { state: 'done', message: 'Earlier.' } : { state: 'working', message: null }) }]);
     expect(code).toBe(1);
     expect((await records(dir))[0]?.targets[0]).toMatchObject({ status: 'pending', reason: 'still-working', messagePending: false });
+  });
+});
+
+describe('broadcast: background work', () => {
+  const afterSend = (reply: Behavior): Behavior => (ctx) => (ctx.received.length === 0 ? { state: 'done', message: 'Earlier reply.' } : reply(ctx));
+  const reasonAfterSend = async (reply: Behavior) => {
+    const { code, dir } = await send('hello', [{ paneKey: 'a:1', behavior: afterSend(reply) }]);
+    return { code, target: (await records(dir))[0]?.targets[0] };
+  };
+
+  it.each<[string, Behavior, string]>([
+    ['a turn ended while background work runs', inBackground(), 'background'],
+    ['a turn that is running', turnRunning, 'still-working'],
+    ['a row without mainAgent', () => ({ state: 'working', message: 'Earlier reply.' }), 'still-working'],
+    ['a done row whose mainAgent is done', () => ({ state: 'done', message: 'Earlier reply.', mainAgentState: 'done' }), 'still-working'],
+  ])('shows the reason of %s after the send: %s', async (_name, reply, reason) => {
+    const { code, target } = await reasonAfterSend(reply);
+    expect(code).toBe(1);
+    expect(target).toMatchObject({ status: 'pending', reason });
+  });
+
+  it.each<[string, Behavior, string]>([
+    ['background work runs', inBackground(), 'background'],
+    ['a turn is running', turnRunning, 'still-working'],
+  ])('sets the reason right when the send is accepted, if %s (the run ends before the next poll)', async (_name, behavior, reason) => {
+    const { dir } = await run(['broadcast', 'hello', '--yes', '--timeout', '1s'], [{ paneKey: 'a:1', behavior }]);
+    expect((await records(dir))[0]?.targets[0]).toMatchObject({ status: 'pending', reason, messagePending: false });
+  });
+
+  it('sets the poll-time reason of a target whose message is still pending, when a signal stops the run after the first send', async () => {
+    const signals = new EventEmitter();
+    const background = inBackground();
+    const { dir } = await send('hello', [{ paneKey: 'a:1', behavior: background }, { paneKey: 'b:2', behavior: background }], {
+      signals,
+      configure: (p) => (p.onSend = () => void signals.emit('SIGTERM')),
+    });
+    expect((await records(dir))[0]?.targets.map((t) => ({ messagePending: t.messagePending, reason: t.reason }))).toEqual([
+      { messagePending: false, reason: 'background' },
+      { messagePending: true, reason: 'background' },
+    ]);
+  });
+
+  it('shows no-ack, not background, when the agent replied without the ack line', async () => {
+    const { code, target } = await reasonAfterSend(() => ({ state: 'working', message: 'Replied, no ack line.', mainAgentState: 'done' }));
+    expect(code).toBe(1);
+    expect(target).toMatchObject({ status: 'pending', reason: 'no-ack' });
+  });
+
+  it('counts a new reply that ends with the ack line as acked, in the background state', async () => {
+    const { code, target } = await reasonAfterSend(() => ({ state: 'working', message: `Done.\n${ACK}`, mainAgentState: 'done' }));
+    expect(code).toBe(0);
+    expect(target).toMatchObject({ status: 'acked', reason: null });
+  });
+
+  it('does not count the ack line of the old reply, in the background state', async () => {
+    const old = `Earlier.\n${ACK}`;
+    const behavior: Behavior = ({ received }) => (received.length === 0 ? { state: 'done', message: old } : { state: 'working', message: old, mainAgentState: 'done' });
+    const { code, dir } = await send('hello', [{ paneKey: 'a:1', behavior }]);
+    expect(code).toBe(1);
+    expect((await records(dir))[0]?.targets[0]).toMatchObject({ status: 'pending', reason: 'background' });
   });
 });
 

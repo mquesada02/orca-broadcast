@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { close } from '../src/close.js';
 import { createRecordStore } from '../src/store.js';
 import type { Run } from '../src/types.js';
-import { agentRecord, type FakeAgent, FakeOrca, fakeClock, pausedDone, repliesWithToken, seedOpenRun, tempStateDir, working, wokenWorking } from './helpers/fake-orca.js';
+import { agentRecord, type FakeAgent, FakeOrca, fakeClock, inBackground, pausedDone, repliesWithToken, seedOpenRun, tempStateDir, working, wokenWorking } from './helpers/fake-orca.js';
 import { runCli, type RunCliOptions } from './helpers/run-cli.js';
 
 const REPOS = [
@@ -440,6 +440,24 @@ describe('pause scope', () => {
     expect(err).toContain('alpha/tree-a:1');
     expect(err).not.toContain('beta/tree-b:1');
     expect(sentPanes(port)).toEqual(['a:1']);
+  });
+
+  it('re-checks the reason of an agent outside the filters that has a pending message: background, or still-working for a done row', async () => {
+    const seed = async (store: ReturnType<typeof createRecordStore>) => {
+      await seedOpenRun(store, [
+        agentRecord('a:1', { repoId: 'repo-alpha', repo: 'alpha' }),
+        agentRecord('b:1', { repoId: 'repo-beta', repo: 'beta', pauseStatus: 'unconfirmed', pauseReason: 'waiting-permission', messagePending: true, confirmedAt: null }),
+        agentRecord('b:2', { repoId: 'repo-beta', repo: 'beta', pauseStatus: 'unconfirmed', pauseReason: 'waiting-permission', messagePending: true, confirmedAt: null }),
+      ]);
+    };
+    const agents: FakeAgent[] = [
+      { paneKey: 'a:1', repo: 'alpha', behavior: repliesWithToken() },
+      { paneKey: 'b:1', repo: 'beta', behavior: inBackground() },
+      { paneKey: 'b:2', repo: 'beta', behavior: () => ({ state: 'done', message: 'Earlier reply.', mainAgentState: 'done' }) },
+    ];
+    const { port, dir } = await runCli(['pause', '--yes', '--repo', 'alpha'], agents, withRepos({ seed }));
+    expect(sentPanes(port)).toEqual([]);
+    expect((await readRuns(dir))[0]?.agents.map((a) => a.pauseReason)).toEqual([null, 'background', 'still-working']);
   });
 
   it('marks a matching earlier self gone when it cannot be located, instead of waiting for the timeout', async () => {

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { broadcastMessage } from '../src/broadcast.js';
 import type { RecordStore } from '../src/store.js';
 import type { BroadcastRecord, BroadcastTarget } from '../src/types.js';
-import { broadcastTarget, fakeClock, openBroadcastRecord, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
+import { broadcastTarget, fakeClock, inBackground, openBroadcastRecord, turnRunning, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
 import { hasPointer, readBroadcasts, statusOf as status, storeDir } from './helpers/records.js';
 import { CTRL_C, runCli, type RunCliOptions } from './helpers/run-cli.js';
 
@@ -220,6 +220,19 @@ describe('re-run: no-ack, early stop and late acks', () => {
       { seed: seed([sent('w:1'), sent('n:2'), sent('s:3'), failed('f:4')]), configure: (p) => (p.sendResult = () => ({ accepted: false, reason: 'nope' })) },
     );
     expect(reasons(await readRecord(dir))).toEqual({ 'w:1': 'waiting-permission', 'n:2': 'no-ack', 's:3': 'still-working', 'f:4': 'send-failed' });
+  });
+
+  it('shows background for a sent target whose turn ended while background work runs, and still-working otherwise', async () => {
+    const { code, dir } = await rerun(
+      [
+        { paneKey: 'b:1', behavior: inBackground() },
+        { paneKey: 'w:2', behavior: turnRunning },
+        { paneKey: 'n:3', behavior: () => ({ state: 'working', message: null }) },
+      ],
+      { seed: seed([sent('b:1'), sent('w:2'), sent('n:3')]) },
+    );
+    expect(code).toBe(1);
+    expect(reasons(await readRecord(dir))).toEqual({ 'b:1': 'background', 'w:2': 'still-working', 'n:3': 'still-working' });
   });
 
   it('keeps waiting while a target other than the send-failed ones is pending', async () => {

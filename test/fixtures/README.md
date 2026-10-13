@@ -31,6 +31,8 @@ background `sleep` task wakes after its `ORCA-PAUSED` reply. Each file holds one
 - `-midturn`: after the wake-up, mid-turn, the agent is `working` and `lastAssistantMessage` is `null` (not an empty string).
 - `-done-token`: the woken agent is `done` and its new reply ends with the same token line (it followed the new pause sentence).
 
+`worktree-ps-background.json` is a redacted capture of one real Claude agent (throwaway terminal, Claude Code v2.1.296, 2026-10-12, case (b) of `docs/research/background-shell-state.md`) whose turn has ended while a background shell runs: `state: "working"`, `workingMode: "monitoring"`, `mainAgent.state: "done"`, and `lastAssistantMessage` holds the reply of the ended turn. One agent row in the worktree wrapper of the `-working-token` fixture (an older capture, so the wrapper's own timestamps are not from 2026-10-12); the prompt and `toolInput` are placeholders, the ids are the placeholders of that wrapper, and the row's own fields and timestamps are real.
+
 `proc-stat.txt` is a real `/proc/<pid>/stat` line, read from a throwaway `cat` process (`cat /proc/self/stat`), with the pids
 and the address fields replaced by placeholders. Field 22, the start time, is `3601991`. `proc-stat-odd-name.txt` is the same line with the
 command name replaced by `(my (odd) cmd)`: synthetic, to cover a command name that contains spaces and parentheses.

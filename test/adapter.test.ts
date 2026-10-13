@@ -46,6 +46,16 @@ describe('orca adapter mapping', () => {
     expect(await mapped('done-token')).toMatchObject({ state: 'done', lastAssistantMessage: expect.stringMatching(/\nORCA-PAUSED 0a1b2c3d$/) });
   });
 
+  it('reads mainAgent.state from the background capture and leaves it out when the row has no mainAgent', async () => {
+    const mapped = async (name: string) => {
+      const { exec } = fakeExec({ 'worktree ps': fixture(name) });
+      return (await createOrcaAdapter(exec).listAgents())[0];
+    };
+
+    expect(await mapped('worktree-ps-background')).toMatchObject({ state: 'working', mainAgentState: 'done', lastAssistantMessage: 'BG-STARTED-2' });
+    expect(await mapped('worktree-ps-woken-working-token')).not.toHaveProperty('mainAgentState');
+  });
+
   it('maps terminal list and joins to agents by tabId:leafId', async () => {
     const { exec } = fakeExec({ 'worktree ps': fixture('worktree-ps'), 'terminal list': fixture('terminal-list') });
     const port = createOrcaAdapter(exec);

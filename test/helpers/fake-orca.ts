@@ -7,6 +7,8 @@ import type { AgentRecord, AgentRow, BroadcastRecord, BroadcastTarget, Clock, Or
 export interface Reply {
   state: string;
   message: string | null;
+  /** `mainAgent.state` of the row; omitted from the row when not set. */
+  mainAgentState?: string;
 }
 
 export interface Behavior {
@@ -104,6 +106,7 @@ export class FakeOrca implements OrcaPort {
         state: reply.state,
         stateStartedAt: a.stateStartedAt ?? 1,
         lastAssistantMessage: reply.message,
+        ...(reply.mainAgentState === undefined ? {} : { mainAgentState: reply.mainAgentState }),
       };
     });
     return [...rows, ...this.extraRows];
@@ -188,6 +191,12 @@ export const startsNewTurnAfterContinue: Behavior = ({ received }) =>
   gotContinue(received) ? { state: 'done', message: 'Continued and finished.' } : { state: 'done', message: PAUSED_REPLY };
 
 export const working: Behavior = () => ({ state: 'working', message: null });
+
+/** A turn that ended while background work runs: working, with the reply of the ended turn and mainAgent done. */
+export const inBackground = (message = 'Earlier reply.'): Behavior => () => ({ state: 'working', message, mainAgentState: 'done' });
+
+/** A turn that is running, on a row that has a mainAgent. */
+export const turnRunning: Behavior = () => ({ state: 'working', message: null, mainAgentState: 'working' });
 
 /** An agent that a background task woke after its token reply: working, with a newer reply that has no token line. */
 export const wokenWorking: Behavior = () => ({ state: 'working', message: 'Back at work.' });

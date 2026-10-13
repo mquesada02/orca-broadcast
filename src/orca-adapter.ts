@@ -119,6 +119,7 @@ export function createOrcaAdapter(exec: Exec = execOrca): OrcaPort {
             state: agent.state,
             stateStartedAt: agent.stateStartedAt,
             lastAssistantMessage: agent.lastAssistantMessage ?? null,
+            ...(typeof agent.mainAgent?.state === 'string' ? { mainAgentState: agent.mainAgent.state } : {}),
           });
         }
       }
