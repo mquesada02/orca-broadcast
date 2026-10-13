@@ -61,11 +61,11 @@ orca-broadcast broadcast                  # after a timeout: keep waiting on the
 
 ### Broadcast
 
-`broadcast` sends one framed, single-line message to every Claude agent in state `working` or `done`. It never targets an agent on a permission prompt (`waiting`), and never the session that runs it (that session is shown on its own line, because it cannot ack while its own command waits). A working agent gets the message queued after its current step.
+`broadcast` sends one framed message to every Claude agent in state `working` or `done`. It never targets an agent on a permission prompt (`waiting`), and never the session that runs it (that session is shown on its own line, because it cannot ack while its own command waits). A working agent gets the message queued after its current step.
 
-- **Text.** Inline or `--file <path>`, not both. Both ends are trimmed. The text must not be empty, must have no control character (a newline or a tab, for example), and must have at most 1000 characters. Otherwise the command exits 2 with the reason and the length, and nothing is sent.
+- **Text.** Inline or `--file <path>`, not both. Both ends are trimmed. The text may have several lines: `\r\n` is turned into `\n`, and a newline is the only control character allowed (a tab, a lone `\r` or an escape character is refused). The text must not be empty and must have at most 4000 characters, counted after that conversion. Otherwise the command exits 2 with the reason and the length, and nothing is sent.
 - **Prompt.** The target table, the exact message and the self line are shown before anything is sent. Without a terminal `--yes` is required, whatever the command does next.
-- **Message.** `[orca-broadcast] The user sends you this message: "<text>" Handle it now. …`, ending with the instruction that the last line of the reply must be exactly `ORCA-ACK <token>`.
+- **Message.** For a one-line text: `[orca-broadcast] The user sends you this message: "<text>" Handle it now. …`. For a text with a newline: `[orca-broadcast] The user sends you this message. It starts on the next line and ends at the line "[end of message]".`, then the text on its own lines, a `[end of message]` line and `Handle it now. …`. Both forms end with the instruction that the last line of the reply must be exactly `ORCA-ACK <token>`; the text always comes before that instruction.
 - **Proof.** An agent counts as acked when no message is pending for it, its last reply is new since the send, and the last line is exactly `ORCA-ACK <token>`, in a `working` or `done` state. An ack is permanent. Send receipts are never proof.
 - **Record.** The record is written in `broadcasts/` before the first send, with the targets fixed at the confirmation. It closes itself when every target is acked, gone or abandoned. After a timeout it stays open; `close` abandons the targets that did not ack (reason `closed`). The pid of the running `broadcast` is stored in the record and removed on every exit.
 - **Wait.** Up to `--timeout` (default `10m`). It ends early when every target still pending is `send-failed`, because nothing can progress. Exit `0` when every target acked, `1` otherwise (a `gone` target counts as not acked), `2` on a refusal, `130` when interrupted.
@@ -139,7 +139,7 @@ orca-broadcast pause --group web --role worker
 | Option | Effect |
 |---|---|
 | `--timeout <n>s\|m\|h` | How long `pause` waits for confirmations, or `broadcast` waits for acks. Default `10m`. `pause` and `broadcast` only. |
-| `--file <path>` | Read the `broadcast` text from a file. `broadcast` only. |
+| `--file <path>` | Read the `broadcast` text from a file; it may have several lines. `broadcast` only. |
 | `--reason <name>` | Why you are pausing. One of the presets below. `pause` only. Without it the message is neutral. |
 | `--yes` | Skip the confirmation prompt. Without an interactive terminal, `broadcast`, `pause` and `resume` refuse to send unless you pass it. |
 | `--json` | Print one JSON object on stdout and nothing on stderr (except the line about each skipped group `state` kind). It never prompts, so `broadcast`, `pause` and `resume` need `--yes`. |
