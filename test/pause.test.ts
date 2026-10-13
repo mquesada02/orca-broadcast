@@ -6,7 +6,7 @@ import { renderTable } from '../src/render.js';
 import { createRecordStore } from '../src/store.js';
 import type { Preset } from '../src/reasons.js';
 import type { Progress, Run } from '../src/types.js';
-import { type Behavior, type FakeAgent, doneWithToken, fakeClock, FakeOrca, repliesAfter, repliesWithToken, tempStateDir, tokenOf, working } from './helpers/fake-orca.js';
+import { type Behavior, type FakeAgent, doneWithToken, fakeClock, FakeOrca, inBackground, PAUSED_REPLY, repliesAfter, repliesWithToken, tempStateDir, tokenOf, turnRunning, working } from './helpers/fake-orca.js';
 
 const TIMEOUT = 60_000;
 
@@ -90,6 +90,49 @@ describe('pause happy path', () => {
     const summary = await run();
     expect(summary.exitCode).toBe(1);
     expect(summary.rows.map((r) => r.pauseReason)).toEqual(['still-working', 'waiting-permission']);
+  });
+
+  describe('background work', () => {
+    const OLD = 'Started it in the background.';
+
+    it.each<[string, Behavior, string]>([
+      ['a turn ended while background work runs', inBackground(OLD), 'background'],
+      ['a turn that is running', turnRunning, 'still-working'],
+      ['a row without mainAgent', () => ({ state: 'working', message: OLD }), 'still-working'],
+    ])('reports %s as unconfirmed with the reason %s, exit 1', async (_name, behavior, reason) => {
+      const { run } = await setup([{ paneKey: 'a:1', behavior }]);
+      const summary = await run(20_000);
+      expect(summary.exitCode).toBe(1);
+      expect(summary.rows[0]).toMatchObject({ pauseStatus: 'unconfirmed', pauseReason: reason });
+    });
+
+    it.each<[string, Behavior, string]>([
+      ['background work runs', inBackground(OLD), 'background'],
+      ['a turn is running', turnRunning, 'still-working'],
+    ])('gives the reason of the pause request, saved before the first poll, when %s', async (_name, behavior, reason) => {
+      const { dir, port, clock } = await setup([{ paneKey: 'a:1', behavior }]);
+      const abort = new AbortController();
+      const real = createRecordStore(dir);
+      const store = { ...real, save: async (r: Run) => { await real.save(r); abort.abort('SIGTERM'); } };
+      await pause(TIMEOUT, { port, clock, store, signal: abort.signal });
+      expect((await readRuns(dir))[0]?.agents[0]?.pauseReason).toBe(reason);
+      expect(port.sends).toEqual([]);
+    });
+
+    it('confirms an agent in the background state whose new reply ends with the token line', async () => {
+      const behavior: Behavior = ({ received }) => (received.length === 0 ? { state: 'working', message: OLD, mainAgentState: 'done' } : { ...doneWithToken(received), state: 'working', mainAgentState: 'done' });
+      const { run } = await setup([{ paneKey: 'a:1', behavior }]);
+      const summary = await run();
+      expect(summary.exitCode).toBe(0);
+      expect(summary.rows[0]).toMatchObject({ pauseStatus: 'confirmed', pauseReason: null });
+    });
+
+    it('does not confirm an agent in the background state whose old reply already ends with the token line', async () => {
+      const { run } = await setup([{ paneKey: 'a:1', behavior: inBackground(PAUSED_REPLY) }]);
+      const summary = await run(20_000, () => 'abcd1234');
+      expect(summary.exitCode).toBe(1);
+      expect(summary.rows[0]).toMatchObject({ pauseStatus: 'unconfirmed', pauseReason: 'background' });
+    });
   });
 
   it('writes the record and the pointer before the first send', async () => {

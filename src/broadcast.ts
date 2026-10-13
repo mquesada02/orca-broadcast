@@ -1,6 +1,6 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { isFiltered, matches, NO_FILTERS, type Subject } from './filters.js';
-import { BROADCAST_OPEN_MESSAGE, cancelled, clearPid, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, setPid, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
+import { BROADCAST_OPEN_MESSAGE, busyReason, cancelled, clearPid, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, setPid, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
@@ -312,7 +312,7 @@ async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snaps
     }
     // no-ack only says that the agent replied without the ack line: it is not sent the message again, and a later ack still counts.
     if (target.reason !== 'send-failed') {
-      target.reason = isWaitingLike(found.row.state) ? 'waiting-permission' : !target.messagePending && hasNewReply(target.baseline, found.row) ? 'no-ack' : 'still-working';
+      target.reason = isWaitingLike(found.row.state) ? 'waiting-permission' : !target.messagePending && hasNewReply(target.baseline, found.row) ? 'no-ack' : busyReason(found.row);
     }
     live.push({ target, row: found.row });
   }
@@ -336,7 +336,7 @@ async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snaps
     if (result.accepted) {
       target.baseline = found.row.lastAssistantMessage;
       target.messagePending = false;
-      target.reason = 'still-working';
+      target.reason = busyReason(found.row);
     } else {
       target.reason = 'send-failed';
     }

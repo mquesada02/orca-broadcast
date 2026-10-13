@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { agentRecord, fakeClock, repliesWithToken, seedOpenRun, startsNewTurnAfterContinue, working } from './helpers/fake-orca.js';
+import { agentRecord, fakeClock, inBackground, repliesWithToken, seedOpenRun, startsNewTurnAfterContinue, working } from './helpers/fake-orca.js';
 import { runCli, type Seed } from './helpers/run-cli.js';
 import type { AgentRecord } from '../src/types.js';
 
@@ -41,6 +41,12 @@ describe('--json pause', () => {
     const { code, out } = await runCli(['pause', '--yes', '--json', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: working }]);
     expect(code).toBe(1);
     expect(onlyObject(out)).toMatchObject({ command: 'pause', outcome: 'done', exitCode: 1, error: null, run: { agents: [{ pauseStatus: 'unconfirmed', pauseReason: 'still-working' }] } });
+  });
+
+  it('shows the reason background for an agent in the background state', async () => {
+    const { code, out } = await runCli(['pause', '--yes', '--json', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: inBackground() }]);
+    expect(code).toBe(1);
+    expect(onlyObject(out)).toMatchObject({ run: { agents: [{ pauseStatus: 'unconfirmed', pauseReason: 'background' }] } });
   });
 
   it('exit 2: an Orca failure gives outcome error with the message and no run', async () => {

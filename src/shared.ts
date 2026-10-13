@@ -20,6 +20,12 @@ export function isWaitingLike(state: string): boolean {
 // The rows a broadcast targets: Claude agents that are working or done.
 export const isSendable = (row: AgentRow): boolean => row.agentType === 'claude' && !isWaitingLike(row.state);
 
+// The turn has ended but Orca still shows the agent working: background work runs (a shell, or something else).
+const isBackground = (row: AgentRow): boolean => row.state === 'working' && row.mainAgentState === 'done';
+
+// The reason of an agent that has not answered yet and is not on a permission prompt.
+export const busyReason = (row: AgentRow): 'background' | 'still-working' => (isBackground(row) ? 'background' : 'still-working');
+
 // A reply written since the baseline. Orca shows null mid-turn, and that is not a reply.
 export function hasNewReply(baseline: string | null, row: AgentRow): boolean {
   return row.lastAssistantMessage !== null && row.lastAssistantMessage !== baseline;
