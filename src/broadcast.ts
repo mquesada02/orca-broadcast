@@ -48,7 +48,7 @@ export function normaliseText(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed === '') throw new Error('empty text: nothing to broadcast');
   const text = trimmed.replaceAll('\r\n', '\n');
-  if (/[^\P{Cc}\n]/u.test(text)) throw new Error('the text contains a control character; the only control character allowed is a newline (a tab or a lone carriage return is not)');
+  if (/(?!\n)\p{Cc}/u.test(text)) throw new Error('the text contains a control character; the only control character allowed is a newline (a tab or a lone carriage return is not)');
   const length = [...text].length;
   if (length > MAX_TEXT_LENGTH) throw new Error(`the text is ${length} characters; the limit is ${MAX_TEXT_LENGTH}`);
   return text;

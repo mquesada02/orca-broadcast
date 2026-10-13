@@ -82,7 +82,7 @@ describe('broadcast: the text', () => {
     expect(port.sends[0]?.text).not.toContain('\n');
     expect(port.sends[0]?.text).toBe(
       `[orca-broadcast] The user sends you this message: "say "hi" now" Handle it now. If you are in the middle of a step, finish that step first. ` +
-        `When you have handled it, end your reply with a short note on what you did. The last line of your reply must be exactly: ORCA-ACK abcd1234`,
+        `When you have handled it, end your reply with a short note on what you did. The last line of your reply must be exactly: ${ACK}`,
     );
   });
 
@@ -99,7 +99,6 @@ describe('broadcast: the text', () => {
     const { code, port } = await send('one\r\ntwo\r\nthree', [{ paneKey: 'a:1', behavior: acks }]);
     expect(code).toBe(0);
     expect(port.sends[0]?.text).toBe(broadcastMessage('one\ntwo\nthree', TOKEN));
-    expect(port.sends[0]?.text).not.toContain('\r');
     const edge = await send('x\r\n'.repeat(1999) + 'xx', [{ paneKey: 'a:1', behavior: acks }]);
     expect(edge.code).toBe(0);
   });
