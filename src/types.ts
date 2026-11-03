@@ -31,6 +31,7 @@ export interface RunRow {
 export interface WorkerRow {
   handle: string;
   runId: string | null;
+  dispatchId?: string;
 }
 
 // A worktree Orca manages, whether or not an agent runs in it. `id` is the worktree id of `worktree ps` (`<repoId>::<path>`).
@@ -49,8 +50,35 @@ export interface RepoRow {
 
 export type SendResult = { accepted: true } | { accepted: false; reason: string };
 
+export type StartFailure = 'invalid-session-id' | 'flag-not-allowed' | 'no-transcript' | 'start-failed';
+
+// `message` is the error text of a `start-failed`.
+export type StartResult = { started: true; handle: string } | { started: false; reason: StartFailure; message?: string };
+
+// A live `claude` process of the current user whose session ID is known. `startTime` is field 22 of the process's `stat` file (clock ticks since boot).
+export interface SessionRecord {
+  sessionId: string;
+  paneKey: string | null;
+  cwd: string | null;
+  permission: string | null;
+  startTime: number;
+}
+
+export interface SessionScan {
+  sessions: SessionRecord[];
+  // `claude` processes whose session ID could not be determined (cwd null when unknown).
+  unknown: { cwd: string | null }[];
+  // Session IDs that another process of the user holds with `--resume <id>` or `-r <id>` (for example a shell about to start `claude`).
+  heldByOthers: string[];
+}
+
 export interface OrcaPort {
   listAgents(): Promise<AgentRow[]>;
+  // The same `worktree ps` as listAgents, with the runtime ID of its `_meta` (null when absent).
+  listAgentsWithRuntime(): Promise<{ rows: AgentRow[]; runtimeId: string | null }>;
+  scanSessions(): Promise<SessionScan>;
+  bootId(): Promise<string>;
+  startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string): Promise<StartResult>;
   listTerminals(): Promise<TerminalRow[]>;
   listRuns(): Promise<RunRow[]>;
   listWorkers(): Promise<WorkerRow[]>;

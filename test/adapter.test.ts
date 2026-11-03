@@ -111,7 +111,8 @@ describe('orca adapter mapping', () => {
     const { exec, calls } = fakeExec({ 'orchestration worker-list': fixture('worker-list') });
     const workers = await createOrcaAdapter(exec).listWorkers();
     const source = json('worker-list').result.workers;
-    expect(workers).toEqual(source.map((w: any) => ({ handle: w.agentTerminalHandle, runId: w.runId })));
+    expect(workers).toEqual(source.map((w: any) => ({ handle: w.agentTerminalHandle, runId: w.runId, dispatchId: w.dispatchId })));
+    expect(source.every((w: any) => typeof w.dispatchId === 'string')).toBe(true);
     expect(workers).toHaveLength(3);
     expect(calls[0]?.args).toEqual(['orchestration', 'worker-list', '--terminal-state', 'active', '--json']);
   });
@@ -134,7 +135,15 @@ describe('orca adapter mapping', () => {
       { ...body.result.workers[1], runId: null },
     ];
     const workers = await createOrcaAdapter(fakeExec({ 'orchestration worker-list': JSON.stringify(body) }).exec).listWorkers();
-    expect(workers).toEqual([{ handle: body.result.workers[1].agentTerminalHandle, runId: null }]);
+    expect(workers).toEqual([{ handle: body.result.workers[1].agentTerminalHandle, runId: null, dispatchId: body.result.workers[1].dispatchId }]);
+  });
+
+  it('omits dispatchId when a worker-list row has none', async () => {
+    const body = json('worker-list');
+    delete body.result.workers[0].dispatchId;
+    const workers = await createOrcaAdapter(fakeExec({ 'orchestration worker-list': JSON.stringify(body) }).exec).listWorkers();
+    expect(workers[0]).toEqual({ handle: body.result.workers[0].agentTerminalHandle, runId: body.result.workers[0].runId });
+    expect('dispatchId' in workers[0]!).toBe(false);
   });
 
   it('fails when worker-list says hasMore with no cursor or the same cursor again', async () => {
