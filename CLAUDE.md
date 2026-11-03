@@ -5,5 +5,5 @@ Project instructions for coding agents are in `AGENTS.md`. Read it first, includ
 ### Test command
 
 ```
-pnpm exec vitest run --maxWorkers=2
+pnpm test --maxWorkers=2
 ```
