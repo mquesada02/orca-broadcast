@@ -200,6 +200,7 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
   // Reads run in this order: status, cmdline, stat, environ, cwd. The first ENOENT ignores the process; an unreadable
   // cmdline ends its reads with an unknown entry (cwd null); an unreadable stat gives an unknown entry with its cwd.
   async function scanSessions(): Promise<SessionScan> {
+    // The result is not used: an unreadable boot ID fails the scan, so a caller never works from a scan of an unknown boot.
     await bootId();
     const sessions: SessionRecord[] = [];
     const unknown: SessionScan['unknown'] = [];
@@ -261,6 +262,7 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
     } catch {
       return { started: false, reason: 'no-transcript' };
     }
+    // Typed into a shell by Orca: safe because the session ID is a checked UUID and the flag is one of the two allowed strings.
     const command = `env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN claude --resume ${sessionId}${permission === null ? '' : ` ${permission}`}`;
     const failed = (message: string): StartResult => ({ started: false, reason: 'start-failed', message });
     try {
