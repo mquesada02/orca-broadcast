@@ -36,3 +36,16 @@ background `sleep` task wakes after its `ORCA-PAUSED` reply. Each file holds one
 `proc-stat.txt` is a real `/proc/<pid>/stat` line, read from a throwaway `cat` process (`cat /proc/self/stat`), with the pids
 and the address fields replaced by placeholders. Field 22, the start time, is `3601991`. `proc-stat-odd-name.txt` is the same line with the
 command name replaced by `(my (odd) cmd)`: synthetic, to cover a command name that contains spaces and parentheses.
+
+## Restart recovery fixtures (captured 2026-11-03, issue 140)
+
+Read-only captures from a live, resumed Claude Code process (Claude Code 2.1.316, Linux) of the current user, redacted. The base name of the first `cmdline` argument is `claude`. `sessions/<pid>.json` holds `procStart` (a string) that equals field 22 of `/proc/<pid>/stat` (clock ticks since boot, 100 per second), and a `startedAt` in epoch milliseconds. The `projects/` folder of that session is its working folder with every non-alphanumeric character replaced by `-`.
+
+- `claude-session.json`: a `sessions/<pid>.json`. Keys and value types are real; `sessionId`, `cwd`, `name`, the socket path, the namespace id and the timestamps are placeholders. `procStart` is `43133`, the real tick value of the process.
+- `claude-environ.bin`: a `/proc/<pid>/environ` excerpt, NUL-separated. Only `ORCA_*` names that the process had (7 of 24), with fake values.
+- `claude-cmdline.bin`: a `/proc/<pid>/cmdline`, NUL-separated: `claude`, `--resume`, a fake session id.
+- `claude-status.txt`: a `/proc/<pid>/status`. The `Uid:` line has the real shape (four numbers); the other lines are placeholders.
+- `boot-id.txt`: a `/proc/sys/kernel/random/boot_id` (a fake UUID and a newline).
+- `terminal-create.json`: the receipt of `orca-ide terminal create --worktree path:<path> --title <title> --command "echo ..." --json`, from a throwaway terminal that ran a harmless `echo` and was closed again (never `claude`). The handle is at `result.terminal.handle`. Ids, paths and the title are placeholders.
+
+The `.bin` files hold NUL bytes; do not rewrite them with a text editor.

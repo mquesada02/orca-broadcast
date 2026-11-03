@@ -1,0 +1,21 @@
+{
+  "pid": 4242,
+  "sessionId": "00000000-0000-4000-8000-000000000001",
+  "cwd": "/work/example-worktree",
+  "startedAt": 1700000000000,
+  "procStart": "43133",
+  "version": "2.1.316",
+  "peerProtocol": 1,
+  "peerFeatures": [],
+  "kind": "interactive",
+  "entrypoint": "cli",
+  "pidDomain": "linux:00000000000000000000000000000000:pid:[4026531836]",
+  "asksForConvertedSkills": false,
+  "messagingSocketPath": "/tmp/placeholder.sock",
+  "name": "placeholder name",
+  "nameSource": "placeholder",
+  "nameSince": 1700000000001,
+  "updatedAt": 1700000100000,
+  "status": "shell",
+  "statusUpdatedAt": 1700000100000
+}
