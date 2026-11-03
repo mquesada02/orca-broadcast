@@ -1,0 +1,6 @@
+Name:	claude
+State:	S (sleeping)
+Pid:	4242
+PPid:	4241
+Uid:	1000	1000	1000	1000
+Gid:	1000	1000	1000	1000

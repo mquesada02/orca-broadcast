@@ -1,0 +1,22 @@
+{
+  "id": "00000000-0000-4000-8000-000000000010",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "processId": 1000,
+      "handle": "term_00000000-0000-4000-8000-000000000011",
+      "tabId": "tab-0001",
+      "paneKey": "tab-0001:leaf-0001",
+      "ptyId": "repo-0001::/work/example-worktree@@00000000",
+      "worktreeId": "repo-0001::/work/example-worktree",
+      "title": "example title",
+      "executionHostId": "local",
+      "incarnationId": "00000000-0000-4000-8000-000000000012",
+      "hostPlatform": "linux",
+      "surface": "visible"
+    }
+  },
+  "_meta": {
+    "runtimeId": "00000000-0000-4000-8000-000000000013"
+  }
+}

@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RecordStore } from '../../src/store.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, BroadcastTarget, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, TerminalRow, WorkerRow, WorktreeRow } from '../../src/types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, BroadcastTarget, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, SessionScan, StartResult, TerminalRow, WorkerRow, WorktreeRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -110,6 +110,45 @@ export class FakeOrca implements OrcaPort {
       };
     });
     return [...rows, ...this.extraRows];
+  }
+
+  /** The runtime ID by worktree ps listing number (a restart changes it between calls); null is an unknown runtime. */
+  runtimeIdAt: (listing: number) => string | null = () => 'runtime-1';
+
+  /** One worktree ps listing (it counts in `listCalls`, with every injected failure) and the runtime ID of that same listing. */
+  async listAgentsWithRuntime(): Promise<{ rows: AgentRow[]; runtimeId: string | null }> {
+    const rows = await this.listAgents();
+    return { rows, runtimeId: this.runtimeIdAt(this.listCalls) };
+  }
+
+  scanCalls = 0;
+  /** The scan result by scan call number. */
+  scanAt: (scanCall: number) => SessionScan = () => ({ sessions: [], unknown: [], heldByOthers: [] });
+  /** Make every scan from this call number on throw. */
+  failScansFrom: number | null = null;
+
+  async scanSessions(): Promise<SessionScan> {
+    this.scanCalls += 1;
+    if (this.failScansFrom !== null && this.scanCalls >= this.failScansFrom) throw new Error('fake orca: scan failed');
+    return this.scanAt(this.scanCalls);
+  }
+
+  boot = 'boot-1';
+  /** Make bootId() throw. */
+  failBootId = false;
+
+  async bootId(): Promise<string> {
+    if (this.failBootId) throw new Error('fake orca: boot id unreadable');
+    return this.boot;
+  }
+
+  starts: { worktreePath: string; sessionId: string; permission: string | null; title: string }[] = [];
+  /** The result of each startAgent call, by call number. */
+  startResultAt: (startCall: number) => StartResult = (n) => ({ started: true, handle: `term_started_${n}` });
+
+  async startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string): Promise<StartResult> {
+    this.starts.push({ worktreePath, sessionId, permission, title });
+    return this.startResultAt(this.starts.length);
   }
 
   async listTerminals(): Promise<TerminalRow[]> {
