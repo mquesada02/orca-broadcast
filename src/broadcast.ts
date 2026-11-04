@@ -1,5 +1,6 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { isFiltered, matches, NO_FILTERS, type Subject } from './filters.js';
+import { autoRoster, type AutoRoster } from './roster-cmd.js';
 import { BROADCAST_OPEN_MESSAGE, busyReason, cancelled, clearPid, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, setPid, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
@@ -98,7 +99,10 @@ async function runBroadcast(givenText: string | undefined, timeoutMs: number, de
   } catch (error) {
     return failure(error, null);
   }
-  return open ? rerun(open, timeoutMs, deps) : firstBroadcast(givenText as string, timeoutMs, deps);
+  const roster = autoRoster(deps, warnings);
+  const { summary, snapshot } = await (open ? rerun(open, timeoutMs, deps, roster) : firstBroadcast(givenText as string, timeoutMs, deps, roster));
+  await roster.end(snapshot);
+  return summary;
 }
 
 // The record checks: the open broadcast to continue, or undefined when a new one starts.
@@ -118,15 +122,24 @@ async function resolveScope(deps: BroadcastDeps, snapshot: Snapshot, recorded: R
   return resolveFilterSet(filters, isFiltered(filters, deps.groups) ? await liveSources(snapshot, deps) : null, recorded, deps.cwd, deps.groups);
 }
 
-async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
+// What a broadcast path returns: its summary, and the newest snapshot it took (null when it took none), for the end roster save.
+interface Finished {
+  summary: RunSummary;
+  snapshot: Snapshot | null;
+}
+
+async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDeps, roster: AutoRoster): Promise<Finished> {
   const { clock, store } = deps;
   const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
   let snapshot: Snapshot;
+  // The newest snapshot taken so far, for the end roster save.
+  let latest: Snapshot | null = null;
   let record: BroadcastRecord;
   let self: BroadcastSelf | null;
   try {
     throwIfAborted(deps.signal);
-    snapshot = await listSnapshot(deps);
+    snapshot = latest = await listSnapshot(deps);
+    await roster.start(snapshot);
     throwIfAborted(deps.signal);
 
     const set = await resolveScope(deps, snapshot, []);
@@ -135,17 +148,17 @@ async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDe
       return !('gone' in found) && row.paneKey !== selfKey && isSendable(row) && matches(set, { ...subjectOfRow(row, snapshot.roles), state: row.state });
     });
     self = selfLine(selfKey, snapshot);
-    if (selected.length === 0) return nothingToBroadcast(self);
+    if (selected.length === 0) return { summary: nothingToBroadcast(self), snapshot: latest };
 
     const token = (deps.newToken ?? randomToken)();
     const targets = coordinatorsFirst(selected.map((row) => newTarget(row, snapshot.roles)), (t) => t.role);
-    if (deps.confirm && !(await deps.confirm(targets.map(confirmTarget), deps.signal, { message: broadcastMessage(text, token), self }))) return cancelled();
+    if (deps.confirm && !(await deps.confirm(targets.map(confirmTarget), deps.signal, { message: broadcastMessage(text, token), self }))) return { summary: cancelled(), snapshot: latest };
     throwIfAborted(deps.signal);
 
     // The answer may have taken minutes: refresh state only. The targets stay as confirmed; one that vanished is recorded as gone.
-    snapshot = await listSnapshot(deps);
+    snapshot = latest = await listSnapshot(deps);
     const gone = markGone(targets, snapshot.agents, snapshot.terminals);
-    if (gone === targets.length) return nothingToBroadcast(self);
+    if (gone === targets.length) return { summary: nothingToBroadcast(self), snapshot: latest };
 
     const now = clock.now();
     record = { id: recordId(now, token), token, text, createdAt: iso(now), status: 'open', targets };
@@ -157,31 +170,32 @@ async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDe
       // The record exists, so the pid must not stay in it: nothing was sent yet.
       releaseBroadcast(record);
       await store.saveBroadcast(record).catch(() => {});
-      return { ...failure(error, null), record };
+      return { summary: { ...failure(error, null), record }, snapshot: latest };
     }
   } catch (error) {
-    return failure(error, null);
+    return { summary: failure(error, null), snapshot: latest };
   }
   return wait({ record, scope: new Set(record.targets.map((t) => t.paneKey)), snapshot, self }, timeoutMs, deps);
 }
 
 // Continues the open broadcast: same token, only the in-scope targets, and a send only to targets that never got the message.
-async function rerun(saved: BroadcastRecord, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
+async function rerun(saved: BroadcastRecord, timeoutMs: number, deps: BroadcastDeps, roster: AutoRoster): Promise<Finished> {
   const { store } = deps;
   // `saved` is the record as loaded. Every exit before the working copy's first save writes it back with only the pid fields changed.
   setPid(saved, store);
   try {
     await store.saveBroadcast(saved);
   } catch (error) {
-    return failure(error, null);
+    return { summary: failure(error, null), snapshot: null };
   }
 
   const record = structuredClone(saved);
   let prepared: Prepared;
   try {
-    prepared = await prepareRerun(record, deps);
+    prepared = await prepareRerun(record, deps, roster);
   } catch (error) {
-    prepared = { summary: failure(error, null) };
+    // A step that throws did so before a newer snapshot than the start save's was taken, or after an abort: no end save is due.
+    prepared = { summary: failure(error, null), snapshot: null };
   }
   if ('plan' in prepared) {
     return wait(prepared.plan, timeoutMs, deps);
@@ -190,12 +204,12 @@ async function rerun(saved: BroadcastRecord, timeoutMs: number, deps: BroadcastD
     clearPid(saved);
     await store.saveBroadcast(saved);
   } catch (error) {
-    if (prepared.summary.exitCode !== 130) return failure(error, null);
+    if (prepared.summary.exitCode !== 130) return { summary: failure(error, null), snapshot: prepared.snapshot };
   }
-  return prepared.summary;
+  return prepared;
 }
 
-type Prepared = { summary: RunSummary } | { plan: Plan };
+type Prepared = Finished | { plan: Plan };
 
 interface Plan {
   record: BroadcastRecord;
@@ -206,16 +220,17 @@ interface Plan {
 }
 
 // What a re-run decides before its first save: the scope, the prompt and the refresh after "yes". Changes only the working copy.
-async function prepareRerun(record: BroadcastRecord, deps: BroadcastDeps): Promise<Prepared> {
+async function prepareRerun(record: BroadcastRecord, deps: BroadcastDeps, roster: AutoRoster): Promise<Prepared> {
   const selfKey = deps.selfPaneKey || undefined;
   throwIfAborted(deps.signal);
   let snapshot = await listSnapshot(deps);
+  await roster.start(snapshot);
   throwIfAborted(deps.signal);
 
   const set = await resolveScope(deps, snapshot, record.targets);
   const self = selfLine(selfKey, snapshot, record);
   const inScope = record.targets.filter((t) => t.status !== 'abandoned' && t.paneKey !== selfKey && matches(set, savedSubject(t, snapshot)));
-  if (inScope.length === 0) return { summary: nothingToBroadcast(self) };
+  if (inScope.length === 0) return { summary: nothingToBroadcast(self), snapshot };
 
   const pending = inScope.filter((t) => t.status === 'pending');
   markGone(pending, snapshot.agents, snapshot.terminals);
@@ -223,7 +238,7 @@ async function prepareRerun(record: BroadcastRecord, deps: BroadcastDeps): Promi
   const needsSend = pending.filter((t) => t.status === 'pending' && t.messagePending);
   if (needsSend.length > 0) {
     const targets = coordinatorsFirst(needsSend, (t) => t.role).map(confirmTarget);
-    if (deps.confirm && !(await deps.confirm(targets, deps.signal, { message: broadcastMessage(record.text, record.token), self }))) return { summary: cancelled() };
+    if (deps.confirm && !(await deps.confirm(targets, deps.signal, { message: broadcastMessage(record.text, record.token), self }))) return { summary: cancelled(), snapshot };
     throwIfAborted(deps.signal);
     snapshot = await listSnapshot(deps);
     markGone(pending.filter((t) => t.status === 'pending'), snapshot.agents, snapshot.terminals);
@@ -238,7 +253,7 @@ function savedSubject(target: BroadcastTarget, { agents, terminals }: Snapshot):
 }
 
 // The wait loop shared by a first broadcast and a re-run: poll, save, sleep, until the targets in scope are settled, none can progress, or the timeout.
-async function wait({ record, scope, snapshot: first, self }: Plan, timeoutMs: number, deps: BroadcastDeps): Promise<RunSummary> {
+async function wait({ record, scope, snapshot: first, self }: Plan, timeoutMs: number, deps: BroadcastDeps): Promise<Finished> {
   const { clock, store } = deps;
   let snapshot = first;
   const startedAt = clock.now();
@@ -272,7 +287,7 @@ async function wait({ record, scope, snapshot: first, self }: Plan, timeoutMs: n
   } catch (error) {
     if (summary.exitCode !== 130) summary = { ...failure(error, null), record, broadcastSelf: self };
   }
-  return summary;
+  return { summary, snapshot };
 }
 
 const setGone = (target: BroadcastTarget, reason: LocateReason): void => {

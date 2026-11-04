@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createOrcaAdapter, type Exec } from '../src/orca-adapter.js';
+import { scanOptions } from './helpers/scan-options.js';
 import { pause, pauseMessage } from '../src/pause.js';
 import { continueMessage, resume } from '../src/resume.js';
 import { createRecordStore } from '../src/store.js';
@@ -65,7 +66,7 @@ describe('coordinators in pause', () => {
     };
     const dir = await tempStateDir();
 
-    const summary = await pause(5000, { port: createOrcaAdapter(exec), clock: fakeClock(), store: createRecordStore(dir), newToken: () => TOKEN });
+    const summary = await pause(5000, { port: createOrcaAdapter(exec, scanOptions()), clock: fakeClock(), store: createRecordStore(dir), newToken: () => TOKEN });
 
     expect(sent).toEqual([COORDINATOR_MESSAGE]);
     expect(sent[0]).not.toContain('\n');

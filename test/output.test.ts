@@ -11,7 +11,7 @@ function onlyObject(out: string): Record<string, unknown> {
   expect(out.endsWith('\n')).toBe(true);
   expect(out.trimEnd()).not.toContain('\n');
   const parsed = JSON.parse(out);
-  expect(Object.keys(parsed).sort()).toEqual(['command', 'error', 'exitCode', 'outcome', 'record', 'run']);
+  expect(Object.keys(parsed).sort()).toEqual(['command', 'error', 'exitCode', 'outcome', 'record', 'run', 'warnings']);
   return parsed;
 }
 
@@ -61,7 +61,7 @@ describe('--json pause', () => {
   it('nothing-to-do: run and error are null, and the self line stays out of the JSON', async () => {
     const { code, out } = await runCli(['pause', '--yes', '--json'], [{ paneKey: 'a:1', behavior: working }], { env: { ORCA_PANE_KEY: 'a:1' } });
     expect(code).toBe(0);
-    expect(onlyObject(out)).toEqual({ command: 'pause', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null });
+    expect(onlyObject(out)).toEqual({ command: 'pause', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null, warnings: [] });
   });
 
   it('exit 130: an interrupt mid-wait gives outcome error with the saved run', async () => {
@@ -115,7 +115,7 @@ describe('--json resume', () => {
   it('nothing-to-do: no open run gives run and error of null', async () => {
     const { code, out } = await runCli(['resume', '--yes', '--json']);
     expect(code).toBe(0);
-    expect(onlyObject(out)).toEqual({ command: 'resume', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null });
+    expect(onlyObject(out)).toEqual({ command: 'resume', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null, warnings: [] });
   });
 
   it('prints no progress line on a terminal', async () => {
@@ -149,7 +149,7 @@ describe('--json close', () => {
   it('nothing-to-do: no open run gives run and error of null', async () => {
     const { code, out } = await runCli(['close', '--json']);
     expect(code).toBe(0);
-    expect(onlyObject(out)).toEqual({ command: 'close', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null });
+    expect(onlyObject(out)).toEqual({ command: 'close', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null, warnings: [] });
   });
 });
 

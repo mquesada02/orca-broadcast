@@ -75,7 +75,7 @@ const filterSpecOf = (values: FlagValues): FilterSpec => {
 
 // The JSON object of a group command: the groups it touched, and no run or record.
 function groupJsonLine(command: string, result: Pick<GroupResult, 'outcome' | 'groups'> | null, error: string | null = null): string {
-  return `${JSON.stringify({ command, outcome: result?.outcome ?? 'error', exitCode: result ? 0 : 2, error, groups: result?.groups ?? null })}\n`;
+  return `${JSON.stringify({ command, outcome: result?.outcome ?? 'error', exitCode: result ? 0 : 2, error, groups: result?.groups ?? null, warnings: [] })}\n`;
 }
 
 // The group command a call names, as far as it is known: `group` when the subcommand is missing or unknown.
@@ -90,9 +90,9 @@ function rosterJsonLine(command: string, result: RosterResult | null, error: str
   return `${JSON.stringify({ command, outcome: result.outcome, agents: result.outcome === 'saved' ? result.agents : null, warnings: result.outcome === 'saved' ? [] : [result.reason] })}\n`;
 }
 
-function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'run' | 'error' | 'record'>): string {
-  const { outcome, exitCode, run, error, record } = summary;
-  return `${JSON.stringify({ command, outcome, exitCode, run, record: record ?? null, error })}\n`;
+function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'run' | 'error' | 'record' | 'warnings'>): string {
+  const { outcome, exitCode, run, error, record, warnings } = summary;
+  return `${JSON.stringify({ command, outcome, exitCode, run, record: record ?? null, error, warnings: warnings ?? [] })}\n`;
 }
 
 // Lists the targets on stderr and asks once. Ctrl-C at the prompt counts as an interrupt, like SIGTERM.

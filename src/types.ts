@@ -206,7 +206,7 @@ export interface RunSummary {
   broadcastSelf?: BroadcastSelf | null;
   /** How many targets `close` abandoned in a broadcast. */
   abandoned?: number;
-  /** Lines printed on stderr in text mode (never in `--json`): recovery notes and the broadcast a pause abandoned. */
+  /** Warning lines: printed on stderr in text mode, and the `warnings` field of `--json`. Recovery notes, the broadcast a pause abandoned, and a roster save that failed. */
   warnings?: string[];
 }
 

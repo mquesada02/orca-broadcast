@@ -495,7 +495,7 @@ describe('broadcast: the outcome', () => {
     expect(code).toBe(0);
     expect(err).toBe('');
     const object = JSON.parse(out) as Record<string, unknown>;
-    expect(Object.keys(object).sort()).toEqual(['command', 'error', 'exitCode', 'outcome', 'record', 'run']);
+    expect(Object.keys(object).sort()).toEqual(['command', 'error', 'exitCode', 'outcome', 'record', 'run', 'warnings']);
     expect(object).toMatchObject({ command: 'broadcast', outcome: 'done', exitCode: 0, run: null, error: null, record: { token: TOKEN, text: 'hello', status: 'closed', targets: [{ paneKey: 'a:1', status: 'acked' }] } });
   });
 
@@ -503,7 +503,7 @@ describe('broadcast: the outcome', () => {
     const refused = await send('', [{ paneKey: 'a:1', behavior: acks }], {}, ['--json']);
     expect(JSON.parse(refused.out)).toMatchObject({ command: 'broadcast', outcome: 'error', exitCode: 2, record: null });
     const nothing = await send('hello', [], {}, ['--json']);
-    expect(JSON.parse(nothing.out)).toEqual({ command: 'broadcast', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null });
+    expect(JSON.parse(nothing.out)).toEqual({ command: 'broadcast', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null, warnings: [] });
   });
 });
 
@@ -600,7 +600,7 @@ describe('close and a broadcast', () => {
       },
     });
     const object = JSON.parse(out) as Record<string, unknown>;
-    expect(Object.keys(object).sort()).toEqual(['command', 'error', 'exitCode', 'outcome', 'record', 'run']);
+    expect(Object.keys(object).sort()).toEqual(['command', 'error', 'exitCode', 'outcome', 'record', 'run', 'warnings']);
     expect(object).toMatchObject({ command: 'close', outcome: 'done', record: null, run: { status: 'closed' } });
     expect(err).toBe('');
   });
