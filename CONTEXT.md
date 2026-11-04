@@ -33,7 +33,7 @@ A saved, named filter of agents, resolved again each time it is used.
 _Avoid_: Preset, list, tag
 
 **Roster**:
-The saved snapshots of the live Claude agents, one file per runtime key (the pair of boot ID and Orca runtime ID), with the newest 5 kept. An entry holds a session ID, the pane key, the worktree and the role of one agent, and never prompt or reply text.
+The saved snapshots of the live Claude agents, one file per runtime key (the pair of boot ID and Orca runtime ID), with the newest 5 kept. An entry holds a session ID, the pane key, the worktree and the role of one agent, and never prompt or reply text. `roster save`, and the start and end of `broadcast`, `pause` and `resume`, write it.
 _Avoid_: Backup, agent list
 
 **Session role**:
