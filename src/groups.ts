@@ -35,7 +35,7 @@ export function absoluteWorktrees(spec: GroupSpec, cwd: string): GroupSpec {
   return { ...spec, worktree: spec.worktree.map((value) => (value.includes('/') || value.startsWith('.') ? resolve(cwd, value) : value)) };
 }
 
-// A group for pause, resume and close: the `state` kind is not used there.
+// A group for pause, resume, close and recover: the `state` kind is not used there.
 export function toGroupFilter(name: string, spec: GroupSpec): GroupFilter {
   return { name, spec: { repo: spec.repo, worktree: spec.worktree, role: spec.role, run: spec.run } };
 }

@@ -160,7 +160,7 @@ describe('--json errors outside the commands', () => {
     [['--json'], null, 'missing command'],
     [['bogus', '--json'], null, 'unknown command'],
     [['pause', 'extra', '--json'], null, 'unknown command'],
-    [['close', '--timeout', '5s', '--json'], 'close', 'only to pause and broadcast'],
+    [['close', '--timeout', '5s', '--json'], 'close', 'only to pause, broadcast and recover'],
     [['pause', '--timeout', '0s', '--json'], 'pause', 'invalid --timeout'],
   ])('%j gives one error object, command %j, exit 2, empty stderr, Orca untouched', async (argv, command, message) => {
     const { code, out, err, port } = await runCli(argv, [{ paneKey: 'a:1', behavior: working }], { isTTY: true });

@@ -8,6 +8,7 @@ const PURPOSE: Record<Command, string> = {
   pause: 'Ask every working Claude Code agent to stop at a clean point and prove it did',
   resume: 'Tell every paused agent to continue and prove it did',
   close: 'Abandon the open run or broadcast without resuming it; nothing is sent',
+  recover: 'Show which agents were alive before a restart or a crash, and which came back',
 };
 
 const DETAILS: Record<Command, string[]> = {
@@ -25,6 +26,11 @@ const DETAILS: Record<Command, string[]> = {
   ],
   close: [
     'Pending agents become abandoned. Exit 0, also when there is nothing to close. Filters only narrow the run; the record stays open while others are pending.',
+  ],
+  recover: [
+    'Reads the roster saved before the restart, matches each agent to a live session by Claude session ID, and shows what is restored, missing or failed. It asks once before it acts; the filters select the part of the fleet to recover.',
+    'In this version a yes starts and sends nothing: each row that a restart or a prompt would handle ends pending, reason timed-out. Answering no prints the report, writes no record and exits 1.',
+    'Exit 0 if every row is restored (or there is nothing to recover), 1 if any row is pending, gone, no-coordinator or failed, 2 on a refusal.',
   ],
 };
 

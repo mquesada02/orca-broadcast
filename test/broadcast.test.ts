@@ -616,7 +616,7 @@ describe('broadcast flags', () => {
     [['broadcast', 'hi', '--reason', 'away', '--yes'], '--reason applies only to pause'],
     [['pause', '--file', 'x', '--yes'], '--file applies only to broadcast'],
     [['broadcast', 'one', 'two', '--yes'], 'broadcast takes one text'],
-    [['resume', '--timeout', '5s', '--yes'], '--timeout applies only to pause and broadcast'],
+    [['resume', '--timeout', '5s', '--yes'], '--timeout applies only to pause, broadcast and recover'],
   ])('%j exits 2 with the usage error', async (argv, message) => {
     const { code, err, port } = await run(argv, [{ paneKey: 'a:1', behavior: acks }]);
     expect(code).toBe(2);

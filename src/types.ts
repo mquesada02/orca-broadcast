@@ -212,7 +212,76 @@ export interface RunSummary {
   abandoned?: number;
   /** Warning lines: printed on stderr in text mode, and the `warnings` field of `--json`. Recovery notes, the broadcast a pause abandoned, and a roster save that failed. */
   warnings?: string[];
+  /** What `recover` shows; absent for every other command (and for a `recover` that failed before it read anything). */
+  recovery?: RecoverySummary;
 }
+
+export type RecoverStatus = 'restored' | 'restarted' | 'acked' | 'pending' | 'gone' | 'left-to-coordinator' | 'no-coordinator' | 'failed' | 'abandoned';
+export type RecoverReason =
+  | LocateReason
+  | 'awaiting-start'
+  | 'not-in-run'
+  | 'session-held'
+  | 'unverifiable'
+  | 'did-not-appear'
+  | 'no-transcript'
+  | 'coordinator-missing'
+  | 'coordinator-filtered'
+  | 'coordinator-is-self'
+  | 'coordinator-not-paused'
+  | 'no-session-id'
+  | 'declined'
+  | 'scan-failed'
+  | 'invalid-session-id'
+  | 'flag-not-allowed'
+  | 'start-failed'
+  | 'timed-out'
+  | 'closed'
+  | 'paused'
+  | 'waiting-permission'
+  | 'send-failed'
+  | 'no-ack'
+  | 'still-working'
+  | 'background';
+
+// One row of the `recover` table, and the row of its `--json` line (the keys are the contract).
+export interface RecoverRow {
+  sessionId: string | null;
+  repo: string;
+  worktree: string;
+  worktreePath: string;
+  role: Role;
+  status: RecoverStatus;
+  reason: RecoverReason | null;
+  dispatchId: string | null;
+}
+
+// One snapshot used for the pre-restart set: its last save (ISO) and its age in whole minutes.
+export interface SnapshotLine {
+  lastSave: string;
+  ageMinutes: number;
+}
+
+// The session that runs `recover`, on its own line in text mode: it is no row. `missingWorkers` holds one item per missing worker of this coordinator.
+export interface RecoverSelf extends ConfirmTarget {
+  missingWorkers: string[];
+}
+
+export interface RecoverySummary {
+  rows: RecoverRow[];
+  snapshots: SnapshotLine[];
+  self: RecoverSelf | null;
+}
+
+// What the `recover` confirmation lists, one line per item, and counts in its question.
+export interface RecoverPlan {
+  restarts: (ConfirmTarget & { permission: string | null })[];
+  prompts: ConfirmTarget[];
+  leaves: { repo: string; worktree: string; coordinator: { repo: string; worktree: string } }[];
+}
+
+// Asked once, before anything is started or sent: false means the user said no.
+export type ConfirmRecover = (plan: RecoverPlan, signal?: AbortSignal) => Promise<boolean>;
 
 // This session on the self line: the saved status when it is a recorded target of the open broadcast.
 export interface BroadcastSelf extends ConfirmTarget {
@@ -248,7 +317,7 @@ export interface FilterSet {
   anyOf?: FilterSet[];
 }
 
-// A saved group as a command uses it: its name and its filters, without the `state` kind that pause, resume and close skip.
+// A saved group as a command uses it: its name and its filters, without the `state` kind that pause, resume, close and recover skip.
 export interface GroupFilter {
   name: string;
   spec: FilterSpec;

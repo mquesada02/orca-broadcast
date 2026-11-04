@@ -234,7 +234,7 @@ describe('flag table', () => {
     [['pause', '--state', 'working'], '--state applies only to broadcast'],
     [['resume', '--state', 'done'], '--state applies only to broadcast'],
     [['close', '--state', 'done'], '--state applies only to broadcast'],
-    [['close', '--yes'], '--yes applies only to pause, resume and broadcast'],
+    [['close', '--yes'], '--yes applies only to pause, resume, broadcast and recover'],
     [['resume', '--timeout', '5s'], '--timeout applies only to pause'],
     [['close', '--reason', 'away'], '--reason applies only to pause'],
     [['pause', '--role', 'boss'], 'invalid --role "boss"'],
