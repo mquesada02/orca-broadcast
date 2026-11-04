@@ -178,12 +178,14 @@ async function execute({ deps, warnings, classified, snapshotKey, liveRuntime, s
 
   // Before the first start: nothing was started if this fails.
   setPid(record, store);
+  let firstSaveWorked = false;
   try {
     await save();
+    firstSaveWorked = true;
     await store.setCurrent('recovery', record.id);
   } catch (error) {
     clearPid(record);
-    await save().catch(() => {});
+    if (firstSaveWorked) await save().catch(() => {});
     return { ...failure(error, null), recovery: summaryOf() };
   }
 
