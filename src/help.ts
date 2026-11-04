@@ -1,7 +1,7 @@
 import { flagsOf, GENERIC_FLAGS, isCommand, type Command, type FlagSpec } from './flags.js';
 
-/** What a help request or a usage error is about: one command, the `group` commands, or nothing known. */
-export type HelpTopic = Command | 'group' | null;
+/** What a help request or a usage error is about: one command, the `group` or `roster` commands, or nothing known. */
+export type HelpTopic = Command | 'group' | 'roster' | null;
 
 const PURPOSE: Record<Command, string> = {
   broadcast: 'Send text (several lines allowed) to every working or done Claude Code agent and prove each one handled it',
@@ -37,6 +37,10 @@ const GROUP_USAGE = [
 
 const GROUP_PURPOSE = 'Save, list, show and remove named filters';
 
+const ROSTER_USAGE = ['orca-broadcast roster save [--json]'];
+
+const ROSTER_PURPOSE = 'Save a snapshot of the live Claude Code agents';
+
 const flagHead = (name: string, spec: FlagSpec) => `--${name}${spec.arg ? ` ${spec.arg}` : ''}`;
 const flagUsage = ([name, spec]: [string, FlagSpec]) => `[${flagHead(name, spec)}]`;
 
@@ -52,6 +56,7 @@ function usageOf(command: Command): string {
 /** The usage line (or lines) a usage error prints under its message. */
 export function usageLine(topic: HelpTopic): string {
   if (topic === 'group') return `Usage: ${GROUP_USAGE.join('\n       ')}\n`;
+  if (topic === 'roster') return `Usage: ${ROSTER_USAGE.join('\n       ')}\n`;
   if (topic === null) return topHelp();
   return `Usage: ${usageOf(topic)}\n`;
 }
@@ -74,17 +79,21 @@ export function groupHelp(): string {
   return `${usageLine('group')}\n${GROUP_PURPOSE}. add checks that every value resolves now; show lists the agents the group matches now. They only read Orca and send nothing.\nlist, show and remove take only --json and --help.\n\nFlags of group add:\n${flagLines('group add')}`;
 }
 
+export function rosterHelp(): string {
+  return `${usageLine('roster')}\n${ROSTER_PURPOSE}, one file per Orca runtime in the state folder (the newest 5 are kept). save reads Orca and Claude processes and sends nothing; it takes no lock. It never stores prompt or reply text.\nExit 0 if saved, 1 if it could not save (the reason is printed), 2 on a usage error.\n\nFlags:\n${flagsOf('group add').filter(([name]) => GENERIC_FLAGS.includes(name)).map(([name, spec]) => `  ${flagHead(name, spec)}\n      ${spec.help}\n`).join('')}`;
+}
+
 export function topHelp(): string {
-  const commands = Object.entries({ ...PURPOSE, group: GROUP_PURPOSE }).map(([name, text]) => `  ${name.padEnd(11)}${text}\n`).join('');
+  const commands = Object.entries({ ...PURPOSE, group: GROUP_PURPOSE, roster: ROSTER_PURPOSE }).map(([name, text]) => `  ${name.padEnd(11)}${text}\n`).join('');
   return `Usage: orca-broadcast <command> [flags]\n\nCommands:\n${commands}\nOptions differ per command: run \`orca-broadcast <command> --help\` for its options.\n`;
 }
 
 export function helpFor(topic: HelpTopic): string {
-  return topic === 'group' ? groupHelp() : topic === null ? topHelp() : commandHelp(topic);
+  return topic === 'group' ? groupHelp() : topic === 'roster' ? rosterHelp() : topic === null ? topHelp() : commandHelp(topic);
 }
 
 /** The topic of the first word, or null when it is not a command. */
 export const helpTopicOf = (positionals: string[]): HelpTopic => {
   const [first] = positionals;
-  return first === 'group' ? 'group' : isCommand(first) ? first : null;
+  return first === 'group' || first === 'roster' ? first : isCommand(first) ? first : null;
 };

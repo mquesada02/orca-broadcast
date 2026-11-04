@@ -50,6 +50,12 @@ If a run can never finish (for example an agent ignores the message), abandon it
 orca-broadcast close
 ```
 
+To save a snapshot of the live agents (see "Roster"). It reads Orca and sends nothing:
+
+```sh
+orca-broadcast roster save
+```
+
 To give the same instruction to every working or done agent, and prove each one handled it:
 
 ```sh
@@ -134,6 +140,51 @@ orca-broadcast pause --group web --role worker
 - **Use.** Values are resolved again at each use; a value that no longer resolves exits 2 and names the group and the value. Several `--group` flags are a union: an agent is selected when it matches any one group, and each group keeps its own meaning (kinds ANDed, values of one kind ORed). Naming a group twice is the same as once, and an unknown name exits 2 before anything is sent. A kind in both a group and the ad-hoc flags gives the intersection (an empty one prints "nothing to <command>", except that `pause` on an open run still adds the empty set). `pause` copies the resolved groups into the run, so editing the file does not change an open run until your next `pause`.
 - **State.** `group add --state working|done` is for `broadcast`, where the `state` kind applies. `pause`, `resume` and `close` skip each group's `state` kind with one line on stderr. A group that then has no other kind is dropped from a union (it never selects every agent), and the command is refused (exit 2) when every named group has only a `state` kind.
 
+### Roster
+
+The roster is a set of snapshots of the live Claude agents, one file per Orca runtime, so that a later command can find the agents that were alive before a restart. `roster save` writes one snapshot now. Each entry holds the Claude session ID, the pane key, the repo and worktree, the role, the last state (`working`, `done` or `waiting`) and, when known, the permission flag. For a worker it also holds the session ID of its coordinator and its dispatch ID. It never holds prompt or reply text.
+
+- **Files.** `$XDG_STATE_HOME/orca-broadcast/roster/<boot ID>-<runtime ID>.json` (`none` when Orca gives no runtime ID). A save in the same runtime replaces that file's entries, so an agent you closed on purpose drops out at the next save; an agent whose pane is live but whose session ID could not be read this time keeps its old entry. A save after a restart writes a new file and never changes an older one. The newest 5 files are kept.
+- **Output.** `roster saved: <N> agents`, or `roster not saved: <reason>`. With `--json`: `{"command":"roster save","outcome":"saved"|"skipped","agents":<N or null>,"warnings":[...]}`. Exit `0` when saved, `1` when it could not save (a failed scan or listing never replaces a snapshot), `2` on a usage error. It takes no lock and sends nothing.
+- **Timer (optional).** A systemd user timer can save the roster every 5 minutes, so a crash long after your last command still finds a recent roster. Put these two files in `~/.config/systemd/user/` (the `PATH` line must hold the folder of `orca-ide`; change `%h/.local/bin` if yours is elsewhere):
+
+  `orca-broadcast-roster.service`
+
+  ```ini
+  [Unit]
+  Description=Save the orca-broadcast roster
+
+  [Service]
+  Type=oneshot
+  Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+  ExecStart=%h/.local/bin/orca-broadcast roster save
+  ```
+
+  `orca-broadcast-roster.timer`
+
+  ```ini
+  [Unit]
+  Description=Save the orca-broadcast roster every 5 minutes
+
+  [Timer]
+  OnStartupSec=1min
+  OnUnitActiveSec=5min
+
+  [Install]
+  WantedBy=timers.target
+  ```
+
+  Turn it on and off:
+
+  ```sh
+  systemctl --user daemon-reload
+  systemctl --user enable --now orca-broadcast-roster.timer
+  systemctl --user disable --now orca-broadcast-roster.timer
+  ```
+
+  To change the interval, edit `OnUnitActiveSec` in the timer file and run `systemctl --user daemon-reload`. A save that fails exits 1 and shows in `journalctl --user -u orca-broadcast-roster.service`. This unit text is not tested under systemd: start the service once by hand (`systemctl --user start orca-broadcast-roster.service`) and read the journal before you rely on it.
+- **Runtime ID caveat.** The design relies on Orca's runtime ID changing on every Orca start. Whether Orca keeps it across an Orca-only crash is not tested. If it does, a save after the crash writes to the same file as before it, and only a changed boot ID (a PC restart) protects the earlier snapshot.
+
 ### Options
 
 | Option | Effect |
@@ -185,6 +236,7 @@ An unknown name, or `--reason` on `resume`, `close` or `broadcast`, is a usage e
 - `current`: a JSON pointer, `{"kind": "pause" | "broadcast", "id": "<id>"}`, to the one open record.
 - `pauses/`: one JSON file per pause run.
 - `broadcasts/`: one JSON file per broadcast.
+- `roster/`: one JSON file per Orca runtime, the newest 5 (see "Roster").
 
 Each record is written atomically before every send. At most one record, of either kind, is open. If a crash leaves more than one open, the newest wins and the command reports the others. Running `pause` again before `resume` extends the same run.
 

@@ -13,7 +13,8 @@ import { DEFAULT_TIMEOUT_MS, pause, precheckPause, prelockPause, type PauseDeps 
 import { describeFilters, hasFilters, isFiltered } from './filters.js';
 import { isGroupSubcommand, runGroup, type GroupResult } from './group-cmd.js';
 import { loadGroups, lookupGroup, resolveGroupsPath, toGroupFilter, type GroupSpec } from './groups.js';
-import { checkStates, isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, type Command, type FlagValues } from './flags.js';
+import { checkStates, isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, validateRosterArgs, type Command, type FlagValues } from './flags.js';
+import { isRosterSubcommand, runRosterSave, type RosterResult } from './roster-cmd.js';
 import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { helpFor, helpTopicOf, usageLine, type HelpTopic } from './help.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
@@ -80,6 +81,15 @@ function groupJsonLine(command: string, result: Pick<GroupResult, 'outcome' | 'g
 // The group command a call names, as far as it is known: `group` when the subcommand is missing or unknown.
 const groupLabel = (positionals: string[]): string | null => (positionals[0] === 'group' ? (isGroupSubcommand(positionals[1]) ? `group ${positionals[1]}` : 'group') : null);
 
+// The roster command a call names, as far as it is known: `roster` when the subcommand is missing or unknown.
+const rosterLabel = (positionals: string[]): string | null => (positionals[0] === 'roster' ? (isRosterSubcommand(positionals[1]) ? `roster ${positionals[1]}` : 'roster') : null);
+
+// The JSON object of a roster command. An error carries `exitCode` and `error`; a skipped save carries its reason in `warnings`.
+function rosterJsonLine(command: string, result: RosterResult | null, error: string | null = null): string {
+  if (result === null) return `${JSON.stringify({ command, outcome: 'error', exitCode: 2, error, agents: null, warnings: [] })}\n`;
+  return `${JSON.stringify({ command, outcome: result.outcome, agents: result.outcome === 'saved' ? result.agents : null, warnings: result.outcome === 'saved' ? [] : [result.reason] })}\n`;
+}
+
 function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'run' | 'error' | 'record'>): string {
   const { outcome, exitCode, run, error, record } = summary;
   return `${JSON.stringify({ command, outcome, exitCode, run, record: record ?? null, error })}\n`;
@@ -127,8 +137,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
   let command: Command | null = null;
   // The first words of argv until the parser has run: enough to answer a failed parse of a group call in the group shape.
   let group = groupLabel(argv.filter((arg) => !arg.startsWith('-')));
+  let roster = rosterLabel(argv.filter((arg) => !arg.startsWith('-')));
   // What a usage error prints under its message; refined once the parser has run.
-  let topic: HelpTopic = helpTopicOf(argv.filter((arg) => arg === 'group' || isCommand(arg)));
+  let topic: HelpTopic = helpTopicOf(argv.filter((arg) => arg === 'group' || arg === 'roster' || isCommand(arg)));
   try {
     const { values, positionals } = parseUsage(argv);
     topic = helpTopicOf(positionals);
@@ -138,7 +149,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     }
     const [name, ...rest] = positionals;
     group = groupLabel(positionals);
+    roster = rosterLabel(positionals);
     if (name === 'group') return await mainGroup(rest, values as FlagValues, json, env, io, deps);
+    if (name === 'roster') return await mainRoster(rest, values as FlagValues, json, env, io, deps);
     if (name === 'broadcast' && rest.length > 1) throw new UsageError('broadcast takes one text: put it in quotes');
     if (!isCommand(name) || (name !== 'broadcast' && rest.length > 0)) {
       throw new UsageError(positionals.length === 0 ? 'missing command' : `unknown command "${positionals.join(' ')}"`);
@@ -208,7 +221,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     return summary.exitCode;
   } catch (error) {
     if (json) {
-      io.stdout(group ? groupJsonLine(group, null, (error as Error).message) : jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
+      io.stdout(group ? groupJsonLine(group, null, (error as Error).message) : roster ? rosterJsonLine(roster, null, (error as Error).message) : jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
       return 2;
     }
     io.stderr(`orca-broadcast: ${(error as Error).message}\n`);
@@ -228,6 +241,17 @@ async function loadGroupFilters(names: string[] | undefined, command: Command, e
   if (used.length === 0) throw new Error(`Group ${unique.join(', ')} only filter${unique.length === 1 ? 's' : ''} by state, which ${command} does not use.`);
   for (const { name, spec } of specs) if (spec.state.length > 0) io.stderr(`orca-broadcast: group ${name}: state filter skipped (${command} does not use it)\n`);
   return used;
+}
+
+// `roster save`: runs before the safety switch and the lock, because it never sends and never touches a run. A save that fails is reported, not thrown.
+async function mainRoster(rest: string[], values: FlagValues, json: boolean, env: NodeJS.ProcessEnv, io: CliIo, deps: CliDeps): Promise<number> {
+  const [sub, ...args] = rest;
+  if (!isRosterSubcommand(sub)) throw new UsageError(sub === undefined ? 'missing roster subcommand' : `unknown roster subcommand "${sub}"`);
+  validateRosterArgs(args, values);
+  const store = createRecordStore(resolveStateDir(env), deps.storeOptions);
+  const result = await runRosterSave({ port: deps.port ?? createOrcaAdapter(), clock: deps.clock ?? systemClock, store });
+  io.stdout(json ? rosterJsonLine(`roster ${sub}`, result) : result.outcome === 'saved' ? `roster saved: ${result.agents} agents\n` : `roster not saved: ${result.reason}\n`);
+  return result.outcome === 'saved' ? 0 : 1;
 }
 
 // `group add|list|show|remove`: runs before the safety switch, the store and the lock, because it never sends and never touches a run.

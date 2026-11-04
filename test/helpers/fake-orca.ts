@@ -43,7 +43,7 @@ export class FakeOrca implements OrcaPort {
   listReposCalls = 0;
   listWorktreesCalls = 0;
   /** Pane keys with an active worker row (run id optional), by worker-list call number. */
-  workersAt: (workerListCall: number) => { paneKey: string; runId?: string | null }[] = () => [];
+  workersAt: (workerListCall: number) => { paneKey: string; runId?: string | null; dispatchId?: string }[] = () => [];
   /** Raw run-list rows by call number (a null or unknown handle is a stale one); used instead of coordinatorsAt when set. */
   runsAt: ((runListCall: number) => RunRow[]) | null = null;
   /** Make every worker-list call from this number on throw. */
@@ -166,7 +166,7 @@ export class FakeOrca implements OrcaPort {
   async listWorkers(): Promise<WorkerRow[]> {
     this.listWorkersCalls += 1;
     if (this.failWorkerListsFrom !== null && this.listWorkersCalls >= this.failWorkerListsFrom) throw new Error('orca-ide orchestration worker-list failed: boom');
-    return this.workersAt(this.listWorkersCalls).map((w) => ({ handle: this.handleOf(w.paneKey), runId: w.runId ?? null }));
+    return this.workersAt(this.listWorkersCalls).map((w) => ({ handle: this.handleOf(w.paneKey), runId: w.runId ?? null, ...(w.dispatchId === undefined ? {} : { dispatchId: w.dispatchId }) }));
   }
 
   /** The repo list (`repo list`); a test that names repos sets it. */

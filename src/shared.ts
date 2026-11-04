@@ -147,14 +147,25 @@ export interface Snapshot {
   roles: Roles;
   /** Every orchestration run id of the run list and the worker list: the values `--run` can name. */
   runIds: string[];
+  /** The Orca runtime ID of the same `worktree ps` call that gave `agents`; null when Orca sent none. */
+  runtimeId: string | null;
+  runs: RunRow[];
+  workers: WorkerRow[];
 }
 
 // One pass of all four listings, taken together: roles are never computed from listings of different moments.
 export async function listSnapshot(deps: ListDeps): Promise<Snapshot> {
   const { port, clock, signal } = deps;
-  const [[agents, terminals], runs, workers] = await allSettledOrThrow([listFresh(deps), withRetry(() => port.listRuns(), clock, signal), withRetry(() => port.listWorkers(), clock, signal)]);
+  const [{ rows, runtimeId }, terminalRows, runs, workers] = await allSettledOrThrow([
+    withRetry(() => port.listAgentsWithRuntime(), clock, signal),
+    withRetry(() => port.listTerminals(), clock, signal),
+    withRetry(() => port.listRuns(), clock, signal),
+    withRetry(() => port.listWorkers(), clock, signal),
+  ]);
+  const agents = newestByPane(rows);
+  const terminals = terminalsByPane(terminalRows);
   const runIds = [...new Set([...runs.map((run) => run.id), ...workers.flatMap((worker) => (worker.runId ? [worker.runId] : []))])];
-  return { agents, terminals, roles: computeRoles(agents, terminals, runs, workers), runIds };
+  return { agents, terminals, roles: computeRoles(agents, terminals, runs, workers), runIds, runtimeId, runs, workers };
 }
 
 // The identity fields that filters match and that a poll refreshes in a record: the ids and the worktree path.
