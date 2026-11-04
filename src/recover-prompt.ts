@@ -1,3 +1,4 @@
+import { compare } from './recover-classify.js';
 import { ackLine } from './shared.js';
 
 // A worker as the prompt and the self line show it.
@@ -9,8 +10,6 @@ interface WorkerLike {
 
 /** `<repo>/<worktree> (dispatch <dispatch id>)`, or `(dispatch unknown)` when there is none. */
 export const workerItem = ({ repo, worktree, dispatchId }: WorkerLike): string => `${repo}/${worktree} (dispatch ${dispatchId ?? 'unknown'})`;
-
-const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * The items of a coordinator's worker list: the missing workers that have a row, in table order (as given), then the workers

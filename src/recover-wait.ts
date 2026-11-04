@@ -77,7 +77,8 @@ export async function settle(started: Started, deps: SettleDeps): Promise<void> 
 
     const due: LiveRow[] = [];
     for (const row of record.rows.filter((r) => r.promptDue && r.status === 'pending' && panes.has(r.sessionId))) {
-      const paneKey = holders.get(row.sessionId)?.row.paneKey ?? (panes.get(row.sessionId) as string);
+      // The map was just refreshed from the live holders, so it names the live pane, else the pane where the session was last seen.
+      const paneKey = panes.get(row.sessionId) as string;
       const found = locate(paneKey, agents, terminals);
       if ('gone' in found) {
         setResult(row, 'gone', found.gone);

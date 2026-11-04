@@ -71,7 +71,7 @@ export async function recheckHeld(items: Item[], { port, clock, signal, deadline
 }
 
 // The order of the table: coordinators first, then the others; each group by repo, worktree, session ID and pane key.
-const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+export const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 export function tableOrder(items: Item[]): Item[] {
   const rank = (item: Item) => (item.entry.role === 'coordinator' ? 0 : 1);
   return [...items].sort((a, b) => rank(a) - rank(b) || compare(a.entry.repo, b.entry.repo) || compare(a.entry.worktree, b.entry.worktree) || compare(a.entry.sessionId, b.entry.sessionId) || compare(a.entry.paneKey, b.entry.paneKey));
