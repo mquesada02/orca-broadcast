@@ -104,6 +104,7 @@ export function proves(target: Pick<BroadcastTarget, 'messagePending' | 'baselin
 // A target is due a send when its message is still pending, its last send did not fail, and the agent is not on a permission prompt.
 export const sendDue = (target: Pick<BroadcastTarget, 'messagePending' | 'reason'>, row: Pick<AgentRow, 'state'>): boolean =>
   target.messagePending && target.reason !== 'send-failed' && !isWaitingLike(row.state);
+
 // Role and run ids of every live agent, by pane key. An agent that is not live has no entry.
 export type Roles = Map<string, RoleInfo>;
 
