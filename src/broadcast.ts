@@ -1,7 +1,7 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { isFiltered, matches, NO_FILTERS, type Subject } from './filters.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
-import { BROADCAST_OPEN_MESSAGE, busyReason, cancelled, clearPid, coordinatorsFirst, endsWithLine, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, setPid, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
+import { ackLine, BROADCAST_OPEN_MESSAGE, busyReason, cancelled, clearPid, coordinatorsFirst, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, proves, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, sendDue, setPid, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
 
@@ -28,8 +28,6 @@ interface BroadcastDeps {
   groups?: GroupFilter[];
   cwd?: string;
 }
-
-const ackLine = (token: string) => `ORCA-ACK ${token}`;
 
 const END_MARKER = '[end of message]';
 
@@ -304,10 +302,6 @@ function markGone(targets: BroadcastTarget[], agents: Map<string, AgentRow>, ter
   return targets.filter((t) => t.status === 'gone').length;
 }
 
-function proves(target: BroadcastTarget, row: AgentRow, token: string): boolean {
-  return !target.messagePending && !isWaitingLike(row.state) && hasNewReply(target.baseline, row) && endsWithLine(row.lastAssistantMessage, ackLine(token));
-}
-
 // One pass: locate, refresh, check the proof, then send to targets that still need the message. Acked and gone are permanent.
 async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snapshot, deps: BroadcastDeps): Promise<void> {
   const { agents, terminals, roles } = snapshot;
@@ -333,8 +327,7 @@ async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snaps
   }
 
   const message = broadcastMessage(record.text, record.token);
-  const needsSend = ({ target, row }: { target: BroadcastTarget; row: AgentRow }) => target.messagePending && target.reason !== 'send-failed' && !isWaitingLike(row.state);
-  for (const { target } of coordinatorsFirst(live.filter(needsSend), ({ target }) => target.role)) {
+  for (const { target } of coordinatorsFirst(live.filter(({ target, row }) => sendDue(target, row)), ({ target }) => target.role)) {
     throwIfAborted(deps.signal);
     await deps.store.saveBroadcast(record);
     const [freshAgents, freshTerminals] = await listFresh(deps);
