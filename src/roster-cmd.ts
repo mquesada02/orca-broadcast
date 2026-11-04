@@ -56,21 +56,22 @@ export interface AutoRosterDeps extends RosterDeps {
  * The automatic saves of one `broadcast`, `pause` or `resume` run. They take no listing: `start` saves the first snapshot of the run,
  * `end` saves the newest one unless it is the start snapshot. A failed save adds a warning and never throws; a run that has seen
  * its abort signal saves nothing. `start` returns the scan it took, even when the later write fails, so the run can match session IDs
- * without a scan of its own; it returns null when the scan failed or the run was aborted.
+ * without a scan of its own; it returns null when the scan failed or the run was aborted. A caller that already holds a scan
+ * of the same moment (`recover`) passes it to `start`, and `start` then takes none.
  */
 export interface AutoRoster {
-  start(snapshot: Snapshot): Promise<SessionScan | null>;
+  start(snapshot: Snapshot, scan?: SessionScan): Promise<SessionScan | null>;
   end(newest: Snapshot | null): Promise<void>;
 }
 
 export function autoRoster(deps: AutoRosterDeps, warnings: string[]): AutoRoster {
   let started: Snapshot | null = null;
   // One scan, then the write. The scan is returned even when the write fails; it is null when the scan failed or the run was aborted.
-  const save = async (snapshot: Snapshot): Promise<SessionScan | null> => {
+  const save = async (snapshot: Snapshot, given?: SessionScan): Promise<SessionScan | null> => {
     if (deps.signal?.aborted) return null;
     let scan: SessionScan;
     try {
-      scan = await deps.port.scanSessions();
+      scan = given ?? (await deps.port.scanSessions());
     } catch (error) {
       warnings.push(`roster not saved: ${reasonOf(error)}`);
       return null;
@@ -83,9 +84,9 @@ export function autoRoster(deps: AutoRosterDeps, warnings: string[]): AutoRoster
     return deps.signal?.aborted ? null : scan;
   };
   return {
-    start(snapshot) {
+    start(snapshot, scan) {
       started = snapshot;
-      return save(snapshot);
+      return save(snapshot, scan);
     },
     async end(newest) {
       if (started === null || newest === null || newest === started) return;
