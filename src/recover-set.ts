@@ -1,10 +1,7 @@
 import { iso } from './shared.js';
-import type { RosterEntry, RosterSnapshot, SnapshotLine } from './types.js';
+import type { RosterEntry, RosterSnapshot, RuntimeKey, SnapshotLine } from './types.js';
 
-export interface RuntimeKey {
-  bootId: string;
-  runtimeId: string | null;
-}
+export type { RuntimeKey };
 
 // Two keys are one runtime when the boot IDs are equal and the runtime IDs are equal or either is unknown (null).
 export const sameRuntime = (a: RuntimeKey, b: RuntimeKey): boolean =>
@@ -21,6 +18,8 @@ export interface PreRestartSet {
   entries: RosterEntry[];
   /** One line per snapshot used, newest first. */
   snapshots: SnapshotLine[];
+  /** The key of the newest snapshot used. */
+  key: RuntimeKey;
   /** Set when no snapshot of another runtime exists and the live runtime's own snapshot is used. */
   notice: string | null;
 }
@@ -48,6 +47,7 @@ export function preRestartSet(rosters: RosterSnapshot[], live: RuntimeKey, now: 
 
   return {
     entries: [...entries.values()],
+    key: { bootId: first.bootId, runtimeId: first.runtimeId },
     snapshots: used.map((roster) => ({ lastSave: iso(Date.parse(roster.lastSavedAt)), ageMinutes: Math.max(0, Math.floor((now - Date.parse(roster.lastSavedAt)) / 60_000)) })),
     notice: fallback ? FALLBACK_NOTICE : null,
   };

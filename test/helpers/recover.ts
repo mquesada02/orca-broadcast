@@ -1,7 +1,7 @@
 import { fakeClock, type FakeAgent, type FakeOrca } from './fake-orca.js';
 import { rosterEntry, rosterSnapshot, scanOf, seedRosters, T0 } from './roster.js';
 import { runCli, type RunCliOptions } from './run-cli.js';
-import type { RecoverRow, RosterEntry, SessionScan, SnapshotLine } from '../../src/types.js';
+import type { RecoverRow, RecoveryRecord, RosterEntry, SessionScan, SnapshotLine } from '../../src/types.js';
 
 /** The runtime that the roster was saved in: the fake port runs in `boot-1` and `runtime-1`, so this one is a runtime that is gone. */
 export const GONE = { bootId: 'boot-0', runtimeId: 'runtime-0' };
@@ -37,7 +37,7 @@ export interface RecoverJson {
   outcome: string;
   exitCode: number;
   run: null;
-  record: null;
+  record: RecoveryRecord | null;
   error: string | null;
   rows: RecoverRow[];
   snapshots: SnapshotLine[];

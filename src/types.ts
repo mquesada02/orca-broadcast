@@ -267,10 +267,47 @@ export interface RecoverSelf extends ConfirmTarget {
   missingWorkers: string[];
 }
 
+// A (boot ID, Orca runtime ID) pair; the runtime ID is null when Orca sent none.
+export interface RuntimeKey {
+  bootId: string;
+  runtimeId: string | null;
+}
+
+// One row of a recovery record: the roster entry of the agent (flat, so a `close` filter matches its recorded identity) plus its result.
+export type RecoveryRow = RosterEntry & {
+  status: RecoverStatus;
+  reason: RecoverReason | null;
+  /** True when a continue prompt will handle this row (the prompts themselves are not built yet). */
+  promptDue: boolean;
+  /** ISO time of the recorded start, present only after a start was recorded. */
+  startedAt?: string;
+};
+
+// The durable record of a crash recovery, in `recoveries/<id>.json`.
+export interface RecoveryRecord {
+  id: string;
+  token: string;
+  createdAt: string;
+  status: 'open' | 'closed';
+  /** Set when the record closes: `done` when every row was final, `abandoned` when the abandon helper closed it. */
+  endedBy?: 'done' | 'abandoned';
+  /** Process that is running this recovery now; both are removed when it exits. */
+  pid?: number;
+  startTime?: string;
+  /** The newest snapshot the pre-restart set used. */
+  snapshotKey: RuntimeKey;
+  /** The runtime this recovery ran in. */
+  liveRuntime: RuntimeKey;
+  snapshots: SnapshotLine[];
+  rows: RecoveryRow[];
+}
+
 export interface RecoverySummary {
   rows: RecoverRow[];
   snapshots: SnapshotLine[];
   self: RecoverSelf | null;
+  /** The record this run wrote; null when it wrote none. */
+  record: RecoveryRecord | null;
 }
 
 // What the `recover` confirmation lists, one line per item, and counts in its question.

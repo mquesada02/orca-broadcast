@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { agentRecord, broadcastTarget, openBroadcastRecord, seedOpenRun } from './helpers/fake-orca.js';
 import { doneEntry, GONE, parseJson, recoverRun, resultsOf } from './helpers/recover.js';
 import { readBroadcasts } from './helpers/records.js';
-import { minutesBefore, readRoster, rosterEntry, rosterNames, rosterSnapshot, scanOf, seedRosters } from './helpers/roster.js';
+import { agent, minutesBefore, readRoster, rosterEntry, rosterNames, rosterSnapshot, scanOf, seedRosters } from './helpers/roster.js';
 import { runCli, seedGroups, type Seed } from './helpers/run-cli.js';
 import { FALLBACK_NOTICE } from '../src/recover-set.js';
 
@@ -181,7 +181,7 @@ describe('the pre-restart set', () => {
     const live = rosterSnapshot({ bootId: 'boot-1', runtimeId: 'runtime-1' }, [doneEntry('s-dead')], 5, 600);
     const { out, err, dir } = await recoverRun(['--yes'], [], [], { seed: seedRosters(live) });
     expect(err).toBe(`orca-broadcast: ${FALLBACK_NOTICE}\n`);
-    expect(out).toMatch(/tree-s-dead\s+session\s+pending\s+timed-out/);
+    expect(out).toMatch(/tree-s-dead\s+session\s+failed\s+did-not-appear/);
     expect((await readRoster(dir, 'boot-1-runtime-1.json')).entries).toEqual([]);
     const json = await recoverRun(['--yes', '--json'], [], [], { seed: seedRosters(live) });
     expect(parseJson(json.out).warnings).toEqual([FALLBACK_NOTICE]);
@@ -205,7 +205,7 @@ describe('the pre-restart set', () => {
   });
 
   it('keeps the pre-restart file and writes the roster of the live runtime after the first scan, with one scan', async () => {
-    const { dir, port } = await recoverRun(['--yes'], [], [doneEntry('s-a')]);
+    const { dir, port } = await recoverRun(['--yes'], [agent('new:a')], [doneEntry('s-a')], { scan: scanOf({ sessionId: 's-a', paneKey: 'new:a', startTime: 5 }) });
     expect(await rosterNames(dir)).toEqual(['boot-0-runtime-0.json', 'boot-1-runtime-1.json']);
     expect((await readRoster(dir, 'boot-0-runtime-0.json')).entries.map((e) => e.sessionId)).toEqual(['s-a']);
     expect([port.scanCalls, port.listCalls]).toEqual([1, 1]);

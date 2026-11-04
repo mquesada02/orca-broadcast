@@ -249,13 +249,13 @@ export function coordinatorsLast<T>(items: T[], roleOfItem: (item: T) => Role): 
 }
 
 // The process that runs a broadcast: its pid, and its start time when the store can read it.
-export function setPid(record: BroadcastRecord, { pid, startTime }: { pid: number; startTime?: string }): void {
+export function setPid(record: Pick<BroadcastRecord, 'pid' | 'startTime'>, { pid, startTime }: { pid: number; startTime?: string }): void {
   record.pid = pid;
   if (startTime === undefined) delete record.startTime;
   else record.startTime = startTime;
 }
 
-export function clearPid(record: BroadcastRecord): void {
+export function clearPid(record: Pick<BroadcastRecord, 'pid' | 'startTime'>): void {
   delete record.pid;
   delete record.startTime;
 }

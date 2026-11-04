@@ -21,13 +21,14 @@ describe('classification', () => {
     expect(port.sends).toEqual([]);
   });
 
-  it('a missing agent (no process holds its session) is pending and timed-out after yes: nothing is started or sent', async () => {
+  it('a missing agent (no process holds its session) is started after yes; one that never appears ends failed did-not-appear, and nothing is sent', async () => {
     const { code, out, port } = await recoverRun(['--yes', '--json'], [], [doneEntry('s-a')]);
     expect(code).toBe(1);
-    expect(resultsOf(out)).toEqual({ 's-a': 'pending/timed-out' });
-    expect(port.starts).toEqual([]);
+    expect(resultsOf(out)).toEqual({ 's-a': 'failed/did-not-appear' });
+    expect(port.starts).toEqual([{ worktreePath: '/work/tree-s-a', sessionId: 's-a', permission: null, title: 'repo/tree-s-a (recovered)' }]);
     expect(port.sends).toEqual([]);
-    expect(port.scanCalls).toBe(1);
+    // The first scan, the scan before the start, and the end roster save.
+    expect(port.scanCalls).toBe(3);
   });
 
   it('a session held by a process outside Orca is failed session-held after 60 seconds', async () => {
@@ -53,8 +54,9 @@ describe('classification', () => {
   });
 
   it('a held session whose holder ends becomes missing', async () => {
-    const { out } = await recoverRun(['--yes', '--json'], [], [doneEntry('s-a')], { scan: (n) => (n === 1 ? scanOf({ sessionId: 's-a', paneKey: null }) : scanOf()) });
-    expect(resultsOf(out)).toEqual({ 's-a': 'pending/timed-out' });
+    const { out, port } = await recoverRun(['--yes', '--json'], [], [doneEntry('s-a')], { scan: (n) => (n === 1 ? scanOf({ sessionId: 's-a', paneKey: null }) : scanOf()) });
+    expect(resultsOf(out)).toEqual({ 's-a': 'failed/did-not-appear' });
+    expect(port.starts).toHaveLength(1);
   });
 
   it('a --timeout shorter than 60 seconds ends the re-check at the timeout', async () => {
@@ -78,8 +80,9 @@ describe('classification', () => {
   });
 
   it('a claude process of unknown session in a sibling folder does not block the agent', async () => {
-    const { out } = await recoverRun(['--yes', '--json'], [], [doneEntry('s-a')], { scan: { sessions: [], unknown: [{ cwd: '/work/tree-s-a-other' }], heldByOthers: [] } });
-    expect(resultsOf(out)).toEqual({ 's-a': 'pending/timed-out' });
+    const { out, port } = await recoverRun(['--yes', '--json'], [], [doneEntry('s-a')], { scan: { sessions: [], unknown: [{ cwd: '/work/tree-s-a-other' }], heldByOthers: [] } });
+    expect(resultsOf(out)).toEqual({ 's-a': 'failed/did-not-appear' });
+    expect(port.starts).toHaveLength(1);
   });
 
   it('a held agent becomes unverifiable when an unknown process appears in its folder', async () => {
@@ -115,7 +118,7 @@ describe('self', () => {
     expect(code).toBe(1);
     expect(err).toBe('');
     expect(out).toContain('self (not restarted or prompted) — this session runs recover');
-    expect(out).toMatch(/tree-s-other\s+session\s+pending\s+timed-out/);
+    expect(out).toMatch(/tree-s-other\s+session\s+failed\s+did-not-appear/);
     expect(out.match(/tree-s-self/g)).toHaveLength(1);
     expect(out).not.toContain('missing workers:');
   });
@@ -141,7 +144,7 @@ describe('self', () => {
 
   it.each([[undefined], ['']])('does not exist when ORCA_PANE_KEY is %j: every row is handled', async (key) => {
     const { out } = await recoverRun(['--yes', '--json'], [], entries, { env: key === undefined ? {} : { ORCA_PANE_KEY: key } });
-    expect(resultsOf(out)).toEqual({ 's-self': 'pending/timed-out', 's-other': 'pending/timed-out' });
+    expect(resultsOf(out)).toEqual({ 's-self': 'failed/did-not-appear', 's-other': 'failed/did-not-appear' });
   });
 
   it('with an unknown ORCA_PANE_KEY there is no self line, and the entry its own process holds ends failed session-held', async () => {
@@ -256,19 +259,21 @@ describe('confirmation', () => {
     expect(resultsOf(out)).toEqual({ 's-x': 'no-coordinator/coordinator-missing', 's-held': 'failed/session-held' });
   });
 
-  it('"yes" starts and sends nothing: the rows that a restart or a prompt would handle are pending timed-out', async () => {
+  it('"yes" restarts the missing agents and sends nothing: a restart that never appears is failed, and the rows that a prompt would handle are pending timed-out', async () => {
     const { code, out, port, questions } = await recoverRun([], agents, entries, { ask: ['y'], scan });
     expect(code).toBe(1);
     expect(questions).toHaveLength(1);
-    expect(port.starts).toEqual([]);
+    expect(port.starts.map((start) => [start.sessionId, start.permission])).toEqual([['s-a', BYPASS], ['s-b', null]]);
     expect(port.sends).toEqual([]);
-    expect(out.match(/pending\s+timed-out/g)).toHaveLength(5);
+    expect(out.match(/failed\s+did-not-appear/g)).toHaveLength(2);
+    expect(out.match(/pending\s+timed-out/g)).toHaveLength(3);
   });
 
   it('--yes asks nothing and gives the same rows', async () => {
     const { questions, out } = await recoverRun(['--yes'], agents, entries, { scan });
     expect(questions).toEqual([]);
-    expect(out.match(/pending\s+timed-out/g)).toHaveLength(5);
+    expect(out.match(/failed\s+did-not-appear/g)).toHaveLength(2);
+    expect(out.match(/pending\s+timed-out/g)).toHaveLength(3);
   });
 
   it('asks nothing when it would list nothing', async () => {
