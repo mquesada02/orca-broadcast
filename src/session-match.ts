@@ -1,15 +1,9 @@
-import { sessionsByPane } from './roster.js';
-import { locate, type Snapshot } from './shared.js';
+import { holdersBySession, livePanes, sessionsByPane } from './roster.js';
+import type { Snapshot } from './shared.js';
 import type { AgentRecord, SessionScan } from './types.js';
 
-/** A live agent: its pane key and the handle of its terminal. */
-interface LivePane {
-  paneKey: string;
-  handle: string;
-}
-
-/** The records of a pause run that moved to a new pane, by their old `paneKey`: where the same Claude session lives now. */
-export type SessionMatches = Map<string, LivePane>;
+/** The records of a pause run that moved to a new pane, by their old `paneKey`: the pane key and terminal handle where the same Claude session lives now. */
+export type SessionMatches = Map<string, { paneKey: string; handle: string }>;
 
 /**
  * Finds where the recorded agents of a run live now, by Claude session ID, from the scan of the start save (no scan of its own).
@@ -25,25 +19,19 @@ export function matchSessions(records: AgentRecord[], snapshot: Snapshot, scan: 
     return matches;
   }
 
-  // The live agent of each session ID: of two, the newest process wins, and a tie keeps the first row.
-  const sessions = sessionsByPane(scan);
-  const holder = new Map<string, LivePane & { startTime: number }>();
-  for (const [paneKey, row] of snapshot.agents) {
-    const found = locate(paneKey, snapshot.agents, snapshot.terminals);
-    const record = sessions.get(paneKey);
-    if (row.agentType !== 'claude' || 'gone' in found || !record) continue;
-    const current = holder.get(record.sessionId);
-    if (current === undefined || record.startTime > current.startTime) holder.set(record.sessionId, { paneKey, handle: found.handle, startTime: record.startTime });
-  }
+  // The live agent of each session ID: the rule of the roster, so a record never matches another pane than the roster saved.
+  const holder = holdersBySession(livePanes(snapshot, sessionsByPane(scan)));
 
   // A pane that any record of the run holds now (a `gone` record included), or that an earlier match took, is never a target: that is
   // what keeps two records off one pane. So two records that would swap panes both stay and fall back to `paneKey`.
   const taken = new Set(records.map((record) => record.paneKey));
   for (const { record, sessionId } of candidates) {
     const live = holder.get(sessionId);
-    if (live === undefined || live.paneKey === record.paneKey || taken.has(live.paneKey)) continue;
-    matches.set(record.paneKey, { paneKey: live.paneKey, handle: live.handle });
-    taken.add(live.paneKey);
+    if (live === undefined) continue;
+    const target = live.row.paneKey;
+    if (target === record.paneKey || taken.has(target)) continue;
+    matches.set(record.paneKey, { paneKey: target, handle: live.handle });
+    taken.add(target);
   }
   return matches;
 }

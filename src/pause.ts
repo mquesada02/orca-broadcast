@@ -86,16 +86,10 @@ interface Scope {
   set: FilterSet;
   selected: Set<string>;
   swept: Set<string>;
-  session: SessionContext;
-}
-
-// What the start save's scan gave this invocation: the scan record of each pane (for new records) and the records that moved panes.
-interface SessionContext {
-  byPane: Map<string, SessionRecord>;
+  // From the start save's scan: the scan record of each pane (for new records) and the records that moved panes.
+  sessions: Map<string, SessionRecord>;
   matches: SessionMatches;
 }
-
-const sessionOf = (scope: Scope, paneKey: string): SessionRecord | undefined => scope.session.byPane.get(paneKey);
 
 // The agents a new pause run is built from: the one selection, used by `pause` and by the check that runs before a broadcast is stopped.
 function discoverAgents(agents: Map<string, AgentRow>, selfKey: string | undefined, matchesRow: (row: AgentRow) => boolean): AgentRow[] {
@@ -170,7 +164,7 @@ function prepare(loaded: Run | null, startedAt: number, newToken: () => string, 
 
   if (loaded) {
     const run = structuredClone(loaded);
-    applySessionMatches(run.agents, scope.session.matches); // on the copy: the loaded record stays as it was
+    applySessionMatches(run.agents, scope.matches); // on the copy: the loaded record stays as it was
     run.scope.push(scope.set);
     handOverSelf(run, selfKey, self, agents, terminals, roles, scope);
     extend(run, selfKey, agents, terminals, scope);
@@ -186,10 +180,10 @@ function prepare(loaded: Run | null, startedAt: number, newToken: () => string, 
     startedAt: iso(startedAt),
     status: 'open',
     scope: [scope.set],
-    agents: discovered.map((row) => newAgent(row, roleInfoOf(roles, row.paneKey), sessionOf(scope, row.paneKey))),
+    agents: discovered.map((row) => newAgent(row, roleInfoOf(roles, row.paneKey), scope.sessions.get(row.paneKey))),
   };
   if (reason) run.reason = reason;
-  if (self) run.agents.push(markSelf(undefined, self.row, self.handle, roleInfoOf(roles, self.row.paneKey), sessionOf(scope, self.row.paneKey)));
+  if (self) run.agents.push(markSelf(undefined, self.row, self.handle, roleInfoOf(roles, self.row.paneKey), scope.sessions.get(self.row.paneKey)));
   return { run, extending: false };
 }
 
@@ -255,7 +249,7 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
   let roles: Roles;
   let prepared: Prepared;
   let confirmed = false;
-  const scope: Scope = { set: ALL_AGENTS, selected: new Set(), swept: new Set(), session: { byPane: new Map(), matches: new Map() } };
+  const scope: Scope = { set: ALL_AGENTS, selected: new Set(), swept: new Set(), sessions: new Map(), matches: new Map() };
   // A broadcast that is open when this pause starts (no pause run is open then): the first "yes" is the commit point that abandons it.
   let broadcastRecord: BroadcastRecord | null = null;
   // The answer may have taken minutes: look again and start the clock now.
@@ -286,7 +280,8 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
     const scan = await roster.start(snapshot);
     throwIfAborted(deps.signal);
     // Computed once, from the start save's scan; `prepare` applies it to a copy of the open run, now and again after the yes.
-    scope.session = { byPane: scan ? sessionsByPane(scan) : new Map(), matches: matchSessions(loaded?.agents ?? [], snapshot, scan, warnings, deps.signal) };
+    scope.sessions = scan ? sessionsByPane(scan) : new Map();
+    scope.matches = matchSessions(loaded?.agents ?? [], snapshot, scan, warnings, deps.signal);
     scope.set = set;
     prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, roles, selfKey, scope);
     if (deps.confirm && 'run' in prepared) {
@@ -373,7 +368,7 @@ function handOverSelf(run: Run, selfKey: string | undefined, self: Found | null,
   }
   if (!self) return;
   const existing = run.agents.find((a) => a.paneKey === self.row.paneKey);
-  const recorded = markSelf(existing, self.row, self.handle, roleInfoOf(roles, self.row.paneKey), sessionOf(scope, self.row.paneKey));
+  const recorded = markSelf(existing, self.row, self.handle, roleInfoOf(roles, self.row.paneKey), scope.sessions.get(self.row.paneKey));
   if (!existing) run.agents.push(recorded);
 }
 
@@ -424,7 +419,7 @@ function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string,
     if (!isSweepable(row) || row.paneKey === selfKey || run.agents.some((a) => a.paneKey === row.paneKey)) continue;
     const subject = subjectOfRow(row, roles);
     if (!run.scope.some((set) => matches(set, subject))) continue;
-    run.agents.push(newAgent(row, roleInfoOf(roles, row.paneKey), sessionOf(scope, row.paneKey)));
+    run.agents.push(newAgent(row, roleInfoOf(roles, row.paneKey), scope.sessions.get(row.paneKey)));
     scope.swept.add(row.paneKey);
     if (matches(scope.set, subject)) scope.selected.add(row.paneKey);
   }
@@ -471,7 +466,7 @@ function sendQueue(live: { agent: AgentRecord; row: AgentRow }[], scope: Scope):
 
 // Who the next poll would message, found by running its in-memory part on a copy of the run.
 function planSends(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined, scope: Scope): ConfirmTarget[] {
-  const copy: Scope = { set: scope.set, selected: new Set(scope.selected), swept: new Set(scope.swept), session: scope.session };
+  const copy: Scope = { set: scope.set, selected: new Set(scope.selected), swept: new Set(scope.swept), sessions: scope.sessions, matches: scope.matches };
   return sendQueue(refresh(structuredClone(run), agents, terminals, roles, deps, selfKey, copy), copy).map(({ agent }) => ({ repo: agent.repo, worktree: agent.worktree, role: agent.role }));
 }
 

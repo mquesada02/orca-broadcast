@@ -65,34 +65,27 @@ export interface AutoRoster {
 
 export function autoRoster(deps: AutoRosterDeps, warnings: string[]): AutoRoster {
   let started: Snapshot | null = null;
-  const warn = (error: unknown): void => {
-    warnings.push(`roster not saved: ${reasonOf(error)}`);
-  };
-  const save = async (snapshot: Snapshot): Promise<void> => {
-    if (deps.signal?.aborted) return;
+  // One scan, then the write. The scan is returned even when the write fails; it is null when the scan failed or the run was aborted.
+  const save = async (snapshot: Snapshot): Promise<SessionScan | null> => {
+    if (deps.signal?.aborted) return null;
+    let scan: SessionScan;
     try {
-      await saveRosterOf(snapshot, deps, deps.signal);
+      scan = await deps.port.scanSessions();
     } catch (error) {
-      warn(error);
+      warnings.push(`roster not saved: ${reasonOf(error)}`);
+      return null;
     }
+    try {
+      await writeRosterOf(snapshot, scan, deps, deps.signal);
+    } catch (error) {
+      warnings.push(`roster not saved: ${reasonOf(error)}`);
+    }
+    return deps.signal?.aborted ? null : scan;
   };
   return {
-    async start(snapshot) {
+    start(snapshot) {
       started = snapshot;
-      if (deps.signal?.aborted) return null;
-      let scan: SessionScan;
-      try {
-        scan = await deps.port.scanSessions();
-      } catch (error) {
-        warn(error);
-        return null;
-      }
-      try {
-        await writeRosterOf(snapshot, scan, deps, deps.signal);
-      } catch (error) {
-        warn(error);
-      }
-      return deps.signal?.aborted ? null : scan;
+      return save(snapshot);
     },
     async end(newest) {
       if (started === null || newest === null || newest === started) return;
