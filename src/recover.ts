@@ -160,11 +160,15 @@ interface Execution {
 }
 
 // The row as the record stores it: a row that a restart, a prompt or a leave would handle is `pending`, reason `timed-out`, until its turn comes.
-function recordRows({ rows }: Classified): RecoveryRow[] {
-  return rows.map((row) => {
+function recordRows({ rows }: Classified): { rows: RecoveryRow[]; restarts: RecoveryRow[] } {
+  const restarts: RecoveryRow[] = [];
+  const recordRowsOut = rows.map((row) => {
     const pending = row.restart || row.prompt || row.leave;
-    return { ...row.entry, status: pending ? 'pending' : row.status, reason: pending ? 'timed-out' : row.reason, promptDue: row.prompt };
+    const recordRow: RecoveryRow = { ...row.entry, status: pending ? 'pending' : row.status, reason: pending ? 'timed-out' : row.reason, promptDue: row.prompt };
+    if (row.restart) restarts.push(recordRow);
+    return recordRow;
   });
+  return { rows: recordRowsOut, restarts };
 }
 
 /** After a yes with something to start or send: the record, the starts, the appearance wait and the end. */
@@ -172,7 +176,8 @@ async function execute({ deps, warnings, classified, snapshotKey, liveRuntime, s
   const { port, clock, store, signal } = deps;
   const token = (deps.newToken ?? randomToken)();
   const now = clock.now();
-  const record: RecoveryRecord = { id: recordId(now, token), token, createdAt: iso(now), status: 'open', snapshotKey, liveRuntime, snapshots, rows: recordRows(classified) };
+  const { rows, restarts } = recordRows(classified);
+  const record: RecoveryRecord = { id: recordId(now, token), token, createdAt: iso(now), status: 'open', snapshotKey, liveRuntime, snapshots, rows };
   const summaryOf = (): RecoverySummary => ({ rows: record.rows.map(recoveryRowOf), snapshots, self: selfLine, record });
   const save = (): Promise<void> => store.saveRecovery(record);
 
@@ -192,11 +197,12 @@ async function execute({ deps, warnings, classified, snapshotKey, liveRuntime, s
   let summary: RunSummary;
   try {
     const startDeps: StartDeps = { port, clock, signal, record, save, deadline, warnings };
-    const restarts = record.rows.filter((_, index) => (classified.rows[index] as Classified['rows'][number]).restart);
     const started = await startAgents(restarts, startDeps);
-    if (started.count > 0) await waitForAppearance(started, startDeps);
-    // The end snapshot comes before the record closes: a failed listing leaves the record open like any other.
-    if (started.count > 0) await roster.end(await listSnapshot({ port, clock, signal }));
+    if (started.count > 0) {
+      await waitForAppearance(started, startDeps);
+      // The end snapshot comes before the record closes: a failed listing leaves the record open like any other.
+      await roster.end(await listSnapshot({ port, clock, signal }));
+    }
     releaseRecovery(record);
     await save();
     if (record.status === 'closed') await store.clearCurrent('recovery', record.id);

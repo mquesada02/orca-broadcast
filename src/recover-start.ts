@@ -31,7 +31,8 @@ const setResult = (row: RecoveryRow, status: RecoveryRow['status'], reason: Reco
 };
 
 // A row whose prompt follows is not final yet; the prompts themselves are not built, so it ends `pending`, reason `timed-out`.
-const appeared = (row: RecoveryRow): void => (row.promptDue ? setResult(row, 'pending', 'timed-out') : setResult(row, 'restarted', null));
+// A row that is due a prompt stays pending; otherwise it gets its final status.
+const arrived = (row: RecoveryRow, done: 'restored' | 'restarted'): void => (row.promptDue ? setResult(row, 'pending', 'timed-out') : setResult(row, done, null));
 
 /**
  * The starts: for each row due a restart, in the order given, one listing and one scan right before the decision. A failed scan stops
@@ -61,8 +62,7 @@ export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise
     started.scan = scan;
     const [item] = classify([row], { agents, terminals }, scan);
     if (item?.standing === 'restored') {
-      if (row.promptDue) setResult(row, 'pending', 'timed-out');
-      else setResult(row, 'restored', null);
+      arrived(row, 'restored');
     } else if (item?.standing === 'held') {
       setResult(row, 'failed', 'session-held');
     } else if (item?.standing === 'unverifiable') {
@@ -117,7 +117,7 @@ export async function waitForAppearance(started: Started, deps: StartDeps): Prom
       }
     }
     const live = liveSessionIds(listing, scan);
-    for (const row of awaiting) if (live.has(row.sessionId)) appeared(row);
+    for (const row of awaiting) if (live.has(row.sessionId)) arrived(row, 'restarted');
     awaiting = awaiting.filter((row) => row.status === 'pending' && row.reason === 'awaiting-start');
     await deps.save();
     if (awaiting.length === 0 || clock.now() >= deadline) break;
