@@ -29,8 +29,8 @@ const DETAILS: Record<Command, string[]> = {
   ],
   recover: [
     'Reads the roster saved before the restart, matches each agent to a live session by Claude session ID, and shows what is restored, missing or failed. It asks once before it acts; the filters select the part of the fleet to recover.',
-    'In this version a yes starts and sends nothing: each row that a restart or a prompt would handle ends pending, reason timed-out. Answering no prints the report, writes no record and exits 1.',
-    'Exit 0 if every row is restored (or there is nothing to recover), 1 if any row is pending, gone, no-coordinator or failed, 2 on a refusal.',
+    'After a yes it restarts every missing agent that is not a worker with claude --resume, coordinators first, and waits for each one to appear in Orca; it never starts a session that a live process holds. Prompts are not sent in this version: a row that a prompt would handle ends pending, reason timed-out. Answering no prints the report, writes no record and exits 1.',
+    'Exit 0 if every row is restored or restarted (or there is nothing to recover), 1 if any row is pending, gone, no-coordinator or failed, 2 on a refusal.',
   ],
 };
 

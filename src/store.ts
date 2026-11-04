@@ -3,13 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { releaseBroadcast } from './shared.js';
-import type { BroadcastReason, BroadcastRecord, BroadcastTarget, RosterSnapshot, Run } from './types.js';
+import type { BroadcastReason, BroadcastRecord, BroadcastTarget, RecoveryRecord, RosterSnapshot, Run } from './types.js';
 
 const POINTER = 'current';
 const LOCK = 'lock';
 const TAKEOVER = 'lock.takeover';
 const PAUSES = 'pauses';
 const BROADCASTS = 'broadcasts';
+const RECOVERIES = 'recoveries';
 const ROSTER = 'roster';
 const LOCK_ATTEMPTS = 3;
 
@@ -19,7 +20,7 @@ export class LockHeldError extends Error {
   }
 }
 
-export type RecordKind = 'pause' | 'broadcast';
+export type RecordKind = 'pause' | 'broadcast' | 'recovery';
 
 export interface Pointer {
   kind: RecordKind;
@@ -40,6 +41,7 @@ export interface OpenEntry<T> {
 export interface OpenRecords {
   pause: OpenEntry<Run> | null;
   broadcast: OpenEntry<BroadcastRecord> | null;
+  recovery: OpenEntry<RecoveryRecord> | null;
 }
 
 // What the repairing load returns: the records after recovery, and one line per thing it found or fixed.
@@ -68,6 +70,7 @@ export interface RecordStore {
   processStartTime(pid: number): string | undefined;
   save(run: Run): Promise<void>;
   saveBroadcast(record: BroadcastRecord): Promise<void>;
+  saveRecovery(record: RecoveryRecord): Promise<void>;
   /** Writes (or replaces) the file of the snapshot's runtime, then keeps only the newest 5 files; the file just written is never removed. */
   saveRoster(snapshot: RosterSnapshot): Promise<void>;
   /** Every kept roster snapshot, newest first. Fails naming the file when one cannot be read. */
@@ -141,7 +144,7 @@ async function removeIfPresent(path: string): Promise<void> {
   await rm(path, { force: true });
 }
 
-async function writeRecord(folder: string, id: string, record: Run | BroadcastRecord | RosterSnapshot, names: TmpNames): Promise<void> {
+async function writeRecord(folder: string, id: string, record: Run | BroadcastRecord | RecoveryRecord | RosterSnapshot, names: TmpNames): Promise<void> {
   await mkdir(folder, { recursive: true });
   await writeAtomic(join(folder, `${id}.json`), `${JSON.stringify(record, null, 2)}\n`, names);
 }
@@ -244,6 +247,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   const readStartTime = options.readStartTime ?? procStartTime;
   const pausesDir = join(dir, PAUSES);
   const broadcastsDir = join(dir, BROADCASTS);
+  const recoveriesDir = join(dir, RECOVERIES);
   const rosterDir = join(dir, ROSTER);
   const tmpNames: TmpNames = { pid, suffix: options.tmpSuffix ?? randomUUID };
   const lockPath = join(dir, LOCK);
@@ -308,7 +312,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     }
     try {
       const value = JSON.parse(text) as { kind?: unknown; id?: unknown };
-      return (value.kind === 'pause' || value.kind === 'broadcast') && typeof value.id === 'string' ? { kind: value.kind, id: value.id } : null;
+      return (value.kind === 'pause' || value.kind === 'broadcast' || value.kind === 'recovery') && typeof value.id === 'string' ? { kind: value.kind, id: value.id } : null;
     } catch {
       return null;
     }
@@ -320,11 +324,12 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   }
 
   async function peekOpen(): Promise<OpenRecords> {
-    const [pause, broadcast] = await Promise.all([
+    const [pause, broadcast, recovery] = await Promise.all([
       readOpen<Run>(pausesDir, (r) => r.startedAt, (r) => r.runId, backfillRunIds),
       readOpen<BroadcastRecord>(broadcastsDir, (r) => r.createdAt, (r) => r.id, backfillTargets),
+      readOpen<RecoveryRecord>(recoveriesDir, (r) => r.createdAt, (r) => r.id),
     ]);
-    return { pause, broadcast };
+    return { pause, broadcast, recovery };
   }
 
   async function loadOpen(): Promise<LoadedRecords> {
@@ -333,6 +338,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     // When several records of one kind are open the newest wins and the others are only reported.
     if (open.pause?.others.length) notes.push(`other pause runs are open and were left as they are: ${open.pause.others.map((r) => r.runId).join(', ')}`);
     if (!open.pause && open.broadcast?.others.length) notes.push(`other broadcasts are open and were left as they are: ${open.broadcast.others.map((r) => r.id).join(', ')}`);
+    if (!open.pause && open.recovery?.others.length) notes.push(`other recoveries are open and were left as they are: ${open.recovery.others.map((r) => r.id).join(', ')}`);
     // An open pause run wins the pointer, and every broadcast open beside it is abandoned: one record is open at a time.
     if (open.pause && open.broadcast) {
       for (const record of [open.broadcast.record, ...open.broadcast.others]) {
@@ -342,11 +348,12 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
       }
       open.broadcast = null;
     }
-    const winner: Pointer | null = open.pause
-      ? { kind: 'pause', id: open.pause.record.runId }
-      : open.broadcast
-        ? { kind: 'broadcast', id: open.broadcast.record.id }
-        : null;
+    // A pause run wins. Between a recovery and a broadcast the newer wins; a tie goes to the recovery.
+    const recoveryWins = open.recovery && (!open.broadcast || open.recovery.record.createdAt >= open.broadcast.record.createdAt);
+    let winner: Pointer | null = null;
+    if (open.pause) winner = { kind: 'pause', id: open.pause.record.runId };
+    else if (recoveryWins && open.recovery) winner = { kind: 'recovery', id: open.recovery.record.id };
+    else if (open.broadcast) winner = { kind: 'broadcast', id: open.broadcast.record.id };
     if (!winner) {
       await removeIfPresent(pointerPath);
     } else {
@@ -400,6 +407,8 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     save: (run) => writeRecord(pausesDir, run.runId, run, tmpNames),
 
     saveBroadcast: (record) => writeRecord(broadcastsDir, record.id, record, tmpNames),
+
+    saveRecovery: (record) => writeRecord(recoveriesDir, record.id, record, tmpNames),
 
     async saveRoster(snapshot) {
       const id = rosterFileId(snapshot.bootId, snapshot.runtimeId);

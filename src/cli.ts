@@ -112,7 +112,7 @@ async function askYes(ask: NonNullable<CliIo['ask']>, question: string, signal?:
 // The JSON object of `recover`: the rows and the snapshot lines of its summary, or none for an error that has no recover summary.
 function recoverJsonLine(summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'error' | 'warnings' | 'recovery'>): string {
   const { outcome, exitCode, error, warnings, recovery } = summary;
-  return `${JSON.stringify({ command: 'recover', outcome, exitCode, run: null, record: null, error, rows: recovery?.rows ?? [], snapshots: recovery?.snapshots ?? [], warnings: warnings ?? [] })}\n`;
+  return `${JSON.stringify({ command: 'recover', outcome, exitCode, run: null, record: recovery?.record ?? null, error, rows: recovery?.rows ?? [], snapshots: recovery?.snapshots ?? [], warnings: warnings ?? [] })}\n`;
 }
 
 // Lists the targets on stderr and asks once.
@@ -219,7 +219,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
         : {};
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
       if (!port || command === 'close') return close(store, signal, port && filtered ? { filters: filterSpec, groups: groupFilters, port, clock, cwd } : undefined);
-      if (command === 'recover') return recover(timeoutMs, { port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, confirm: confirmRecover, signal });
+      if (command === 'recover') return recover(timeoutMs, { port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, confirm: confirmRecover, newToken: deps.newToken, signal });
       if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal, filters, groups: groupFilters, cwd });
       return command === 'pause'
         ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, groups: groupFilters, cwd, onProgress: progressLine(renderProgress), confirm, signal })

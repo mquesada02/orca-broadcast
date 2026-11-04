@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/p
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRecordStore, LockHeldError, parseProcStartTime, type StoreOptions } from '../src/store.js';
-import type { BroadcastRecord, Run } from '../src/types.js';
+import type { BroadcastRecord, RecoveryRecord, Run } from '../src/types.js';
 import { broadcastTarget, tempStateDir } from './helpers/fake-orca.js';
 
 const run = (runId: string, startedAt: string, status: Run['status'] = 'open'): Run => ({ runId, token: 'cafebabe', startedAt, status, scope: [{ typed: {} }], agents: [] });
@@ -296,8 +296,8 @@ describe('open-record scan', () => {
   it('returns nothing for a missing state directory', async () => {
     const s = newStore(await tempStateDir());
     expect(await s.findOpenRun()).toBeNull();
-    expect(await s.loadOpen()).toEqual({ pause: null, broadcast: null, notes: [] });
-    expect(await s.peekOpen()).toEqual({ pause: null, broadcast: null });
+    expect(await s.loadOpen()).toEqual({ pause: null, broadcast: null, recovery: null, notes: [] });
+    expect(await s.peekOpen()).toEqual({ pause: null, broadcast: null, recovery: null });
   });
 
   it('recovers an open run when the pointer is missing and repairs the pointer', async () => {
@@ -451,7 +451,7 @@ describe('open-record scan', () => {
   it('ignores records left in the old flat layout', async () => {
     const dir = await withDir({ 'old-run.json': JSON.stringify(run('old-run', '2026-01-01T00:00:00.000Z')), current: 'old-run\n' });
     const s = newStore(dir);
-    expect(await s.loadOpen()).toEqual({ pause: null, broadcast: null, notes: [] });
+    expect(await s.loadOpen()).toEqual({ pause: null, broadcast: null, recovery: null, notes: [] });
     expect(await readdir(dir)).toEqual(['old-run.json']);
   });
 
@@ -481,6 +481,86 @@ describe('open-record scan', () => {
     await rm(join(dir, 'current'));
     await s.peekOpen();
     expect((await readdir(dir)).sort()).toEqual(['broadcasts', 'pauses']);
+  });
+});
+
+const recovery = (id: string, createdAt: string, status: RecoveryRecord['status'] = 'open'): RecoveryRecord => ({
+  id,
+  token: 'tok',
+  createdAt,
+  status,
+  snapshotKey: { bootId: 'boot-0', runtimeId: 'runtime-0' },
+  liveRuntime: { bootId: 'boot-1', runtimeId: null },
+  snapshots: [{ lastSave: '2026-01-01T00:00:00.000Z', ageMinutes: 5 }],
+  rows: [],
+});
+
+describe('recovery records', () => {
+  it('round-trips a recovery record in recoveries/<id>.json, and peekOpen returns it', async () => {
+    const dir = await withDir();
+    const s = newStore(dir);
+    const record: RecoveryRecord = {
+      ...recovery('r1', '2026-01-01T00:00:00.000Z'),
+      pid: 100,
+      startTime: '5000',
+      rows: [{ sessionId: 's1', paneKey: 'old:1', repo: 'repo', repoId: 'rp', worktree: 'tree', worktreeId: 'w', worktreePath: '/work/tree', role: 'coordinator', orchestrationRunIds: ['run_1'], state: 'working', stateStartedAt: 1, savedAt: '2026-01-01T00:00:00.000Z', status: 'pending', reason: 'awaiting-start', promptDue: true, startedAt: '2026-01-01T00:01:00.000Z' }],
+    };
+    await s.saveRecovery(record);
+    expect(await readdir(join(dir, 'recoveries'))).toEqual(['r1.json']);
+    const open = await s.peekOpen();
+    expect(open.recovery?.record).toEqual(record);
+    expect(open.pause).toBeNull();
+    expect(open.broadcast).toBeNull();
+  });
+
+  it('loadOpen gives the pointer to an open recovery, and a pointer of kind recovery is accepted', async () => {
+    const dir = await withDir();
+    const s = newStore(dir);
+    await s.saveRecovery(recovery('r1', '2026-01-01T00:00:00.000Z'));
+    expect((await s.loadOpen()).recovery?.record.id).toBe('r1');
+    expect(await pointer(dir)).toEqual({ kind: 'recovery', id: 'r1' });
+    await s.setCurrent('recovery', 'r1');
+    expect(await pointer(dir)).toEqual({ kind: 'recovery', id: 'r1' });
+    await s.clearCurrent('recovery', 'r1');
+    expect(await readdir(dir)).not.toContain('current');
+  });
+
+  it('a closed recovery is not open, and loadOpen clears a pointer that names no open record', async () => {
+    const dir = await withDir({ current: JSON.stringify({ kind: 'recovery', id: 'r1' }) });
+    const s = newStore(dir);
+    await s.saveRecovery(recovery('r1', '2026-01-01T00:00:00.000Z', 'closed'));
+    expect((await s.loadOpen()).recovery).toBeNull();
+    expect(await readdir(dir)).not.toContain('current');
+  });
+
+  it('the winner is the pause run, else the newer of the recovery and the broadcast, and a tie goes to the recovery', async () => {
+    const dir = await withDir();
+    const s = newStore(dir);
+    await s.saveBroadcast(broadcast('b1', '2026-01-02T00:00:00.000Z'));
+    await s.saveRecovery(recovery('r1', '2026-01-01T00:00:00.000Z'));
+    await s.loadOpen();
+    expect(await pointer(dir)).toEqual({ kind: 'broadcast', id: 'b1' });
+    await s.saveRecovery(recovery('r2', '2026-01-03T00:00:00.000Z'));
+    await s.loadOpen();
+    expect(await pointer(dir)).toEqual({ kind: 'recovery', id: 'r2' });
+    await s.saveBroadcast(broadcast('b2', '2026-01-03T00:00:00.000Z'));
+    await s.loadOpen();
+    expect(await pointer(dir)).toEqual({ kind: 'recovery', id: 'r2' });
+    await s.save(run('p1', '2026-01-01T00:00:00.000Z'));
+    const open = await s.loadOpen();
+    expect(await pointer(dir)).toEqual({ kind: 'pause', id: 'p1' });
+    expect(open.recovery?.record.id).toBe('r2');
+  });
+
+  it('reports other open recoveries and leaves them as they are; leftover temporary files are ignored', async () => {
+    const dir = await withDir();
+    const s = newStore(dir);
+    await s.saveRecovery(recovery('r1', '2026-01-01T00:00:00.000Z'));
+    await s.saveRecovery(recovery('r2', '2026-01-02T00:00:00.000Z'));
+    await writeFile(join(dir, 'recoveries', 'r3.json.100.abc.tmp'), '{not json');
+    const open = await s.loadOpen();
+    expect(open.recovery?.record.id).toBe('r2');
+    expect(open.notes).toEqual(['other recoveries are open and were left as they are: r1']);
   });
 });
 

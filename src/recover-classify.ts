@@ -19,7 +19,7 @@ export interface Item {
 export const HELD_RECHECK_MS = 60_000;
 
 // The session IDs that a live row, accepted by `locate`, holds; of two rows with one ID the one with the newer process wins.
-const liveSessionIds = (listing: Listing, scan: SessionScan): Set<string> =>
+export const liveSessionIds = (listing: Listing, scan: SessionScan): Set<string> =>
   new Set(holdersBySession(livePanes(listing, sessionsByPane(scan))).keys());
 
 // A working folder is the worktree or a folder under it.
