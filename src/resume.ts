@@ -2,7 +2,8 @@ import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { continueSentence, type Preset } from './reasons.js';
 import { isFiltered, matches, NO_FILTERS } from './filters.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
-import { assertCurrentFormat, cancelled, coordinatorsLast, failure, identityOf, iso, listAgentsFresh, listSnapshot, nothingToDo, locate, POLL_INTERVAL_MS, liveSources, resolveFilterSet, roleInfoOf, withWarnings, type Roles, type Snapshot } from './shared.js';
+import { applySessionMatches, matchSessions } from './session-match.js';
+import { assertCurrentFormat, cancelled, coordinatorsLast, failure, identityOf, iso, listAgentsFresh, listSnapshot, nothingToDo, locate, POLL_INTERVAL_MS, liveSources, recordedRoleInfo, resolveFilterSet, withWarnings, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, ContinueBaseline, FilterSpec, GroupFilter, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
@@ -43,7 +44,7 @@ function sendTargets(selected: AgentRecord[], rows: Map<string, AgentRow>, termi
     if (agent.paneKey === selfKey) continue;
     const located = locate(agent.paneKey, rows, terminals);
     if ('gone' in located || isProven(agent, located.row) || !isSendable(located.row)) continue;
-    targets.push({ repo: agent.repo, worktree: agent.worktree, role: roleInfoOf(roles, agent.paneKey).role });
+    targets.push({ repo: agent.repo, worktree: agent.worktree, role: recordedRoleInfo(roles, agent).role });
   }
   return coordinatorsLast(targets, (target) => target.role);
 }
@@ -86,7 +87,9 @@ async function resumeSteps(deps: ResumeDeps, warnings: string[], roster: AutoRos
     const snapshot = await listSnapshot(deps);
     seen.newest = snapshot;
     ({ agents: rows, terminals, roles } = snapshot);
-    await roster.start(snapshot);
+    const scan = await roster.start(snapshot);
+    // In memory only: nothing saves the run before the user's yes, so a "no" or a failure leaves the file as it was.
+    applySessionMatches(run.agents, matchSessions(run.agents, snapshot, scan, warnings, deps.signal));
     const filters = deps.filters ?? NO_FILTERS;
     const set = resolveFilterSet(filters, isFiltered(filters, deps.groups) ? await liveSources(snapshot, deps) : null, run.agents, deps.cwd, deps.groups);
     selected = run.agents.filter((a) => a.resumeStatus === 'pending' && matches(set, a));
@@ -127,7 +130,7 @@ async function sendAll(run: Run, selected: AgentRecord[], rows: Map<string, Agen
   const pending = selected
     .map((agent) => {
       const located = locate(agent.paneKey, rows, terminals);
-      return { agent, located, info: 'gone' in located ? agent : roleInfoOf(roles, agent.paneKey) };
+      return { agent, located, info: 'gone' in located ? agent : recordedRoleInfo(roles, agent) };
     });
 
   // Workers and sessions first, then coordinators: a send order only.

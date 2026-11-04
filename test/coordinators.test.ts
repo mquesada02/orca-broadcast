@@ -124,11 +124,11 @@ describe('coordinators in pause', () => {
   });
 
   const flips: [string, (call: number) => string[], string[], string][] = [
-    ['a coordinator that becomes a session', (call) => (call < 3 ? ['a:1'] : []), [COORDINATOR_MESSAGE, WORKER_MESSAGE], 'session'],
-    ['a session that becomes a coordinator', (call) => (call < 3 ? [] : ['a:1']), [WORKER_MESSAGE, COORDINATOR_MESSAGE], 'coordinator'],
+    ['a coordinator that is live as a session keeps its recorded role', (call) => (call < 3 ? ['a:1'] : []), [COORDINATOR_MESSAGE, COORDINATOR_MESSAGE], 'coordinator'],
+    ['a session that becomes a coordinator gets the message of its new role', (call) => (call < 3 ? [] : ['a:1']), [WORKER_MESSAGE, COORDINATOR_MESSAGE], 'coordinator'],
   ];
   for (const [name, coordinatorsAt, messages, role] of flips) {
-    it(`does not trust the stored role: ${name} before its re-pause gets the message of its new role`, async () => {
+    it(`${name}, before its re-pause`, async () => {
       const { port, run } = await setupPause([
         { paneKey: 'a:1', behavior: wakesAtListing(6) },
         { paneKey: 'x:2', behavior: working },
@@ -226,12 +226,12 @@ describe('coordinators in resume', () => {
     ]);
   });
 
-  it('does not trust the stored role: it sends in the order of the fresh role and updates the record', async () => {
-    const { port, go, readRun } = await setupResume([idle('a:1'), idle('b:2')], [agentRecord('a:1', { role: 'worker' }), agentRecord('b:2', { role: 'coordinator' })]);
+  it('sends in the order of a fresh role other than session and updates the record; a live session keeps the recorded role', async () => {
+    const { port, go, readRun } = await setupResume([idle('a:1'), idle('b:2')], [agentRecord('a:1', { role: 'worker' }), agentRecord('b:2', { role: 'worker' })]);
     port.coordinatorsAt = () => ['a:1'];
     await go();
     expect(handles(port)).toEqual(['term_b:2', 'term_a:1']);
-    expect((await readRun()).agents.map((a) => [a.paneKey, a.role])).toEqual([['a:1', 'coordinator'], ['b:2', 'session']]);
+    expect((await readRun()).agents.map((a) => [a.paneKey, a.role])).toEqual([['a:1', 'coordinator'], ['b:2', 'worker']]);
   });
 
   it('leaves the records of agents it never reached untouched when a signal stops it between role-ordered sends', async () => {

@@ -2,7 +2,7 @@ import { isWaitingLike, iso, locate, roleInfoOf, type Snapshot } from './shared.
 import type { AgentRow, RosterEntry, RosterSnapshot, SessionRecord, SessionScan } from './types.js';
 
 // The scan record of each pane. When two records share a pane key the newest process wins; equal start times keep the first.
-function sessionsByPane(scan: SessionScan): Map<string, SessionRecord> {
+export function sessionsByPane(scan: SessionScan): Map<string, SessionRecord> {
   const byPane = new Map<string, SessionRecord>();
   for (const record of scan.sessions) {
     if (record.paneKey === null) continue;
@@ -10,6 +10,33 @@ function sessionsByPane(scan: SessionScan): Map<string, SessionRecord> {
     if (!current || record.startTime > current.startTime) byPane.set(record.paneKey, record);
   }
   return byPane;
+}
+
+/** A live Claude agent of a snapshot, with the scan record of its pane (undefined when the scan missed it). */
+export interface LivePane {
+  row: AgentRow;
+  handle: string;
+  record: SessionRecord | undefined;
+}
+
+export function livePanes(snapshot: Snapshot, sessions: Map<string, SessionRecord>): LivePane[] {
+  const live: LivePane[] = [];
+  for (const [paneKey, row] of snapshot.agents) {
+    const found = locate(paneKey, snapshot.agents, snapshot.terminals);
+    if (row.agentType === 'claude' && !('gone' in found)) live.push({ row, handle: found.handle, record: sessions.get(paneKey) });
+  }
+  return live;
+}
+
+/** The one live pane that holds each session ID: of two, the newest process wins, and a tie keeps the first row. */
+export function holdersBySession(live: LivePane[]): Map<string, LivePane & { record: SessionRecord }> {
+  const holder = new Map<string, LivePane & { record: SessionRecord }>();
+  for (const pane of live) {
+    if (!pane.record) continue;
+    const current = holder.get(pane.record.sessionId);
+    if (current === undefined || pane.record.startTime > current.record.startTime) holder.set(pane.record.sessionId, { ...pane, record: pane.record });
+  }
+  return holder;
 }
 
 // The session ID of the coordinator of a worker: its parent pane first, then the coordinator terminal of one of its runs.
@@ -33,23 +60,14 @@ export function buildRoster(snapshot: Snapshot, scan: SessionScan, previous: Ros
   const savedAt = iso(now);
   const sessions = sessionsByPane(scan);
 
-  const live: { row: AgentRow; handle: string; record: SessionRecord | undefined }[] = [];
-  for (const [paneKey, row] of snapshot.agents) {
-    const found = locate(paneKey, snapshot.agents, snapshot.terminals);
-    if (row.agentType === 'claude' && !('gone' in found)) live.push({ row, handle: found.handle, record: sessions.get(paneKey) });
-  }
+  const live = livePanes(snapshot, sessions);
 
   // Entries are unique by session ID: of two rows with one session ID the newest process keeps it; equal start times keep the first row.
-  const winner = new Map<string, { paneKey: string; startTime: number }>();
-  for (const { row, record } of live) {
-    if (!record) continue;
-    const current = winner.get(record.sessionId);
-    if (current === undefined || record.startTime > current.startTime) winner.set(record.sessionId, { paneKey: row.paneKey, startTime: record.startTime });
-  }
+  const winner = holdersBySession(live);
 
   const entries: RosterEntry[] = [];
   for (const { row, handle, record } of live) {
-    if (!record || winner.get(record.sessionId)?.paneKey !== row.paneKey) continue;
+    if (!record || winner.get(record.sessionId)?.row.paneKey !== row.paneKey) continue;
     const { role, orchestrationRunIds } = roleInfoOf(snapshot.roles, row.paneKey);
     const entry: RosterEntry = {
       sessionId: record.sessionId,

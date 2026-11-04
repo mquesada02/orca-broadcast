@@ -170,7 +170,7 @@ describe('orca-broadcast resume', () => {
       [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }],
       false,
       () => {},
-      seedRun([{ paneKey: 'a:1', repo: 'alpha', worktree: 'wt-a' }]),
+      seedRun([{ paneKey: 'a:1', repo: 'alpha', worktree: 'wt-a', role: 'session' }]),
     );
     expect(code).toBe(0);
     expect(out).toContain('resumed (1)');
@@ -191,7 +191,7 @@ describe('orca-broadcast resume', () => {
       seedRun([
         { paneKey: 'a:1', repo: 'alpha', worktree: 'wt-a' },
         { paneKey: 'b:2', repo: 'beta', worktree: 'wt-b' },
-        { paneKey: 'c:3', repo: 'gamma', worktree: 'wt-c' },
+        { paneKey: 'c:3', repo: 'gamma', worktree: 'wt-c', role: 'session' },
       ]),
     );
     expect(code).toBe(1);
