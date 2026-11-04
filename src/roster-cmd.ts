@@ -65,12 +65,15 @@ export interface AutoRoster {
 
 export function autoRoster(deps: AutoRosterDeps, warnings: string[]): AutoRoster {
   let started: Snapshot | null = null;
+  const warn = (error: unknown): void => {
+    warnings.push(`roster not saved: ${reasonOf(error)}`);
+  };
   const save = async (snapshot: Snapshot): Promise<void> => {
     if (deps.signal?.aborted) return;
     try {
       await saveRosterOf(snapshot, deps, deps.signal);
     } catch (error) {
-      warnings.push(`roster not saved: ${reasonOf(error)}`);
+      warn(error);
     }
   };
   return {
@@ -81,13 +84,13 @@ export function autoRoster(deps: AutoRosterDeps, warnings: string[]): AutoRoster
       try {
         scan = await deps.port.scanSessions();
       } catch (error) {
-        warnings.push(`roster not saved: ${reasonOf(error)}`);
+        warn(error);
         return null;
       }
       try {
         await writeRosterOf(snapshot, scan, deps, deps.signal);
       } catch (error) {
-        warnings.push(`roster not saved: ${reasonOf(error)}`);
+        warn(error);
       }
       return deps.signal?.aborted ? null : scan;
     },

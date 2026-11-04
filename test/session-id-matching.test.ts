@@ -250,10 +250,46 @@ describe('pause finds the agents of an open run by session ID', () => {
     expect(port.scanCalls).toBe(2);
   });
 
-  it('two records that hold one session ID never both end on the new pane', async () => {
-    const { dir } = await runCli(['pause', '--yes'], [replies], { seed: seed(resumedRecord('old:1', S1), resumedRecord('old:2', S1)), configure: scanning({ sessionId: S1, paneKey: 'new:1' }) });
-    const run = await readRun(dir);
-    expect(run.agents.filter((a) => a.paneKey === 'new:1')).toHaveLength(1);
+  it('leaves the run file as it was when the listing after the yes fails', async () => {
+    const seeded = seedCapturing(resumedRecord('old:1', S1));
+    const { code, dir } = await runCli(['pause'], [replies], {
+      ...tty,
+      ask: ['y'],
+      seed: seeded.seed,
+      configure: (port) => {
+        scanning({ sessionId: S1, paneKey: 'new:1' })(port);
+        port.failListingsFrom = 2;
+      },
+    });
+    expect(code).toBe(2);
+    expect(await runText(dir)).toBe(seeded.text());
+  });
+
+  describe('two records never end on one pane', () => {
+    it('two records that hold one session ID: the earlier one moves, the later one stays', async () => {
+      const { dir } = await runCli(['pause', '--yes'], [replies], { seed: seed(resumedRecord('old:1', S1), resumedRecord('old:2', S1)), configure: scanning({ sessionId: S1, paneKey: 'new:1' }) });
+      const run = await readRun(dir);
+      expect(run.agents.filter((a) => a.paneKey === 'new:1')).toHaveLength(1);
+      expect(run.agents[0]).toMatchObject({ paneKey: 'new:1' });
+      expect(run.agents[1]).toMatchObject({ paneKey: 'old:2' });
+    });
+
+    it('a target pane that another record holds: the record stays', async () => {
+      const { dir } = await runCli(['pause', '--yes'], [replies], { seed: seed(resumedRecord('old:1', S1), resumedRecord('new:1', S2)), configure: scanning({ sessionId: S1, paneKey: 'new:1' }) });
+      expect((await readRun(dir)).agents.map((a) => a.paneKey)).toEqual(['old:1', 'new:1']);
+    });
+
+    it('two records that would swap panes both stay on their own pane', async () => {
+      const agents: FakeAgent[] = [{ paneKey: 'p:1', behavior: repliesWithToken() }, { paneKey: 'p:2', behavior: repliesWithToken() }];
+      const { dir } = await runCli(['pause', '--yes'], agents, { seed: seed(resumedRecord('p:1', S1), resumedRecord('p:2', S2)), configure: scanning({ sessionId: S2, paneKey: 'p:1' }, { sessionId: S1, paneKey: 'p:2' }) });
+      expect((await readRun(dir)).agents.map((a) => a.paneKey)).toEqual(['p:1', 'p:2']);
+    });
+
+    it('a gone record is not moved', async () => {
+      const { dir } = await runCli(['pause', '--yes'], [replies], { seed: seed(resumedRecord('old:1', S1, { resumeStatus: 'gone', resumeReason: 'terminal-closed' })), configure: scanning({ sessionId: S1, paneKey: 'new:1' }) });
+      const run = await readRun(dir);
+      expect(run.agents[0]).toMatchObject({ paneKey: 'old:1', resumeStatus: 'gone' });
+    });
   });
 });
 

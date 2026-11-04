@@ -95,6 +95,8 @@ interface SessionContext {
   matches: SessionMatches;
 }
 
+const sessionOf = (scope: Scope, paneKey: string): SessionRecord | undefined => scope.session.byPane.get(paneKey);
+
 // The agents a new pause run is built from: the one selection, used by `pause` and by the check that runs before a broadcast is stopped.
 function discoverAgents(agents: Map<string, AgentRow>, selfKey: string | undefined, matchesRow: (row: AgentRow) => boolean): AgentRow[] {
   return [...agents.values()].filter((row) => isSweepable(row) && row.paneKey !== selfKey && matchesRow(row));
@@ -184,10 +186,10 @@ function prepare(loaded: Run | null, startedAt: number, newToken: () => string, 
     startedAt: iso(startedAt),
     status: 'open',
     scope: [scope.set],
-    agents: discovered.map((row) => newAgent(row, roleInfoOf(roles, row.paneKey), scope.session.byPane.get(row.paneKey))),
+    agents: discovered.map((row) => newAgent(row, roleInfoOf(roles, row.paneKey), sessionOf(scope, row.paneKey))),
   };
   if (reason) run.reason = reason;
-  if (self) run.agents.push(markSelf(undefined, self.row, self.handle, roleInfoOf(roles, self.row.paneKey), scope.session.byPane.get(self.row.paneKey)));
+  if (self) run.agents.push(markSelf(undefined, self.row, self.handle, roleInfoOf(roles, self.row.paneKey), sessionOf(scope, self.row.paneKey)));
   return { run, extending: false };
 }
 
@@ -371,7 +373,7 @@ function handOverSelf(run: Run, selfKey: string | undefined, self: Found | null,
   }
   if (!self) return;
   const existing = run.agents.find((a) => a.paneKey === self.row.paneKey);
-  const recorded = markSelf(existing, self.row, self.handle, roleInfoOf(roles, self.row.paneKey), scope.session.byPane.get(self.row.paneKey));
+  const recorded = markSelf(existing, self.row, self.handle, roleInfoOf(roles, self.row.paneKey), sessionOf(scope, self.row.paneKey));
   if (!existing) run.agents.push(recorded);
 }
 
@@ -422,7 +424,7 @@ function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string,
     if (!isSweepable(row) || row.paneKey === selfKey || run.agents.some((a) => a.paneKey === row.paneKey)) continue;
     const subject = subjectOfRow(row, roles);
     if (!run.scope.some((set) => matches(set, subject))) continue;
-    run.agents.push(newAgent(row, roleInfoOf(roles, row.paneKey), scope.session.byPane.get(row.paneKey)));
+    run.agents.push(newAgent(row, roleInfoOf(roles, row.paneKey), sessionOf(scope, row.paneKey)));
     scope.swept.add(row.paneKey);
     if (matches(scope.set, subject)) scope.selected.add(row.paneKey);
   }
