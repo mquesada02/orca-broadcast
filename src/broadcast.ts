@@ -194,7 +194,7 @@ async function rerun(saved: BroadcastRecord, timeoutMs: number, deps: BroadcastD
   try {
     prepared = await prepareRerun(record, deps, roster);
   } catch (error) {
-    // A step that throws did so before a newer snapshot than the start save's was taken, or after an abort: no end save is due.
+    // No snapshot newer than the start save's exists when a step throws (a failed second listing keeps the first), or the run was aborted: no end save is due.
     prepared = { summary: failure(error, null), snapshot: null };
   }
   if ('plan' in prepared) {
