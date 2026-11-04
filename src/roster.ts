@@ -19,7 +19,7 @@ export interface LivePane {
   record: SessionRecord | undefined;
 }
 
-export function livePanes(snapshot: Snapshot, sessions: Map<string, SessionRecord>): LivePane[] {
+export function livePanes(snapshot: Pick<Snapshot, 'agents' | 'terminals'>, sessions: Map<string, SessionRecord>): LivePane[] {
   const live: LivePane[] = [];
   for (const [paneKey, row] of snapshot.agents) {
     const found = locate(paneKey, snapshot.agents, snapshot.terminals);

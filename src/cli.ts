@@ -15,12 +15,13 @@ import { isGroupSubcommand, runGroup, type GroupResult } from './group-cmd.js';
 import { loadGroups, lookupGroup, resolveGroupsPath, toGroupFilter, type GroupSpec } from './groups.js';
 import { checkStates, isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, validateRosterArgs, type Command, type FlagValues } from './flags.js';
 import { isRosterSubcommand, runRosterSave, type RosterResult } from './roster-cmd.js';
-import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
+import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderRecover, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { helpFor, helpTopicOf, usageLine, type HelpTopic } from './help.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
+import { recover } from './recover.js';
 import { resume } from './resume.js';
 import { createRecordStore, type StoreOptions } from './store.js';
-import type { AgentState, Clock, Confirm, FilterSpec, GroupFilter, OrcaPort, Role, RunSummary } from './types.js';
+import type { AgentState, Clock, Confirm, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoverySummary, Role, RunSummary } from './types.js';
 
 const CLEAR_LINE = '\r\x1b[K';
 
@@ -95,21 +96,46 @@ function jsonLine(command: Command | null, summary: Pick<RunSummary, 'outcome' |
   return `${JSON.stringify({ command, outcome, exitCode, run, record: record ?? null, error, warnings: warnings ?? [] })}\n`;
 }
 
-// Lists the targets on stderr and asks once. Ctrl-C at the prompt counts as an interrupt, like SIGTERM.
+// Asks one yes/no question. Ctrl-C at the prompt counts as an interrupt, like SIGTERM.
+async function askYes(ask: NonNullable<CliIo['ask']>, question: string, signal?: AbortSignal): Promise<boolean> {
+  let answer: string;
+  try {
+    answer = await ask(question, signal);
+  } catch (error) {
+    if (error instanceof PromptInterrupted) throw new Interrupted(AbortSignal.abort('SIGINT'));
+    throw error;
+  }
+  throwIfAborted(signal);
+  return /^y(es)?$/i.test(answer.trim());
+}
+
+// The JSON object of `recover`: the rows and the snapshot lines of its summary, or none for an error that has no recover summary.
+function recoverJsonLine(summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'error' | 'warnings' | 'recovery'>): string {
+  const { outcome, exitCode, error, warnings, recovery } = summary;
+  return `${JSON.stringify({ command: 'recover', outcome, exitCode, run: null, record: null, error, rows: recovery?.rows ?? [], snapshots: recovery?.snapshots ?? [], warnings: warnings ?? [] })}\n`;
+}
+
+// Lists the targets on stderr and asks once.
 function confirmOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>): Confirm {
   return async (targets, signal, details) => {
     if (io.isTTY) io.stderr(CLEAR_LINE);
     io.stderr(targets.map((t) => `  ${t.repo}/${t.worktree} (${t.role})\n`).join(''));
     if (details) io.stderr(`\nMessage:\n  ${escapeFormatChars(details.message)}\n${details.self ? `\nNot sent to this session: ${details.self.repo}/${details.self.worktree} (${details.self.role})\n` : ''}\n`);
-    let answer: string;
-    try {
-      answer = await ask(`Send to ${targets.length} ${targets.length === 1 ? 'agent' : 'agents'}? [y/N] `, signal);
-    } catch (error) {
-      if (error instanceof PromptInterrupted) throw new Interrupted(AbortSignal.abort('SIGINT'));
-      throw error;
-    }
-    throwIfAborted(signal);
-    return /^y(es)?$/i.test(answer.trim());
+    return askYes(ask, `Send to ${targets.length} ${targets.length === 1 ? 'agent' : 'agents'}? [y/N] `, signal);
+  };
+}
+
+// Lists what `recover` will restart, prompt and leave to coordinators, and asks once.
+function confirmRecoverOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>): ConfirmRecover {
+  return async ({ restarts, prompts, leaves }, signal) => {
+    if (io.isTTY) io.stderr(CLEAR_LINE);
+    const lines = [
+      ...restarts.map((t) => `  restart ${t.repo}/${t.worktree} (${t.role}) ${t.permission ?? 'no permission flag'}\n`),
+      ...prompts.map((t) => `  prompt ${t.repo}/${t.worktree} (${t.role})\n`),
+      ...leaves.map((t) => `  leave ${t.repo}/${t.worktree} to ${t.coordinator.repo}/${t.coordinator.worktree}\n`),
+    ];
+    io.stderr(lines.join(''));
+    return askYes(ask, `Restart ${restarts.length} agents, prompt ${prompts.length} and leave ${leaves.length} workers to their coordinators? [y/N] `, signal);
   };
 }
 
@@ -168,6 +194,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const needsConfirm = command !== 'close' && !values.yes;
     if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
     const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask) : undefined;
+    const confirmRecover = command === 'recover' && needsConfirm && io.ask ? confirmRecoverOnTerminal(io, io.ask) : undefined;
     const groupFilters = await loadGroupFilters(values.group as string[] | undefined, command, env, io);
     const filtered = isFiltered(filterSpec, groupFilters);
     // No text and no --file is not an error here: the records decide whether there is a broadcast to refuse or to continue.
@@ -192,13 +219,14 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
         : {};
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
       if (!port || command === 'close') return close(store, signal, port && filtered ? { filters: filterSpec, groups: groupFilters, port, clock, cwd } : undefined);
+      if (command === 'recover') return recover(timeoutMs, { port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, confirm: confirmRecover, signal });
       if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal, filters, groups: groupFilters, cwd });
       return command === 'pause'
         ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, groups: groupFilters, cwd, onProgress: progressLine(renderProgress), confirm, signal })
         : resume({ port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderResumeProgress), confirm, signal });
     }, guardOptions);
     if (json) {
-      io.stdout(jsonLine(command, summary));
+      io.stdout(command === 'recover' ? recoverJsonLine(summary) : jsonLine(command, summary));
       return summary.exitCode;
     }
     if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
@@ -209,6 +237,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     for (const warning of summary.warnings ?? []) io.stderr(`orca-broadcast: ${warning}\n`);
     if (summary.outcome === 'error') {
       io.stderr(`orca-broadcast: ${summary.error}\n`);
+    } else if (command === 'recover') {
+      io.stdout(renderRecover(summary.recovery as RecoverySummary));
     } else if (command === 'broadcast' || summary.record) {
       io.stdout(renderBroadcastOutput(command, summary, filterLine, env.ORCA_PANE_KEY));
     } else if (summary.outcome === 'nothing-to-do') {
@@ -221,7 +251,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     return summary.exitCode;
   } catch (error) {
     if (json) {
-      io.stdout(group ? groupJsonLine(group, null, (error as Error).message) : roster ? rosterJsonLine(roster, null, (error as Error).message) : jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
+      io.stdout(command === 'recover' ? recoverJsonLine({ outcome: 'error', exitCode: 2, error: (error as Error).message }) : group ? groupJsonLine(group, null, (error as Error).message) : roster ? rosterJsonLine(roster, null, (error as Error).message) : jsonLine(command, { outcome: 'error', exitCode: 2, run: null, error: (error as Error).message }));
       return 2;
     }
     io.stderr(`orca-broadcast: ${(error as Error).message}\n`);

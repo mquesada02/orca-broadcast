@@ -2,9 +2,9 @@ import { isRole, ROLES } from './filters.js';
 import { GROUP_STATES, isGroupState } from './groups.js';
 import { PRESET_NAMES } from './reasons.js';
 
-export const COMMANDS = ['broadcast', 'pause', 'resume', 'close'] as const;
+export const COMMANDS = ['broadcast', 'pause', 'resume', 'close', 'recover'] as const;
 // The commands that take the filters.
-const FILTERED = ['broadcast', 'pause', 'resume', 'close'] as const;
+const FILTERED = ['broadcast', 'pause', 'resume', 'close', 'recover'] as const;
 export type Command = (typeof COMMANDS)[number];
 export const isCommand = (value: string | undefined): value is Command => COMMANDS.some((name) => name === value);
 
@@ -33,7 +33,8 @@ export interface FlagSpec {
 const NARROWS_RUN = 'Only narrows the recorded agents of the open run.';
 const NEEDS_YES = 'It never asks for confirmation, so --yes is required.';
 const STATE_KIND_SKIPPED = "A group's state kind is skipped (one line on stderr per group). A group with only a state kind is dropped from a union, and refused when every group is like that.";
-const NARROWING_NOTES = { resume: NARROWS_RUN, close: NARROWS_RUN } as const;
+const NARROWS_RERUN = 'On a re-run, only narrows the stored rows.';
+const NARROWING_NOTES = { resume: NARROWS_RUN, close: NARROWS_RUN, recover: NARROWS_RERUN } as const;
 
 const FLAGS: Record<string, FlagSpec> = {
   help: { type: 'boolean', commands: COMMANDS, help: 'Show this help' },
@@ -41,15 +42,15 @@ const FLAGS: Record<string, FlagSpec> = {
     type: 'boolean',
     commands: COMMANDS,
     help: 'Print one JSON object on stdout and nothing on stderr (except the line about each skipped group state kind)',
-    notes: { broadcast: NEEDS_YES, pause: NEEDS_YES, resume: NEEDS_YES },
+    notes: { broadcast: NEEDS_YES, pause: NEEDS_YES, resume: NEEDS_YES, recover: NEEDS_YES },
   },
   file: { type: 'string', arg: '<path>', commands: ['broadcast'], help: 'Read the text from a file instead of the command line; give the text or --file, not both' },
   timeout: {
     type: 'string',
     arg: '<n>s|m|h',
-    commands: ['pause', 'broadcast'],
+    commands: ['pause', 'broadcast', 'recover'],
     help: 'How long to wait (default 10m)',
-    notes: { pause: 'Waits for confirmations.', broadcast: 'Waits for acks; each re-run waits a fresh time.' },
+    notes: { pause: 'Waits for confirmations.', broadcast: 'Waits for acks; each re-run waits a fresh time.', recover: 'Bounds the whole command from its start; the wait for the confirmation does not count.' },
   },
   reason: {
     type: 'string',
@@ -59,7 +60,7 @@ const FLAGS: Record<string, FlagSpec> = {
   },
   yes: {
     type: 'boolean',
-    commands: ['pause', 'resume', 'broadcast'],
+    commands: ['pause', 'resume', 'broadcast', 'recover'],
     help: 'Skip the confirmation before anything is sent; without a terminal (a script, an agent shell) the command refuses to send unless you pass it',
   },
   repo: {
@@ -124,6 +125,7 @@ const FLAGS: Record<string, FlagSpec> = {
       pause: STATE_KIND_SKIPPED,
       resume: `${STATE_KIND_SKIPPED} ${NARROWS_RUN}`,
       close: `${STATE_KIND_SKIPPED} ${NARROWS_RUN}`,
+      recover: `${STATE_KIND_SKIPPED} ${NARROWS_RERUN}`,
     },
   },
 };
