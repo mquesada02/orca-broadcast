@@ -92,7 +92,7 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
    Then `pause` checks that fresh listings select at least one agent that matches the filters. After that, it sends the process SIGTERM and waits up to 5 seconds for the lock.
    The broadcast treats SIGTERM like Ctrl-C: it saves its record, clears its pid and exits 130.
 2. Any other lock holder, a pid or start time that does not match, or a signal that is not allowed (EPERM) makes `pause` exit 2 at once, with no signal. A lock still held after 5 seconds also exits 2. A process that is already gone (ESRCH) is not an error.
-3. With an open broadcast `pause` always shows its first prompt. Your "yes" (or `--yes`) is the commit point. At that point `pause` writes its run, then abandons the broadcast's unacked targets (reason `paused`), closes the broadcast and prints one warning line on stderr (not in `--json`). A decline, an interrupt or an error before it leaves the broadcast open, stopped, with no pid. `close` abandons it; `broadcast` with no text continues it.
+3. With an open broadcast `pause` always shows its first prompt. Your "yes" (or `--yes`) is the commit point. At that point `pause` writes its run, then abandons the broadcast's unacked targets (reason `paused`), closes the broadcast and prints one warning line on stderr (in the `warnings` field under `--json`). A decline, an interrupt or an error before it leaves the broadcast open, stopped, with no pid. `close` abandons it; `broadcast` with no text continues it.
 4. If a pause run and a broadcast are both open (a crash between the writes), every command that loads records abandons the broadcast with reason `paused` and prints a line on stderr. If several records of one kind are open, the newest wins and the others are reported.
 
 ### Filters and groups
@@ -142,7 +142,7 @@ orca-broadcast pause --group web --role worker
 
 ### Roster
 
-The roster is a set of snapshots of the live Claude agents, one file per Orca runtime, so that a later command can find the agents that were alive before a restart. `roster save` writes one snapshot now. Each entry holds the Claude session ID, the pane key, the repo and worktree, the role, the last state (`working`, `done` or `waiting`) and, when known, the permission flag. For a worker it also holds the session ID of its coordinator and its dispatch ID. It never holds prompt or reply text.
+The roster is a set of snapshots of the live Claude agents, one file per Orca runtime, so that a later command can find the agents that were alive before a restart. `roster save` writes one snapshot now. `broadcast`, `pause` and `resume` also save the roster at their start and at their end, from listings they already take (one extra scan of the Claude processes each, and none while they wait). A save that fails never fails the command: its warning `roster not saved: <reason>` goes to stderr, or to the `warnings` field under `--json`. A command that was interrupted by a signal saves nothing. Each entry holds the Claude session ID, the pane key, the repo and worktree, the role, the last state (`working`, `done` or `waiting`) and, when known, the permission flag. For a worker it also holds the session ID of its coordinator and its dispatch ID. It never holds prompt or reply text.
 
 - **Files.** `$XDG_STATE_HOME/orca-broadcast/roster/<boot ID>-<runtime ID>.json` (`none` when Orca gives no runtime ID). A save in the same runtime replaces that file's entries, so an agent you closed on purpose drops out at the next save; an agent whose pane is live but whose session ID could not be read this time keeps its old entry. A save after a restart writes a new file and never changes an older one. The newest 5 files are kept.
 - **Output.** `roster saved: <N> agents`, or `roster not saved: <reason>`. With `--json`: `{"command":"roster save","outcome":"saved"|"skipped","agents":<N or null>,"warnings":[...]}`. Exit `0` when saved, `1` when it could not save (a failed scan or listing never replaces a snapshot), `2` on a usage error. It takes no lock and sends nothing.
@@ -193,7 +193,7 @@ The roster is a set of snapshots of the live Claude agents, one file per Orca ru
 | `--file <path>` | Read the `broadcast` text from a file; it may have several lines. `broadcast` only. |
 | `--reason <name>` | Why you are pausing. One of the presets below. `pause` only. Without it the message is neutral. |
 | `--yes` | Skip the confirmation prompt. Without an interactive terminal, `broadcast`, `pause` and `resume` refuse to send unless you pass it. |
-| `--json` | Print one JSON object on stdout and nothing on stderr (except the line about each skipped group `state` kind). It never prompts, so `broadcast`, `pause` and `resume` need `--yes`. |
+| `--json` | Print one JSON object on stdout and nothing on stderr (except the line about each skipped group `state` kind). Every object has a `warnings` array: the lines that text mode prints on stderr, such as a roster save that failed. It never prompts, so `broadcast`, `pause` and `resume` need `--yes`. |
 | `--group <name>` | Use a saved group. Repeat it for the union of the groups. `broadcast`, `pause`, `resume` and `close`. |
 | `--state working\|done` | Select agents by their live state. Repeatable. `broadcast` only. |
 | `--help` | Show help. |

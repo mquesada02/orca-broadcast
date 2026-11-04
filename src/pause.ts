@@ -2,6 +2,7 @@ import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import { abandonPending, type RecordStore } from './store.js';
 import { ALL_AGENTS, isFiltered, matches, NO_FILTERS } from './filters.js';
+import { autoRoster, type AutoRoster } from './roster-cmd.js';
 import { assertCurrentFormat, busyReason, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordId, resolveFilterSet, roleInfoOf, subjectOfRow, withWarnings, type RoleInfo, type Roles, type Snapshot } from './shared.js';
 import type { AgentRecord, AgentRow, BroadcastRecord, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, TerminalRow } from './types.js';
 
@@ -218,6 +219,15 @@ export function pause(timeoutMs: number, deps: PauseDeps): Promise<RunSummary> {
 }
 
 async function runPause(timeoutMs: number, deps: PauseDeps, warnings: string[]): Promise<RunSummary> {
+  const roster = autoRoster(deps, warnings);
+  const seen: { newest: Snapshot | null } = { newest: null };
+  const summary = await pauseSteps(timeoutMs, deps, warnings, roster, seen);
+  await roster.end(seen.newest);
+  return summary;
+}
+
+// `seen.newest` is the newest snapshot this run took, for the end roster save.
+async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[], roster: AutoRoster, seen: { newest: Snapshot | null }): Promise<RunSummary> {
   const { clock, store } = deps;
   const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
   let startedAt = clock.now();
@@ -237,8 +247,14 @@ async function runPause(timeoutMs: number, deps: PauseDeps, warnings: string[]):
   // The answer may have taken minutes: look again and start the clock now.
   const afterYes = async () => {
     confirmed = true;
-    ({ agents, terminals, roles } = await listSnapshot(deps));
+    await take();
     startedAt = clock.now();
+  };
+  // A new listing snapshot: the working copies of its parts, and the newest snapshot for the end roster save.
+  const take = async () => {
+    const snapshot = await listSnapshot(deps);
+    seen.newest = snapshot;
+    ({ agents, terminals, roles } = snapshot);
   };
   try {
     throwIfAborted(deps.signal);
@@ -251,7 +267,9 @@ async function runPause(timeoutMs: number, deps: PauseDeps, warnings: string[]):
       throw new Error(mismatchMessage(loaded.reason));
     }
     const { snapshot, set } = await readScope(deps);
+    seen.newest = snapshot;
     ({ agents, terminals, roles } = snapshot);
+    await roster.start(snapshot);
     throwIfAborted(deps.signal);
     scope.set = set;
     prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, roles, selfKey, scope);
@@ -318,7 +336,7 @@ async function runPause(timeoutMs: number, deps: PauseDeps, warnings: string[]):
       if (run.agents.every((a) => a.paneKey === selfKey || !scope.selected.has(a.paneKey) || isSettled(a))) break;
       await sleepOrAbort(clock, POLL_INTERVAL_MS, deps.signal);
       if (clock.now() - startedAt >= timeoutMs) break;
-      ({ agents, terminals, roles } = await listSnapshot(deps));
+      await take();
     }
   } catch (error) {
     await store.save(run);

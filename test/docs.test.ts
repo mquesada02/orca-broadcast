@@ -12,6 +12,13 @@ describe('roster documents', () => {
     expect(readme).toContain('OnUnitActiveSec=5min');
   });
 
+  it('README documents the warnings field of --json and the automatic saves', async () => {
+    const readme = await read('README.md');
+    expect(readme).toContain('Every object has a `warnings` array');
+    expect(readme).not.toContain('(not in `--json`)');
+    expect(readme).toContain('`broadcast`, `pause` and `resume` also save the roster at their start and at their end');
+  });
+
   it('CONTEXT.md defines the roster term', async () => {
     expect(await read('CONTEXT.md')).toMatch(/^\*\*Roster\*\*:/m);
   });

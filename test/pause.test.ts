@@ -275,7 +275,7 @@ describe('discovery', () => {
 
     expect(summary).toMatchObject({ outcome: 'nothing-to-do', exitCode: 0, run: null });
     expect(port.sends).toHaveLength(0);
-    await expect(readdir(dir)).rejects.toThrow();
+    expect(await readdir(dir)).toEqual(['roster']);
   });
 
   it('messages only working Claude agents', async () => {

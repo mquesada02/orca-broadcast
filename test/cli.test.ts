@@ -10,6 +10,7 @@ import { createRecordStore } from '../src/store.js';
 import type { AgentRecord } from '../src/types.js';
 import { agentRecord, type FakeAgent, seedOpenRun, fakeClock, FakeOrca, pausedDone, repliesWithToken, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
 import { noKill } from './helpers/run-cli.js';
+import { scanOptions } from './helpers/scan-options.js';
 
 async function run(
   argv: string[],
@@ -94,7 +95,7 @@ describe('orca-broadcast pause', () => {
     expect(out).toContain('confirmed (2)');
     expect(out).toMatch(/alpha\s+wt-a\s+session\s+run: unknown\s+confirmed/);
     expect(out).not.toContain('unconfirmed');
-    expect((await readdir(`${dir}/orca-broadcast`)).sort()).toEqual(['current', 'pauses']);
+    expect((await readdir(`${dir}/orca-broadcast`)).sort()).toEqual(['current', 'pauses', 'roster']);
   });
 
   it('exits 1 and lists unconfirmed agents first with an action hint', async () => {
@@ -387,7 +388,7 @@ describe('safety rails', () => {
     });
     expect(first.code).toBe(130);
     expect(first.err).toContain('interrupted by SIGTERM');
-    expect((await readdir(first.stateDir)).sort()).toEqual(['current', 'pauses']);
+    expect((await readdir(first.stateDir)).sort()).toEqual(['current', 'pauses', 'roster']);
     const [name] = await readdir(join(first.stateDir, 'pauses'));
     const record = JSON.parse(await readFile(join(first.stateDir, 'pauses', name as string), 'utf8'));
     expect(record).toMatchObject({ status: 'open' });
@@ -488,7 +489,7 @@ describe('safety rails', () => {
       expect(code).toBe(130);
       expect(err).toContain('interrupted by SIGTERM');
       expect(port.sends).toHaveLength(1);
-      expect((await readdir(stateDir)).sort()).toEqual(['current', 'pauses']);
+      expect((await readdir(stateDir)).sort()).toEqual(['current', 'pauses', 'roster']);
       expect(emitter.listenerCount('SIGTERM')).toBe(0);
       expect(JSON.parse(await readFile(join(stateDir, 'pauses', 'run-1.json'), 'utf8')).status).toBe('open');
     });
@@ -513,7 +514,7 @@ describe('safety rails', () => {
         key === 'worktree ps' ? ps(++psCalls > 1) : key === 'terminal list' ? JSON.stringify({ ok: true, result: { terminals: [{ handle: 'term_a', tabId: 'a', leafId: '1', agentIdentity: 'claude' }] } }) : sendReceipt;
       return { stdout, stderr: '', code: 0 };
     };
-    const { code, err, stateDir } = await invoke(['pause', '--yes'], [], dir, { port: createOrcaAdapter(exec) });
+    const { code, err, stateDir } = await invoke(['pause', '--yes'], [], dir, { port: createOrcaAdapter(exec, scanOptions()) });
     expect(code).toBe(2);
     expect(err).toContain('incomplete');
     const [name] = await readdir(join(stateDir, 'pauses'));
@@ -532,7 +533,7 @@ describe('safety rails', () => {
         const key = args.slice(0, 2).join(' ');
         return { stdout: key === 'worktree ps' ? psComplete : key === 'terminal list' ? terminalList : JSON.stringify({ ok: true, result: {} }), stderr: '', code: 0 };
       };
-      const result = await invoke(['pause', '--yes', ...extra], [], await tempStateDir(), { port: createOrcaAdapter(exec) });
+      const result = await invoke(['pause', '--yes', ...extra], [], await tempStateDir(), { port: createOrcaAdapter(exec, scanOptions()) });
       return { ...result, calls };
     };
 

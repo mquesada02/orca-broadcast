@@ -1,7 +1,8 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { continueSentence, type Preset } from './reasons.js';
 import { isFiltered, matches, NO_FILTERS } from './filters.js';
-import { assertCurrentFormat, cancelled, coordinatorsLast, failure, identityOf, iso, listAgentsFresh, listSnapshot, nothingToDo, locate, POLL_INTERVAL_MS, liveSources, resolveFilterSet, roleInfoOf, withWarnings, type Roles } from './shared.js';
+import { autoRoster, type AutoRoster } from './roster-cmd.js';
+import { assertCurrentFormat, cancelled, coordinatorsLast, failure, identityOf, iso, listAgentsFresh, listSnapshot, nothingToDo, locate, POLL_INTERVAL_MS, liveSources, resolveFilterSet, roleInfoOf, withWarnings, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, ContinueBaseline, FilterSpec, GroupFilter, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
 
@@ -52,6 +53,15 @@ export function resume(deps: ResumeDeps): Promise<RunSummary> {
 }
 
 async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSummary> {
+  const roster = autoRoster(deps, warnings);
+  const seen: { newest: Snapshot | null } = { newest: null };
+  const summary = await resumeSteps(deps, warnings, roster, seen);
+  await roster.end(seen.newest);
+  return summary;
+}
+
+// `seen.newest` is the newest snapshot this run took, for the end roster save.
+async function resumeSteps(deps: ResumeDeps, warnings: string[], roster: AutoRoster, seen: { newest: Snapshot | null }): Promise<RunSummary> {
   const { port, clock, store } = deps;
   const selfKey = deps.selfPaneKey || undefined; // an empty ORCA_PANE_KEY means there is no self
 
@@ -74,7 +84,9 @@ async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSumma
   let selected: AgentRecord[];
   try {
     const snapshot = await listSnapshot(deps);
+    seen.newest = snapshot;
     ({ agents: rows, terminals, roles } = snapshot);
+    await roster.start(snapshot);
     const filters = deps.filters ?? NO_FILTERS;
     const set = resolveFilterSet(filters, isFiltered(filters, deps.groups) ? await liveSources(snapshot, deps) : null, run.agents, deps.cwd, deps.groups);
     selected = run.agents.filter((a) => a.resumeStatus === 'pending' && matches(set, a));
@@ -84,7 +96,8 @@ async function runResume(deps: ResumeDeps, warnings: string[]): Promise<RunSumma
       if (targets.length > 0) {
         if (!(await deps.confirm(targets, deps.signal))) return cancelled();
         throwIfAborted(deps.signal);
-        ({ agents: rows, terminals, roles } = await listSnapshot(deps)); // the answer may have taken minutes
+        seen.newest = await listSnapshot(deps); // the answer may have taken minutes
+        ({ agents: rows, terminals, roles } = seen.newest);
       }
     }
   } catch (error) {

@@ -242,7 +242,7 @@ describe('pause stops a waiting broadcast', () => {
     const world = scenario();
     const { code, out } = await runCli(['pause', '--yes', '--json'], [], world.opts);
     expect(code).toBe(0);
-    expect(JSON.parse(out)).toEqual({ command: 'pause', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null });
+    expect(JSON.parse(out)).toEqual({ command: 'pause', outcome: 'nothing-to-do', exitCode: 0, run: null, record: null, error: null, warnings: [] });
     expect(world.kills).toEqual([]);
   });
 

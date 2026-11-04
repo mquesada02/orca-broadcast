@@ -119,7 +119,7 @@ describe('group add', () => {
   it('reports the group in --json', async () => {
     const { code, out } = await runCli(['group', 'add', 'web', '--repo', 'alpha', '--json'], fleet(), withRepos());
     expect(code).toBe(0);
-    expect(json(out)).toEqual({ command: 'group add', outcome: 'done', exitCode: 0, error: null, groups: { web: { filters: { repo: ['alpha'] } } } });
+    expect(json(out)).toEqual({ command: 'group add', outcome: 'done', exitCode: 0, error: null, groups: { web: { filters: { repo: ['alpha'] } } }, warnings: [] });
   });
 });
 
