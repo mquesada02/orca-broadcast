@@ -5,12 +5,14 @@ import type { RecoverRow, RecoveryRecord, RecoveryRow } from './types.js';
  * A row is final when no further start, send or wait is planned for it: `acked`, `gone`, `left-to-coordinator`, `no-coordinator`, `failed`
  * and `abandoned` always; `restored` and `restarted` only when no prompt follows. `pending` never is.
  */
-function isFinalRow(row: Pick<RecoveryRow, 'status' | 'promptDue'>): boolean {
+function isFinalRow(row: Pick<RecoveryRow, 'status' | 'reason' | 'promptDue' | 'coordinatorSessionId'>, rows: Pick<RecoveryRow, 'sessionId' | 'status'>[]): boolean {
   switch (row.status) {
+    case 'no-coordinator':
+      // The exception: a worker whose coordinator did not get the list yet is decided again with its coordinator, while that row is pending.
+      return !(row.reason === 'coordinator-missing' && row.coordinatorSessionId !== undefined && rows.some((other) => other.sessionId === row.coordinatorSessionId && other.status === 'pending'));
     case 'acked':
     case 'gone':
     case 'left-to-coordinator':
-    case 'no-coordinator':
     case 'failed':
     case 'abandoned':
       return true;
@@ -25,7 +27,7 @@ function isFinalRow(row: Pick<RecoveryRow, 'status' | 'promptDue'>): boolean {
 /** The process no longer runs this recovery: drop its pid, and close the record by itself when every row is final. */
 export function releaseRecovery(record: RecoveryRecord): void {
   clearPid(record);
-  if (record.rows.every(isFinalRow)) {
+  if (record.rows.every((row) => isFinalRow(row, record.rows))) {
     record.status = 'closed';
     record.endedBy = 'done';
   }

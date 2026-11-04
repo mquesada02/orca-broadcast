@@ -81,19 +81,19 @@ describe('the record and the starts', () => {
     ];
     const { port, out } = await recoverRun(['--yes', '--json'], [], entries);
     expect(port.starts.map((s) => [s.sessionId, s.permission])).toEqual([['s-c', null], ['s-a', '--dangerously-skip-permissions'], ['s-b', null]]);
-    // Its coordinator is restarted, so the worker is left to it (the list itself is sent by the prompt step, not built yet).
-    expect(resultsOf(out)['s-w']).toBe('pending/timed-out');
+    // Its coordinator never appeared, so it got no list.
+    expect(resultsOf(out)).toMatchObject({ 's-c': 'failed/did-not-appear', 's-w': 'no-coordinator/coordinator-missing' });
   });
 
-  it('keeps the record open when a prompt is due: the restarted row is pending timed-out and the exit is 1', async () => {
+  it('keeps the record open when the prompt is sent and not acked: the restarted row is pending still-working and the exit is 1', async () => {
     const { code, out, dir } = await recoverRun(['--yes', '--json'], [appears('new:a', 3)], [rosterEntry('s-a')], { scan: joinedFrom('s-a', 'new:a', 3) });
     expect(code).toBe(1);
-    expect(resultsOf(out)).toEqual({ 's-a': 'pending/timed-out' });
+    expect(resultsOf(out)).toEqual({ 's-a': 'pending/still-working' });
     const record = only(dir);
     expect(record).toMatchObject({ status: 'open' });
     expect(record.endedBy).toBeUndefined();
     expect(record.pid).toBeUndefined();
-    expect(record.rows[0]).toMatchObject({ status: 'pending', reason: 'timed-out', promptDue: true });
+    expect(record.rows[0]).toMatchObject({ status: 'pending', reason: 'still-working', promptDue: true, messagePending: false });
     expect(record.rows[0]?.startedAt).toBeTypeOf('string');
     expect(readPointer(dir)).toEqual({ kind: 'recovery', id: record.id });
   });

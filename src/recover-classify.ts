@@ -48,10 +48,12 @@ export interface RecheckDeps {
 /**
  * The held re-check: one loop for every `held` item. Each 2-second tick takes a listing and a scan and classifies the held items again.
  * It ends when no item is held or its time is over (60 seconds, or the time left of `--timeout`). A failed scan ends it at once.
- * Returns true when a scan failed; items still `held` then stay `held` for the caller.
+ * `scanFailed` is true when a scan failed; items still `held` then stay `held` for the caller. `scan` is the newest scan that
+ * succeeded, or null when the re-check made none.
  */
-export async function recheckHeld(items: Item[], { port, clock, signal, deadline }: RecheckDeps): Promise<boolean> {
+export async function recheckHeld(items: Item[], { port, clock, signal, deadline }: RecheckDeps): Promise<{ scanFailed: boolean; scan: SessionScan | null }> {
   const end = Math.min(clock.now() + HELD_RECHECK_MS, deadline);
+  let newest: SessionScan | null = null;
   while (items.some((item) => item.standing === 'held') && clock.now() < end) {
     await sleepOrAbort(clock, Math.min(POLL_INTERVAL_MS, end - clock.now()), signal);
     const [agents, terminals] = await listFresh({ port, clock, signal });
@@ -59,12 +61,13 @@ export async function recheckHeld(items: Item[], { port, clock, signal, deadline
     try {
       scan = await port.scanSessions();
     } catch {
-      return true;
+      return { scanFailed: true, scan: newest };
     }
+    newest = scan;
     const live = liveSessionIds({ agents, terminals }, scan);
     for (const item of items) if (item.standing === 'held') item.standing = standingOf(item.entry, live, scan);
   }
-  return false;
+  return { scanFailed: false, scan: newest };
 }
 
 // The order of the table: coordinators first, then the others; each group by repo, worktree, session ID and pane key.

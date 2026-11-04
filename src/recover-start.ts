@@ -1,7 +1,7 @@
-import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { classify, liveSessionIds } from './recover-classify.js';
-import { livePanes, sessionsByPane } from './roster.js';
-import { iso, listFresh, POLL_INTERVAL_MS } from './shared.js';
+import { throwIfAborted } from './abort.js';
+import { classify } from './recover-classify.js';
+import { paneOfSession } from './roster.js';
+import { iso, listFresh } from './shared.js';
 import type { Clock, OrcaPort, RecoveryRecord, RecoveryRow, SessionScan } from './types.js';
 
 export interface StartDeps {
@@ -23,6 +23,8 @@ export interface Started {
   count: number;
   /** The newest scan that succeeded in this step; null when none did. */
   scan: SessionScan | null;
+  /** For each row found already `restored` right before its start (so it was not started): the pane that holds its session. */
+  panes: Map<string, string>;
 }
 
 const setResult = (row: RecoveryRow, status: RecoveryRow['status'], reason: RecoveryRow['reason']): void => {
@@ -30,9 +32,8 @@ const setResult = (row: RecoveryRow, status: RecoveryRow['status'], reason: Reco
   row.reason = reason;
 };
 
-// A row whose prompt follows is not final yet; the prompts themselves are not built, so it ends `pending`, reason `timed-out`.
-// A row that is due a prompt stays pending; otherwise it gets its final status.
-const arrived = (row: RecoveryRow, done: 'restored' | 'restarted'): void => (row.promptDue ? setResult(row, 'pending', 'timed-out') : setResult(row, done, null));
+// A row found restored: when a prompt follows it stays pending (the prompt loop decides its result), else it is final.
+const restored = (row: RecoveryRow): void => (row.promptDue ? setResult(row, 'pending', 'timed-out') : setResult(row, 'restored', null));
 
 /**
  * The starts: for each row due a restart, in the order given, one listing and one scan right before the decision. A failed scan stops
@@ -40,7 +41,7 @@ const arrived = (row: RecoveryRow, done: 'restored' | 'restarted'): void => (row
  */
 export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise<Started> {
   const { port, clock, signal, deadline } = deps;
-  const started: Started = { awaiting: [], count: 0, scan: null };
+  const started: Started = { awaiting: [], count: 0, scan: null, panes: new Map() };
   let scanBroken = false;
   for (const row of rows) {
     throwIfAborted(signal);
@@ -62,7 +63,9 @@ export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise
     started.scan = scan;
     const [item] = classify([row], { agents, terminals }, scan);
     if (item?.standing === 'restored') {
-      arrived(row, 'restored');
+      restored(row);
+      const pane = paneOfSession(scan, row.sessionId);
+      if (pane !== undefined) started.panes.set(row.sessionId, pane);
     } else if (item?.standing === 'held') {
       setResult(row, 'failed', 'session-held');
     } else if (item?.standing === 'unverifiable') {
@@ -88,40 +91,4 @@ export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise
     await deps.save();
   }
   return started;
-}
-
-/**
- * The appearance wait. Each tick takes a listing, and one scan only when a live Claude agent is in no record of the latest successful
- * scan. A started row is `restarted` once a live row has its session ID. It always makes one tick; it ends when no row awaits or the
- * deadline has passed after a tick. A row still awaiting then fails: `scan-failed` when a live row is unjoined and the last scan failed,
- * else `did-not-appear`.
- */
-export async function waitForAppearance(started: Started, deps: StartDeps): Promise<void> {
-  const { port, clock, signal, deadline } = deps;
-  let scan = started.scan ?? { sessions: [], unknown: [], heldByOthers: [] };
-  let awaiting = started.awaiting;
-  let lastScanFailed = false;
-  let unjoined = false;
-  while (true) {
-    throwIfAborted(signal);
-    const [agents, terminals] = await listFresh({ port, clock, signal });
-    const listing = { agents, terminals };
-    unjoined = livePanes(listing, sessionsByPane(scan)).some((pane) => pane.record === undefined);
-    if (unjoined) {
-      try {
-        scan = await port.scanSessions();
-        lastScanFailed = false;
-        unjoined = livePanes(listing, sessionsByPane(scan)).some((pane) => pane.record === undefined);
-      } catch {
-        lastScanFailed = true;
-      }
-    }
-    const live = liveSessionIds(listing, scan);
-    for (const row of awaiting) if (live.has(row.sessionId)) arrived(row, 'restarted');
-    awaiting = awaiting.filter((row) => row.status === 'pending' && row.reason === 'awaiting-start');
-    await deps.save();
-    if (awaiting.length === 0 || clock.now() >= deadline) break;
-    await sleepOrAbort(clock, Math.min(POLL_INTERVAL_MS, deadline - clock.now()), signal);
-  }
-  for (const row of awaiting) setResult(row, 'failed', lastScanFailed && unjoined ? 'scan-failed' : 'did-not-appear');
 }

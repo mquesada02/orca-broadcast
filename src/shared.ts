@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Interrupted } from './abort.js';
 import { ALL_AGENTS, combineSets, isFiltered, resolveFilters, type FilterSources, type Subject } from './filters.js';
 import { withRetry } from './retry.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, BroadcastTarget, Clock, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -97,12 +97,12 @@ export function endsWithLine(message: string | null, line: string): boolean {
 export const ackLine = (token: string) => `ORCA-ACK ${token}`;
 
 // The ack proof: the message was sent, the agent is not on a permission prompt, and its new reply ends with the ack line.
-export function proves(target: Pick<BroadcastTarget, 'messagePending' | 'baseline'>, row: AgentRow, token: string): boolean {
+export function proves(target: { messagePending: boolean; baseline: string | null }, row: AgentRow, token: string): boolean {
   return !target.messagePending && !isWaitingLike(row.state) && hasNewReply(target.baseline, row) && endsWithLine(row.lastAssistantMessage, ackLine(token));
 }
 
 // A target is due a send when its message is still pending, its last send did not fail, and the agent is not on a permission prompt.
-export const sendDue = (target: Pick<BroadcastTarget, 'messagePending' | 'reason'>, row: Pick<AgentRow, 'state'>): boolean =>
+export const sendDue = (target: { messagePending: boolean; reason: string | null }, row: Pick<AgentRow, 'state'>): boolean =>
   target.messagePending && target.reason !== 'send-failed' && !isWaitingLike(row.state);
 
 // Role and run ids of every live agent, by pane key. An agent that is not live has no entry.
