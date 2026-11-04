@@ -61,7 +61,8 @@ export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise
     started.scan = scan;
     const [item] = classify([row], { agents, terminals }, scan);
     if (item?.standing === 'restored') {
-      row.promptDue ? setResult(row, 'pending', 'timed-out') : setResult(row, 'restored', null);
+      if (row.promptDue) setResult(row, 'pending', 'timed-out');
+      else setResult(row, 'restored', null);
     } else if (item?.standing === 'held') {
       setResult(row, 'failed', 'session-held');
     } else if (item?.standing === 'unverifiable') {

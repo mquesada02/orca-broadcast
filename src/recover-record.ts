@@ -5,7 +5,7 @@ import type { RecoverRow, RecoveryRecord, RecoveryRow } from './types.js';
  * A row is final when no further start, send or wait is planned for it: `acked`, `gone`, `left-to-coordinator`, `no-coordinator`, `failed`
  * and `abandoned` always; `restored` and `restarted` only when no prompt follows. `pending` never is.
  */
-export function isFinalRow(row: Pick<RecoveryRow, 'status' | 'promptDue'>): boolean {
+function isFinalRow(row: Pick<RecoveryRow, 'status' | 'promptDue'>): boolean {
   switch (row.status) {
     case 'acked':
     case 'gone':

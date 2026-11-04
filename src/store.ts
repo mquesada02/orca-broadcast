@@ -350,13 +350,10 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     }
     // A pause run wins. Between a recovery and a broadcast the newer wins; a tie goes to the recovery.
     const recoveryWins = open.recovery && (!open.broadcast || open.recovery.record.createdAt >= open.broadcast.record.createdAt);
-    const winner: Pointer | null = open.pause
-      ? { kind: 'pause', id: open.pause.record.runId }
-      : recoveryWins && open.recovery
-        ? { kind: 'recovery', id: open.recovery.record.id }
-        : open.broadcast
-          ? { kind: 'broadcast', id: open.broadcast.record.id }
-          : null;
+    let winner: Pointer | null = null;
+    if (open.pause) winner = { kind: 'pause', id: open.pause.record.runId };
+    else if (recoveryWins && open.recovery) winner = { kind: 'recovery', id: open.recovery.record.id };
+    else if (open.broadcast) winner = { kind: 'broadcast', id: open.broadcast.record.id };
     if (!winner) {
       await removeIfPresent(pointerPath);
     } else {

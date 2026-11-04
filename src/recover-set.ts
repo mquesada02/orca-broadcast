@@ -1,8 +1,6 @@
 import { iso } from './shared.js';
 import type { RosterEntry, RosterSnapshot, RuntimeKey, SnapshotLine } from './types.js';
 
-export type { RuntimeKey };
-
 // Two keys are one runtime when the boot IDs are equal and the runtime IDs are equal or either is unknown (null).
 export const sameRuntime = (a: RuntimeKey, b: RuntimeKey): boolean =>
   a.bootId === b.bootId && (a.runtimeId === null || b.runtimeId === null || a.runtimeId === b.runtimeId);
