@@ -72,6 +72,38 @@ export interface SessionScan {
   heldByOthers: string[];
 }
 
+// One live Claude agent in a roster snapshot. It never holds prompt, reply or environment content.
+export interface RosterEntry {
+  sessionId: string;
+  paneKey: string;
+  repo: string;
+  repoId: string;
+  worktree: string;
+  worktreeId: string;
+  worktreePath: string;
+  role: Role;
+  orchestrationRunIds: string[];
+  state: 'working' | 'done' | 'waiting';
+  stateStartedAt: number;
+  /** ISO time of the save that wrote this entry. */
+  savedAt: string;
+  /** A worker only: the session ID of its coordinator, when it can be resolved. */
+  coordinatorSessionId?: string;
+  /** A worker only: the dispatch ID of its worker-list row, when it has one. */
+  dispatchId?: string;
+  /** The permission flag of the process, when known. */
+  permission?: string;
+}
+
+// The roster of one runtime: the pair (boot ID, Orca runtime ID). Times are ISO text.
+export interface RosterSnapshot {
+  bootId: string;
+  runtimeId: string | null;
+  firstSavedAt: string;
+  lastSavedAt: string;
+  entries: RosterEntry[];
+}
+
 export interface OrcaPort {
   listAgents(): Promise<AgentRow[]>;
   // The same `worktree ps` as listAgents, with the runtime ID of its `_meta` (null when absent).

@@ -165,6 +165,14 @@ function checkRoles(values: FlagValues): void {
   }
 }
 
+// `roster save` takes no argument and only the generic flags.
+export function validateRosterArgs(rest: string[], values: FlagValues): void {
+  for (const name of Object.keys(FLAGS)) {
+    if (values[name] !== undefined && !GENERIC_FLAGS.includes(name)) throw new UsageError(`--${name} does not apply to roster save`);
+  }
+  if (rest.length > 0) throw new UsageError('roster save takes no argument');
+}
+
 // The flags of the `group` subcommands: their own table, so the messages of the four send commands do not change.
 export function validateGroupArgs(sub: string, rest: string[], values: FlagValues): void {
   const allowed = sub === 'add' ? flagsOf('group add').map(([name]) => name) : GENERIC_FLAGS;

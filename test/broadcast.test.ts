@@ -228,8 +228,9 @@ describe('broadcast: the targets', () => {
 
   it('clears the pid from the record and sends nothing when the pointer cannot be written', async () => {
     const { code, port, dir } = await send('hello', [{ paneKey: 'a:1', behavior: acks }], {
+      storeOptions: { pid: 4242, tmpSuffix: () => 'fixed' },
       seed: async (_store, base) => {
-        await mkdir(join(base, 'orca-broadcast', 'current.tmp'), { recursive: true }); // makes the atomic pointer write fail
+        await mkdir(join(base, 'orca-broadcast', 'current.4242.fixed.tmp'), { recursive: true }); // makes the atomic pointer write fail
       },
     });
     expect(code).toBe(2);

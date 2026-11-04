@@ -1,14 +1,16 @@
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { releaseBroadcast } from './shared.js';
-import type { BroadcastReason, BroadcastRecord, BroadcastTarget, Run } from './types.js';
+import type { BroadcastReason, BroadcastRecord, BroadcastTarget, RosterSnapshot, Run } from './types.js';
 
 const POINTER = 'current';
 const LOCK = 'lock';
 const TAKEOVER = 'lock.takeover';
 const PAUSES = 'pauses';
 const BROADCASTS = 'broadcasts';
+const ROSTER = 'roster';
 const LOCK_ATTEMPTS = 3;
 
 export class LockHeldError extends Error {
@@ -66,6 +68,10 @@ export interface RecordStore {
   processStartTime(pid: number): string | undefined;
   save(run: Run): Promise<void>;
   saveBroadcast(record: BroadcastRecord): Promise<void>;
+  /** Writes (or replaces) the file of the snapshot's runtime, then keeps only the newest 5 files; the file just written is never removed. */
+  saveRoster(snapshot: RosterSnapshot): Promise<void>;
+  /** Every kept roster snapshot, newest first. Fails naming the file when one cannot be read. */
+  loadRosters(): Promise<RosterSnapshot[]>;
   /** Removes a pause run's file and clears the pointer if it names that run. The caller guarantees the run is new and unconfirmed. */
   removeRun(runId: string): Promise<void>;
   setCurrent(kind: RecordKind, id: string): Promise<void>;
@@ -81,6 +87,8 @@ export interface StoreOptions {
   pid?: number;
   isAlive?: (pid: number) => boolean;
   readStartTime?: (pid: number) => string | undefined;
+  /** The random part of a temporary file name; a fresh UUID when omitted. */
+  tmpSuffix?: () => string;
 }
 
 function processIsAlive(pid: number): boolean {
@@ -117,8 +125,14 @@ export function abandonPending(record: BroadcastRecord, reason: Extract<Broadcas
   return pending.length;
 }
 
-async function writeAtomic(path: string, content: string): Promise<void> {
-  const tmp = `${path}.tmp`;
+// The parts of a temporary file name, `<path>.<pid>.<random>.tmp`: two writes never share one, in a process or across processes with the same pid.
+interface TmpNames {
+  pid: number;
+  suffix: () => string;
+}
+
+async function writeAtomic(path: string, content: string, { pid, suffix }: TmpNames): Promise<void> {
+  const tmp = `${path}.${pid}.${suffix()}.tmp`;
   await writeFile(tmp, content);
   await rename(tmp, path);
 }
@@ -127,9 +141,48 @@ async function removeIfPresent(path: string): Promise<void> {
   await rm(path, { force: true });
 }
 
-async function writeRecord(folder: string, id: string, record: Run | BroadcastRecord): Promise<void> {
+async function writeRecord(folder: string, id: string, record: Run | BroadcastRecord | RosterSnapshot, names: TmpNames): Promise<void> {
   await mkdir(folder, { recursive: true });
-  await writeAtomic(join(folder, `${id}.json`), `${JSON.stringify(record, null, 2)}\n`);
+  await writeAtomic(join(folder, `${id}.json`), `${JSON.stringify(record, null, 2)}\n`, names);
+}
+
+// The IDs come from outside the tool: a character that is not safe in a file name becomes `_`. The real values stay in the file.
+const safeName = (part: string): string => part.replace(/[^A-Za-z0-9._-]/g, '_');
+
+/** The roster file of a runtime, without the extension: `<boot ID>-<runtime ID>` (`none` for a null runtime ID). */
+export const rosterFileId = (bootId: string, runtimeId: string | null): string => `${safeName(bootId)}-${safeName(runtimeId ?? 'none')}`;
+
+const ROSTER_KEEP = 5;
+
+function isRosterSnapshot(value: unknown): value is RosterSnapshot {
+  const v = value as Record<string, unknown> | null;
+  return typeof v === 'object' && v !== null && typeof v.bootId === 'string' && (typeof v.runtimeId === 'string' || v.runtimeId === null) && typeof v.firstSavedAt === 'string' && typeof v.lastSavedAt === 'string' && Array.isArray(v.entries);
+}
+
+// Every roster file, newest first by last save time (equal times: the greater file name first). A missing folder counts as empty.
+async function listRosters(folder: string): Promise<{ id: string; snapshot: RosterSnapshot }[]> {
+  let names: string[];
+  try {
+    names = await readdir(folder);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+  const files = await Promise.all(
+    names
+      .filter((n) => n.endsWith('.json'))
+      .map(async (n) => {
+        const path = join(folder, n);
+        try {
+          const value: unknown = JSON.parse(await readFile(path, 'utf8'));
+          if (!isRosterSnapshot(value)) throw new Error('not a roster snapshot');
+          return { id: n.slice(0, -'.json'.length), snapshot: value };
+        } catch (error) {
+          throw new Error(`cannot read roster file ${path}: ${(error as Error).message}`);
+        }
+      }),
+  );
+  return files.sort((a, b) => b.snapshot.lastSavedAt.localeCompare(a.snapshot.lastSavedAt) || b.id.localeCompare(a.id));
 }
 
 async function readRecord<T>(path: string): Promise<T | null> {
@@ -189,6 +242,8 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   const readStartTime = options.readStartTime ?? procStartTime;
   const pausesDir = join(dir, PAUSES);
   const broadcastsDir = join(dir, BROADCASTS);
+  const rosterDir = join(dir, ROSTER);
+  const tmpNames: TmpNames = { pid, suffix: options.tmpSuffix ?? randomUUID };
   const lockPath = join(dir, LOCK);
   const takeoverPath = join(dir, TAKEOVER);
   const pointerPath = join(dir, POINTER);
@@ -237,7 +292,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
 
   async function setCurrent(kind: RecordKind, id: string): Promise<void> {
     await mkdir(dir, { recursive: true });
-    await writeAtomic(pointerPath, `${JSON.stringify({ kind, id })}\n`);
+    await writeAtomic(pointerPath, `${JSON.stringify({ kind, id })}\n`, tmpNames);
   }
 
   // Anything but pointer JSON (including a pointer in the old plain-text layout) counts as missing.
@@ -280,7 +335,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     if (open.pause && open.broadcast) {
       for (const record of [open.broadcast.record, ...open.broadcast.others]) {
         abandonPending(record, 'paused');
-        await writeRecord(broadcastsDir, record.id, record);
+        await writeRecord(broadcastsDir, record.id, record, tmpNames);
         notes.push(`broadcast ${record.id} was open beside a pause run and is now abandoned`);
       }
       open.broadcast = null;
@@ -340,9 +395,24 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
       throw new LockHeldError();
     },
 
-    save: (run) => writeRecord(pausesDir, run.runId, run),
+    save: (run) => writeRecord(pausesDir, run.runId, run, tmpNames),
 
-    saveBroadcast: (record) => writeRecord(broadcastsDir, record.id, record),
+    saveBroadcast: (record) => writeRecord(broadcastsDir, record.id, record, tmpNames),
+
+    async saveRoster(snapshot) {
+      const id = rosterFileId(snapshot.bootId, snapshot.runtimeId);
+      await writeRecord(rosterDir, id, snapshot, tmpNames);
+      const all = await listRosters(rosterDir);
+      const kept = all.slice(0, ROSTER_KEEP);
+      const written = all.find((file) => file.id === id);
+      // The file just written is never removed, even when a clock that ran backwards makes it the oldest.
+      if (written && !kept.includes(written)) kept[ROSTER_KEEP - 1] = written;
+      for (const file of all) if (!kept.includes(file)) await removeIfPresent(join(rosterDir, `${file.id}.json`));
+    },
+
+    async loadRosters() {
+      return (await listRosters(rosterDir)).map((file) => file.snapshot);
+    },
 
     async removeRun(runId) {
       await removeIfPresent(join(pausesDir, `${runId}.json`));

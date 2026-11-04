@@ -458,7 +458,7 @@ describe('open-record scan', () => {
   it('fails naming the file when a record is unreadable, and ignores leftover temporary files', async () => {
     const dir = await withDir();
     await mkdir(join(dir, 'pauses'));
-    await writeFile(join(dir, 'pauses', 'half.json.tmp'), '{"runId":');
+    await writeFile(join(dir, 'pauses', 'half.json.4242.fixed.tmp'), '{"runId":');
     expect(await newStore(dir).findOpenRun()).toBeNull();
     await writeFile(join(dir, 'pauses', 'bad.json'), '{"runId":');
     await expect(newStore(dir).findOpenRun()).rejects.toThrow(/unreadable record .*bad\.json/);
