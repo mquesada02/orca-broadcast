@@ -16,7 +16,7 @@ export interface RosterDeps {
 export type RosterResult = { outcome: 'saved'; agents: number } | { outcome: 'skipped'; reason: string };
 
 // `roster save`: one listing snapshot, one scan, one file. It sends nothing, takes no lock and touches only `roster/`.
-// Every failure from the first listing to the write is a skip, and a skip never changes the saved snapshots.
+// Every failure from the first listing to the write is a skip, and a skip before the write never changes the saved snapshots.
 export async function runRosterSave({ port, clock, store }: RosterDeps): Promise<RosterResult> {
   try {
     const snapshot = await listSnapshot({ port, clock });

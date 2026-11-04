@@ -182,7 +182,9 @@ async function listRosters(folder: string): Promise<{ id: string; snapshot: Rost
         }
       }),
   );
-  return files.sort((a, b) => b.snapshot.lastSavedAt.localeCompare(a.snapshot.lastSavedAt) || b.id.localeCompare(a.id));
+  // A plain comparison, not `localeCompare`: the order must not depend on the locale of the process.
+  const newerFirst = (a: string, b: string): number => (a < b ? 1 : a > b ? -1 : 0);
+  return files.sort((a, b) => newerFirst(a.snapshot.lastSavedAt, b.snapshot.lastSavedAt) || newerFirst(a.id, b.id));
 }
 
 async function readRecord<T>(path: string): Promise<T | null> {

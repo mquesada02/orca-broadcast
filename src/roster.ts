@@ -33,25 +33,23 @@ export function buildRoster(snapshot: Snapshot, scan: SessionScan, previous: Ros
   const savedAt = iso(now);
   const sessions = sessionsByPane(scan);
 
-  const live: { row: AgentRow; handle: string }[] = [];
+  const live: { row: AgentRow; handle: string; record: SessionRecord | undefined }[] = [];
   for (const [paneKey, row] of snapshot.agents) {
     const found = locate(paneKey, snapshot.agents, snapshot.terminals);
-    if (row.agentType === 'claude' && !('gone' in found)) live.push({ row, handle: found.handle });
+    if (row.agentType === 'claude' && !('gone' in found)) live.push({ row, handle: found.handle, record: sessions.get(paneKey) });
   }
 
   // Entries are unique by session ID: of two rows with one session ID the newest process keeps it; equal start times keep the first row.
-  const winner = new Map<string, string>();
-  for (const { row } of live) {
-    const record = sessions.get(row.paneKey);
+  const winner = new Map<string, { paneKey: string; startTime: number }>();
+  for (const { row, record } of live) {
     if (!record) continue;
     const current = winner.get(record.sessionId);
-    if (current === undefined || record.startTime > (sessions.get(current) as SessionRecord).startTime) winner.set(record.sessionId, row.paneKey);
+    if (current === undefined || record.startTime > current.startTime) winner.set(record.sessionId, { paneKey: row.paneKey, startTime: record.startTime });
   }
 
   const entries: RosterEntry[] = [];
-  for (const { row, handle } of live) {
-    const record = sessions.get(row.paneKey);
-    if (!record || winner.get(record.sessionId) !== row.paneKey) continue;
+  for (const { row, handle, record } of live) {
+    if (!record || winner.get(record.sessionId)?.paneKey !== row.paneKey) continue;
     const { role, orchestrationRunIds } = roleInfoOf(snapshot.roles, row.paneKey);
     const entry: RosterEntry = {
       sessionId: record.sessionId,
@@ -78,7 +76,7 @@ export function buildRoster(snapshot: Snapshot, scan: SessionScan, previous: Ros
   }
 
   // A live pane whose session ID this scan missed keeps the entries it had in the previous snapshot.
-  const missed = new Set(live.filter(({ row }) => !sessions.has(row.paneKey)).map(({ row }) => row.paneKey));
+  const missed = new Set(live.filter(({ record }) => !record).map(({ row }) => row.paneKey));
   const taken = new Set(entries.map((entry) => entry.sessionId));
   for (const entry of previous?.entries ?? []) {
     if (missed.has(entry.paneKey) && !taken.has(entry.sessionId)) entries.push(entry);
