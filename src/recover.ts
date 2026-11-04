@@ -6,7 +6,7 @@ import { autoRoster } from './roster-cmd.js';
 import { sessionsByPane } from './roster.js';
 import { failure, listSnapshot, liveSources, locate, resolveFilterSet, roleInfoOf, withWarnings, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
-import type { Clock, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoverRow, RecoverSelf, RosterEntry, RunSummary, SessionScan, SnapshotLine } from './types.js';
+import type { Clock, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoverRow, RecoverSelf, RecoverySummary, RosterEntry, RunSummary, SessionScan, SnapshotLine } from './types.js';
 
 const NO_ROSTER_MESSAGE = 'no roster and no open pause run; nothing to recover from';
 const BROADCAST_OPEN_MESSAGE = 'a broadcast is still open; run `orca-broadcast close` and then `recover` again';
@@ -60,6 +60,8 @@ function resolveSelf(selfKey: string | undefined, snapshot: Snapshot, scan: Sess
   return { sessionId, display };
 }
 
+const emptyRecovery = (snapshots: SnapshotLine[]): RecoverySummary => ({ rows: [], snapshots, self: null });
+
 const workerItem = (row: RecoverRow): string => `${row.repo}/${row.worktree} (dispatch ${row.dispatchId ?? 'unknown'})`;
 
 const NOT_DONE = new Set(['pending', 'gone', 'no-coordinator', 'failed']);
@@ -76,7 +78,7 @@ export function recover(timeoutMs: number, deps: RecoverDeps): Promise<RunSummar
     try {
       return await run(timeoutMs, deps, warnings, read);
     } catch (error) {
-      return { ...failure(error, null), recovery: { rows: [], snapshots: read.snapshots, self: null } };
+      return { ...failure(error, null), recovery: emptyRecovery(read.snapshots) };
     }
   });
 }
@@ -112,7 +114,7 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
   const filters = deps.filters ?? NO_FILTERS;
   const set = resolveFilterSet(filters, isFiltered(filters, deps.groups) ? await liveSources(snapshot, { port, clock, signal }) : null, entries, deps.cwd, deps.groups);
   const recoverySet = entries.filter((entry) => matches(set, entry));
-  if (recoverySet.length === 0) return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], recovery: { rows: [], snapshots: read.snapshots, self: null } };
+  if (recoverySet.length === 0) return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], recovery: emptyRecovery(read.snapshots) };
 
   const items = classify(recoverySet, snapshot, scan);
   const scanFailed = await recheckHeld(items, { port, clock, signal, deadline: startedAt + timeoutMs });

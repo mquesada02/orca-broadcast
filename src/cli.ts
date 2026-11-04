@@ -194,7 +194,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const needsConfirm = command !== 'close' && !values.yes;
     if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
     const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask) : undefined;
-    const confirmRecover = needsConfirm && io.ask ? confirmRecoverOnTerminal(io, io.ask) : undefined;
+    const confirmRecover = command === 'recover' && needsConfirm && io.ask ? confirmRecoverOnTerminal(io, io.ask) : undefined;
     const groupFilters = await loadGroupFilters(values.group as string[] | undefined, command, env, io);
     const filtered = isFiltered(filterSpec, groupFilters);
     // No text and no --file is not an error here: the records decide whether there is a broadcast to refuse or to continue.

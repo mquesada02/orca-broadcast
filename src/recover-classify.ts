@@ -1,11 +1,14 @@
 import { sleepOrAbort } from './abort.js';
 import { holdersBySession, livePanes, sessionsByPane } from './roster.js';
-import { listFresh, POLL_INTERVAL_MS } from './shared.js';
-import type { AgentRow, Clock, OrcaPort, RecoverPlan, RecoverReason, RecoverRow, RecoverStatus, RosterEntry, SessionScan, TerminalRow } from './types.js';
+import { listFresh, POLL_INTERVAL_MS, type Snapshot } from './shared.js';
+import type { Clock, OrcaPort, RecoverPlan, RecoverReason, RecoverRow, RecoverStatus, RosterEntry, SessionScan } from './types.js';
 
 // How an agent of the recovery set stands against the live fleet and the scan.
 // `restored`: a live row has its session ID. Else its session is `held` by a live process, `unverifiable` (a process of unknown session may hold it), or `free` (the agent is missing).
 export type Standing = 'restored' | 'held' | 'unverifiable' | 'free';
+
+// The live agent rows and terminals of one listing.
+type Listing = Pick<Snapshot, 'agents' | 'terminals'>;
 
 export interface Item {
   entry: RosterEntry;
@@ -16,7 +19,7 @@ export interface Item {
 export const HELD_RECHECK_MS = 60_000;
 
 // The session IDs that a live row, accepted by `locate`, holds; of two rows with one ID the one with the newer process wins.
-const liveSessionIds = (listing: { agents: Map<string, AgentRow>; terminals: Map<string, TerminalRow> }, scan: SessionScan): Set<string> =>
+const liveSessionIds = (listing: Listing, scan: SessionScan): Set<string> =>
   new Set(holdersBySession(livePanes(listing, sessionsByPane(scan))).keys());
 
 // A working folder is the worktree or a folder under it.
@@ -29,7 +32,7 @@ function standingOf(entry: RosterEntry, live: Set<string>, scan: SessionScan): S
   return 'free';
 }
 
-export function classify(entries: RosterEntry[], listing: { agents: Map<string, AgentRow>; terminals: Map<string, TerminalRow> }, scan: SessionScan): Item[] {
+export function classify(entries: RosterEntry[], listing: Listing, scan: SessionScan): Item[] {
   const live = liveSessionIds(listing, scan);
   return entries.map((entry) => ({ entry, standing: standingOf(entry, live, scan) }));
 }
@@ -82,7 +85,7 @@ interface Row {
   /** A missing worker whose coordinator would get its list. */
   leave: boolean;
   /** For a `leave` worker: the row of its coordinator. */
-  coordinator?: Row;
+  coordinator?: RosterEntry;
 }
 
 export interface Classified {
@@ -136,7 +139,7 @@ export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed }
     else {
       row.status = 'restored';
       row.leave = true;
-      row.coordinator = coordinator;
+      row.coordinator = coordinator.entry;
       coordinator.prompt = true;
     }
     rows.set(entry.sessionId, row);
@@ -147,7 +150,7 @@ export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed }
   const plan: RecoverPlan = {
     restarts: all.filter((row) => row.restart).map((row) => ({ ...target(row), permission: row.entry.permission ?? null })),
     prompts: all.filter((row) => row.prompt).map(target),
-    leaves: all.filter((row) => row.leave).map((row) => ({ repo: row.entry.repo, worktree: row.entry.worktree, coordinator: { repo: (row.coordinator as Row).entry.repo, worktree: (row.coordinator as Row).entry.worktree } })),
+    leaves: all.filter((row) => row.leave).map((row) => ({ repo: row.entry.repo, worktree: row.entry.worktree, coordinator: { repo: (row.coordinator as RosterEntry).repo, worktree: (row.coordinator as RosterEntry).worktree } })),
   };
   return { rows: all, plan };
 }

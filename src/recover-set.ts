@@ -34,8 +34,14 @@ export interface PreRestartSet {
 export function preRestartSet(rosters: RosterSnapshot[], live: RuntimeKey, now: number): PreRestartSet {
   const others = rosters.filter((roster) => !sameRuntime(roster, live));
   const fallback = others.length === 0;
-  const used = fallback ? [rosters[0] as RosterSnapshot] : [others[0] as RosterSnapshot];
-  for (let next = 1; !fallback && isShort(used.at(-1) as RosterSnapshot) && next < others.length; next++) used.push(others[next] as RosterSnapshot);
+  const [first, ...older] = (fallback ? rosters : others) as [RosterSnapshot, ...RosterSnapshot[]];
+  const used = [first];
+  if (!fallback) {
+    for (const next of older) {
+      if (!isShort(used.at(-1) as RosterSnapshot)) break;
+      used.push(next);
+    }
+  }
 
   const entries = new Map<string, RosterEntry>();
   for (const roster of used) for (const entry of roster.entries) if (!entries.has(entry.sessionId)) entries.set(entry.sessionId, entry);
