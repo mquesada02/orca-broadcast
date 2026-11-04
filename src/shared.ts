@@ -97,6 +97,13 @@ export type Roles = Map<string, RoleInfo>;
 
 export const roleInfoOf = (roles: Roles, paneKey: string): RoleInfo => roles.get(paneKey) ?? { role: 'session', orchestrationRunIds: [] };
 
+// A coordinator or worker that is live in a restored terminal reads as `session` (its run and worker handles are stale),
+// so a record keeps its role and run ids then. Any other live role replaces the record, as it always did.
+export const keepRecordedRole = (live: RoleInfo, recorded: RoleInfo | undefined): RoleInfo =>
+  live.role === 'session' && recorded ? { role: recorded.role, orchestrationRunIds: recorded.orchestrationRunIds } : live;
+
+export const recordedRoleInfo = (roles: Roles, agent: AgentRecord): RoleInfo => keepRecordedRole(roleInfoOf(roles, agent.paneKey), agent);
+
 // Roles come from the parent links of the live agents, which survive an Orca restart, and from the handles in run-list and worker-list,
 // which a restart makes stale. The handles are used only inside this one pass, never stored.
 export function computeRoles(agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, runs: RunRow[], workers: WorkerRow[]): Roles {

@@ -165,7 +165,7 @@ describe('the plan of an extended pause', () => {
 
   it('a woken confirmed agent is listed', async () => {
     const { questions, err, port } = await runCli(['pause'], [{ paneKey: 'a:1', worktree: 'wt-a', behavior: wokenWorking }], { isTTY: true, ask: ['n'], seed: seedAgents([confirmedA()]) });
-    expect(err).toContain('repo/tree-a:1 (session)');
+    expect(err).toContain('repo/tree-a:1 (worker)'); // the recorded role stays: the live role is session
     expect(questions).toHaveLength(1);
     expect(port.sends).toEqual([]);
   });
@@ -257,7 +257,7 @@ describe('the prompt on resume', () => {
   it('a "no" sends nothing, exits 2 and leaves the run file unchanged', async () => {
     const { code, err, port, questions, before, after } = await runSeeded(['resume'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], { isTTY: true, ask: ['n'], seed });
     expect(code).toBe(2);
-    expect(err).toContain('alpha/wt-a (session)');
+    expect(err).toContain('alpha/wt-a (worker)'); // the recorded role stays: the live role is session
     expect(questions).toEqual(['Send to 1 agent? [y/N] ']);
     expect(port.sends).toEqual([]);
     expect(after).toEqual(before);

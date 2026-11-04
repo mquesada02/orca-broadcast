@@ -439,7 +439,7 @@ describe('roles in extension and self handling', () => {
     expect(t.port.sends.map((s) => s.handle)).toEqual([t.port.handleOf('c:1'), t.port.handleOf('w:1')]);
     expect(textTo(t.port, 'c:1')).toEqual([pauseMessage(TOKEN, 'coordinator')]);
     expect(textTo(t.port, 'w:1')).toEqual([pauseMessage(TOKEN)]);
-    expect(summary.rows.map((r) => [r.paneKey, r.role])).toEqual([['w:1', 'session'], ['c:1', 'coordinator']]);
+    expect(summary.rows.map((r) => [r.paneKey, r.role])).toEqual([['w:1', 'worker'], ['c:1', 'coordinator']]); // w:1 is live as session, so its recorded role stays
   });
 
   it('never messages a coordinator self, and a later resume sends workers first and self last', async () => {

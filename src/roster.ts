@@ -2,7 +2,7 @@ import { isWaitingLike, iso, locate, roleInfoOf, type Snapshot } from './shared.
 import type { AgentRow, RosterEntry, RosterSnapshot, SessionRecord, SessionScan } from './types.js';
 
 // The scan record of each pane. When two records share a pane key the newest process wins; equal start times keep the first.
-function sessionsByPane(scan: SessionScan): Map<string, SessionRecord> {
+export function sessionsByPane(scan: SessionScan): Map<string, SessionRecord> {
   const byPane = new Map<string, SessionRecord>();
   for (const record of scan.sessions) {
     if (record.paneKey === null) continue;

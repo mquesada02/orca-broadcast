@@ -179,6 +179,10 @@ export interface AgentRecord {
   resumeReason?: ResumeReason;
   continueBaseline?: ContinueBaseline;
   continueSentAt?: string;
+  /** The Claude session ID of the agent, from the scan when the record was created. A run from before it has none. */
+  sessionId?: string;
+  /** The permission flag of the agent's process, when the scan knew it. */
+  permission?: string;
 }
 
 export interface Progress {
