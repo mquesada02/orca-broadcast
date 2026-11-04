@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -21,5 +21,20 @@ describe('roster documents', () => {
 
   it('CONTEXT.md defines the roster term', async () => {
     expect(await read('CONTEXT.md')).toMatch(/^\*\*Roster\*\*:/m);
+  });
+});
+
+describe('session-ID identity documents', () => {
+  it('ADR 0002 records that agents are identified across a restart by session ID', async () => {
+    const adrs = await readdir(join(import.meta.dirname, '..', 'docs', 'adr'));
+    const name = adrs.find((file) => file.startsWith('0002-'));
+    expect(name).toBeDefined();
+    expect(await read(join('docs', 'adr', name as string))).toMatch(/^# Agents are identified across a restart by Claude session ID, not `paneKey`/m);
+  });
+
+  it('AGENTS.md holds the session-ID rule next to the paneKey gotcha', async () => {
+    const agents = await read('AGENTS.md');
+    expect(agents).toContain('Agents are identified by `paneKey`');
+    expect(agents).toContain('Across a restart, agents are matched by Claude session ID (ADR 0002)');
   });
 });

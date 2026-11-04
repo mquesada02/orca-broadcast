@@ -14,6 +14,7 @@ To capture a real `orca-ide` output shape, send only to a throwaway terminal you
 
 - `main()` in `src/cli.ts` falls back to the **real** `orca-ide` adapter when `deps.port` is omitted. Every test must pass a fake port.
 - Agents are identified by `paneKey` (`<tabId>:<leafId>`). Terminal handles go stale; never key anything on a handle.
+- A restart changes every `paneKey`. Across a restart, agents are matched by Claude session ID (ADR 0002): a `paneKey` only joins a live row to its scan record, and finds the agents of a run that has no session ID. Never match a restored agent on `paneKey` alone.
 - Every test must pass a fake `kill`; the test runner's default `kill` throws, so no test can signal a real process. Hand-over tests also pass fakes for the store's pid, liveness and start-time readers.
 - `createOrcaAdapter(exec)` scans the real `/proc` and `~/.claude` in `scanSessions()` and `startAgent()`. Every test that calls them passes the options argument with a fixture `/proc` root, a Claude Code folder and a uid, built in a temporary folder (`scanOptions()` in `test/helpers/scan-options.ts`). This includes every test that runs `broadcast`, `pause` or `resume` through `createOrcaAdapter(exec)`, because those commands scan when they save the roster.
 - Proof comes from Orca state and the agent's last reply (`ORCA-PAUSED <token>`, or a changed reply after CONTINUE), never from send receipts.
