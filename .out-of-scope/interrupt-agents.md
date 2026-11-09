@@ -6,9 +6,9 @@ orca-broadcast never sends Esc to an agent, never answers a permission prompt fo
 
 The tool only sends messages, and each agent decides how to stop:
 
-- A pause is graceful. The pause message asks the agent to finish its current step, save its work, note where it stopped and wait for CONTINUE. An Esc interrupt would stop the agent in the middle of a step, which is the opposite of that goal.
+- A pause is graceful. The pause message asks the agent to finish the step it is on, not to start a new step and not to commit, to note where it stopped, and to wait for CONTINUE. An Esc interrupt would stop the agent in the middle of a step, which is the opposite of that goal.
 - When an agent sits on a permission prompt, the tool sends nothing to it. `pause` reports it `waiting-permission`, and `resume` keeps it `pending` with the hint "answer the permission prompt in <worktree>, then run resume again". So the tool never lands text in a permission dialog, and only the user answers it.
-- Saving work, including any commit, is the agent's own job inside its worktree. The tool does not write to any repository.
+- A pause must not leave WIP commits behind (spec #14: paused agents do not commit work in progress). So the pause message tells each agent not to commit, and the tool makes no commits itself.
 
 The map #2 and the spec #14 already listed this as out of scope.
 
