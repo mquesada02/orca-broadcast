@@ -47,6 +47,8 @@ const ROSTER_USAGE = ['orca-broadcast roster save [--json]'];
 
 const ROSTER_PURPOSE = 'Save a snapshot of the live Claude Code agents';
 
+const COMPLETION_PURPOSE = 'Print the bash Tab completion script: add eval "$(orca-broadcast completion bash)" to ~/.bashrc';
+
 const flagHead = (name: string, spec: FlagSpec) => `--${name}${spec.arg ? ` ${spec.arg}` : ''}`;
 const flagUsage = ([name, spec]: [string, FlagSpec]) => `[${flagHead(name, spec)}]`;
 
@@ -90,7 +92,7 @@ export function rosterHelp(): string {
 }
 
 export function topHelp(): string {
-  const commands = Object.entries({ ...PURPOSE, group: GROUP_PURPOSE, roster: ROSTER_PURPOSE }).map(([name, text]) => `  ${name.padEnd(11)}${text}\n`).join('');
+  const commands = Object.entries({ ...PURPOSE, group: GROUP_PURPOSE, roster: ROSTER_PURPOSE, completion: COMPLETION_PURPOSE }).map(([name, text]) => `  ${name.padEnd(11)}${text}\n`).join('');
   return `Usage: orca-broadcast <command> [flags]\n\nCommands:\n${commands}\nOptions differ per command: run \`orca-broadcast <command> --help\` for its options.\n`;
 }
 

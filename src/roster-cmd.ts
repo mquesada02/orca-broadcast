@@ -3,7 +3,7 @@ import { listSnapshot, type Snapshot } from './shared.js';
 import { rosterFileId, type RecordStore } from './store.js';
 import type { Clock, OrcaPort, SessionScan } from './types.js';
 
-const ROSTER_SUBCOMMANDS = ['save'] as const;
+export const ROSTER_SUBCOMMANDS = ['save'] as const;
 export type RosterSubcommand = (typeof ROSTER_SUBCOMMANDS)[number];
 export const isRosterSubcommand = (value: string | undefined): value is RosterSubcommand => ROSTER_SUBCOMMANDS.some((name) => name === value);
 
