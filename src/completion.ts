@@ -1,5 +1,5 @@
 import { ROLES } from './filters.js';
-import { COMMANDS, flagsOf, GENERIC_FLAGS, isCommand, specOf, type Command } from './flags.js';
+import { COMMANDS, flagsOf, GENERIC_FLAGS, isCommand, specOf } from './flags.js';
 import { GROUP_SUBCOMMANDS } from './group-cmd.js';
 import { GROUP_STATES } from './groups.js';
 import { PRESET_NAMES } from './reasons.js';
@@ -68,19 +68,21 @@ export function complete(raw: readonly string[], groupNames: readonly string[]):
     } else positionals.push(word);
   }
   const flagWords = (names: readonly string[]) => names.filter((name) => specOf(name)?.multiple || !used.has(name)).map((name) => `--${name}`);
-  const wantsFlag = current === '' || current.startsWith('-');
+  // A flag is being typed; an empty word also wants the flags of a command.
+  const typingFlag = current.startsWith('-');
+  const wantsFlag = current === '' || typingFlag;
   const [target, sub] = positionals;
 
-  if (target === undefined) return pick(current.startsWith('-') ? flagWords(GENERIC_FLAGS) : TOP_WORDS);
+  if (target === undefined) return pick(typingFlag ? flagWords(GENERIC_FLAGS) : TOP_WORDS);
   if (target === 'group') {
-    if (sub === undefined) return pick(current.startsWith('-') ? flagWords(GENERIC_FLAGS) : GROUP_SUBCOMMANDS);
+    if (sub === undefined) return pick(typingFlag ? flagWords(GENERIC_FLAGS) : GROUP_SUBCOMMANDS);
     const flags = flagWords(sub === 'add' ? flagsOf('group add').map(([name]) => name) : GENERIC_FLAGS);
     const needsName = (sub === 'show' || sub === 'remove') && positionals.length === 2;
-    if (needsName && !current.startsWith('-')) return pick(groupNames);
+    if (needsName && !typingFlag) return pick(groupNames);
     return wantsFlag ? pick(flags) : [];
   }
-  if (target === 'roster') return pick(sub === undefined && !current.startsWith('-') ? ROSTER_SUBCOMMANDS : flagWords(GENERIC_FLAGS));
+  if (target === 'roster') return pick(sub === undefined && !typingFlag ? ROSTER_SUBCOMMANDS : flagWords(GENERIC_FLAGS));
   if (target === 'completion') return sub === undefined ? pick(['bash']) : [];
   if (!isCommand(target)) return [];
-  return wantsFlag ? pick(flagWords(flagsOf(target as Command).map(([name]) => name))) : [];
+  return wantsFlag ? pick(flagWords(flagsOf(target).map(([name]) => name))) : [];
 }
