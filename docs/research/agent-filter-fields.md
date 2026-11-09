@@ -9,7 +9,7 @@ Sources (cited as [S1]..[S6]):
 - [S4] live `orca-ide orchestration run-list --json` (34 runs), `run-show --id <run> --json`, `worker-list --json` (all 916 dispatches, paged through `page.nextCursor`)
 - [S5] repo code: `src/orca-adapter.ts`, `src/shared.ts`, `src/pause.ts`
 - [S6] fixtures `test/fixtures/{worktree-ps,terminal-list,run-list}.json`
-- Prior note: `docs/research/terminal-identity.md` on branch `mquesada02/research-terminal-identity` (paneKey to terminal join).
+- Prior note: `docs/research/terminal-identity.md` (paneKey to terminal join).
 
 ## Direct answer
 
