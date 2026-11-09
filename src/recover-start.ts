@@ -19,8 +19,6 @@ export interface StartDeps {
 export interface Started {
   /** The rows whose start returned `started: true` and that have not appeared yet. */
   awaiting: RecoveryRow[];
-  /** The rows that wait for a start that an earlier run recorded and that has not appeared: this run did not start them and does not fail them at its timeout. */
-  earlier: RecoveryRow[];
   /** How many `startAgent` calls returned `started: true`. */
   count: number;
   /** The newest scan that succeeded in this step; null when none did. */
@@ -43,7 +41,7 @@ const restored = (row: RecoveryRow): void => (row.promptDue ? setResult(row, 'pe
  */
 export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise<Started> {
   const { port, clock, signal, deadline } = deps;
-  const started: Started = { awaiting: [], earlier: [], count: 0, scan: null, panes: new Map() };
+  const started: Started = { awaiting: [], count: 0, scan: null, panes: new Map() };
   let scanBroken = false;
   for (const row of rows) {
     throwIfAborted(signal);

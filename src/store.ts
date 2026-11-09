@@ -165,6 +165,9 @@ function isRosterSnapshot(value: unknown): value is RosterSnapshot {
   return typeof v === 'object' && v !== null && typeof v.bootId === 'string' && (typeof v.runtimeId === 'string' || v.runtimeId === null) && typeof v.firstSavedAt === 'string' && typeof v.lastSavedAt === 'string' && Array.isArray(v.entries);
 }
 
+// A plain comparison, not `localeCompare`: the order must not depend on the locale of the process.
+const newerFirst = (a: string, b: string): number => (a < b ? 1 : a > b ? -1 : 0);
+
 // Every roster file, newest first by last save time (equal times: the greater file name first). A missing folder counts as empty.
 async function listRosters(folder: string): Promise<{ id: string; snapshot: RosterSnapshot }[]> {
   let names: string[];
@@ -188,8 +191,6 @@ async function listRosters(folder: string): Promise<{ id: string; snapshot: Rost
         }
       }),
   );
-  // A plain comparison, not `localeCompare`: the order must not depend on the locale of the process.
-  const newerFirst = (a: string, b: string): number => (a < b ? 1 : a > b ? -1 : 0);
   return files.sort((a, b) => newerFirst(a.snapshot.lastSavedAt, b.snapshot.lastSavedAt) || newerFirst(a.id, b.id));
 }
 
@@ -436,8 +437,6 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
       }
       const records = await Promise.all(names.filter((n) => n.endsWith('.json')).map((n) => readRecord<RecoveryRecord>(join(recoveriesDir, n))));
       const done = records.filter((r): r is RecoveryRecord => r?.status === 'closed' && r.endedBy === 'done');
-      // A plain comparison, not `localeCompare`: the order must not depend on the locale of the process.
-      const newerFirst = (a: string, b: string): number => (a < b ? 1 : a > b ? -1 : 0);
       done.sort((a, b) => newerFirst(a.createdAt, b.createdAt) || newerFirst(a.id, b.id));
       return done[0] ?? null;
     },

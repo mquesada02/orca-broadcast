@@ -178,7 +178,7 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
     const pane = standing === 'restored' ? ((rechecked && paneOfSession(rechecked, entry.sessionId)) ?? paneOfSession(scan, entry.sessionId)) : undefined;
     if (pane !== undefined) panes.set(entry.sessionId, pane);
   }
-  const dropped = new Set(found.filter((item) => !items.includes(item)).map((item) => item.entry.sessionId));
+  const dropped = new Set(found.filter((item) => item.bringIn && item.standing !== 'restored').map((item) => item.entry.sessionId));
   const classified = buildRows(items, { selfSessionId: self?.sessionId ?? null, everyone: pool.filter((entry) => !dropped.has(entry.sessionId)), scanFailed });
   if (retake) addExtraWorkers(classified, retake, snapshot, rechecked ?? scan);
 
@@ -192,7 +192,7 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
   throwIfAborted(signal);
 
   const rows = finalRows(classified, declined ? 'declined' : 'timed-out');
-  const selfLine: RecoverSelf | null = self?.display ? { ...self.display, missingWorkers: rows.filter((row) => row.reason === 'coordinator-is-self').map(workerItem) } : null;
+  const selfLine = selfLineOf(self, rows);
   // A start that an earlier run recorded and that is still awaited needs a record and a wait, even when nothing else is due.
   if (declined || (!due && !classified.rows.some((row) => row.awaiting))) return { outcome: 'done', exitCode: exitCodeOf(rows), run: null, error: null, rows: [], recovery: { rows, snapshots: read.snapshots, self: selfLine, record: null } };
 
@@ -208,7 +208,7 @@ const exitCodeOf = (rows: { status: RecoverRow['status'] }[]): 0 | 1 => (rows.so
 const dueOf = ({ plan }: Classified): boolean => plan.restarts.length + plan.prompts.length + plan.leaves.length > 0;
 
 // The self line of a re-run: the missing workers are the scope rows that name the self session as their coordinator.
-const selfLineOf = (self: SelfSession | null, rows: RecoveryRow[]): RecoverSelf | null =>
+const selfLineOf = (self: SelfSession | null, rows: { reason: RecoverRow['reason']; repo: string; worktree: string; dispatchId?: string | null }[]): RecoverSelf | null =>
   self?.display ? { ...self.display, missingWorkers: rows.filter((row) => row.reason === 'coordinator-is-self').map(workerItem) } : null;
 
 // A coordinator that gets the list of a missing worker also lists the workers that its earlier record left to it and that are still missing.
@@ -287,9 +287,8 @@ async function execute({ deps, warnings, record, restarts, earlier, rows, snapsh
   try {
     const startDeps: StartDeps = { port, clock, signal, record, save, deadline, warnings };
     const started = await startAgents(restarts, startDeps);
-    started.earlier = earlier;
     for (const [sessionId, pane] of started.panes) panes.set(sessionId, pane);
-    if (started.count > 0 || rows.some(needsWait)) await settle(started, { ...startDeps, token: record.token, scan, panes, rows });
+    if (started.count > 0 || rows.some(needsWait)) await settle(started, { ...startDeps, token: record.token, scan, panes, rows, earlier });
     // The end snapshot comes before the record closes: a failed listing leaves the record open like any other.
     if (started.count > 0) await roster.end(await listSnapshot({ port, clock, signal }));
     resolveWorkers(rows);

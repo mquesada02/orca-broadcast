@@ -1,5 +1,5 @@
 import { applyStarts, buildRows, classify, compare, finalRows, recheckHeld, type Classified, type Item, type RecheckDeps } from './recover-classify.js';
-import { entryOf, isFinalRow } from './recover-record.js';
+import { entryOf, isFinalRow, recoveryRowOf } from './recover-record.js';
 import { holdersBySession, livePanes, paneOfSession, sessionsByPane } from './roster.js';
 import { locate, type Snapshot } from './shared.js';
 import type { RecoverRow, RecoveryRow, SessionScan } from './types.js';
@@ -16,8 +16,6 @@ export interface RerunContext extends RecheckDeps {
 
 export interface RerunPlan {
   classified: Classified;
-  /** The rows in scope, with their results decided from the live fleet (in memory only: nothing is saved yet). */
-  scope: RecoveryRow[];
   /** The rows that a start is due for. */
   restarts: RecoveryRow[];
   /** The rows that wait for a start that an earlier run recorded. */
@@ -34,7 +32,7 @@ export interface RerunPlan {
 const isSent = (row: RecoveryRow): boolean => row.status === 'pending' && row.reason !== 'awaiting-start' && row.promptDue && !row.messagePending;
 
 // The fields that a classification decides; the rest of the stored row (identity, token fields, `extraWorkers`) stays.
-function apply(row: RecoveryRow, built: RecoveryRow): void {
+function copyClassification(row: RecoveryRow, built: RecoveryRow): void {
   row.status = built.status;
   row.reason = built.reason;
   row.promptDue = built.promptDue;
@@ -71,10 +69,12 @@ export async function planRerun(ctx: RerunContext, build: (classified: Classifie
     row.reason = 'gone' in found ? found.gone : 'agent-missing';
   }
 
-  const pass = open.filter((row) => !sentRows.includes(row));
+  const waiting = new Set(sentRows);
+  const pass = open.filter((row) => !waiting.has(row));
+  const byId = new Map(pass.map((row) => [row.sessionId, row]));
   const items: Item[] = classify(pass.map(entryOf), snapshot, scan);
   for (const item of items) {
-    const start = pass.find((row) => row.sessionId === item.entry.sessionId)?.startedAt;
+    const start = byId.get(item.entry.sessionId)?.startedAt;
     if (start !== undefined) item.startedAt = start;
   }
   const { scanFailed, scan: rechecked } = await recheckHeld(items, ctx);
@@ -90,12 +90,11 @@ export async function planRerun(ctx: RerunContext, build: (classified: Classifie
   const classified = buildRows(items, { selfSessionId: ctx.selfSessionId, everyone, scanFailed });
 
   const built = build(classified);
-  const byId = new Map(pass.map((row) => [row.sessionId, row]));
   const restarts: RecoveryRow[] = [];
   const earlier: RecoveryRow[] = [];
   classified.rows.forEach((row, i) => {
     const stored = byId.get(row.entry.sessionId) as RecoveryRow;
-    apply(stored, built[i] as RecoveryRow);
+    copyClassification(stored, built[i] as RecoveryRow);
     if (row.restart) restarts.push(stored);
     if (row.awaiting) earlier.push(stored);
   });
@@ -103,6 +102,6 @@ export async function planRerun(ctx: RerunContext, build: (classified: Classifie
   const shown = new Map(finalRows(classified, 'declined').map((row) => [row.sessionId, row]));
   const rank = (row: RecoveryRow): number => (row.role === 'coordinator' ? 0 : 1);
   const table = [...scope].sort((a, b) => rank(a) - rank(b) || compare(a.repo, b.repo) || compare(a.worktree, b.worktree) || compare(a.sessionId, b.sessionId) || compare(a.paneKey, b.paneKey));
-  const declined = table.map((row) => shown.get(row.sessionId) ?? { sessionId: row.sessionId, repo: row.repo, worktree: row.worktree, worktreePath: row.worktreePath, role: row.role, status: row.status, reason: row.reason, dispatchId: row.role === 'worker' ? (row.dispatchId ?? null) : null });
-  return { classified, scope, restarts, earlier, panes, scan: newest, declined };
+  const declined = table.map((row) => shown.get(row.sessionId) ?? recoveryRowOf(row));
+  return { classified, restarts, earlier, panes, scan: newest, declined };
 }

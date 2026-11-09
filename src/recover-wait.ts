@@ -19,6 +19,8 @@ export interface SettleDeps extends StartDeps {
   panes: Map<string, string>;
   /** The rows this run works on: every row of the record, or on a re-run the rows in its scope. Other rows are never started, prompted or waited on. */
   rows: RecoveryRow[];
+  /** The rows that wait for a start that an earlier run recorded and that has not appeared: this run did not start them and does not fail them at its timeout. */
+  earlier: RecoveryRow[];
 }
 
 const setResult = (row: RecoveryRow, status: RecoveryRow['status'], reason: RecoveryRow['reason']): void => {
@@ -47,8 +49,8 @@ interface LiveRow {
 export async function settle(started: Started, deps: SettleDeps): Promise<void> {
   const { port, clock, signal, deadline, token, panes, rows } = deps;
   let scan = started.scan ?? deps.scan;
-  let awaiting = [...started.awaiting, ...started.earlier];
-  const earlier = new Set(started.earlier);
+  let awaiting = [...started.awaiting, ...deps.earlier];
+  const earlier = new Set(deps.earlier);
   let lastScanFailed = false;
   let unjoined = false;
   while (true) {
