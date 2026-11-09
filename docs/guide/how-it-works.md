@@ -25,24 +25,24 @@ If you run `pause` again before `resume`, it extends the same run.
 
 ## One record at a time
 
-A command may find an open record of another kind. The table shows what each command does then.
+A command may find an open record of another kind. The table shows what each command does then. For `close`, the table shows plain `close`, without filters.
 
 | Command | A pause run is open | A broadcast is open | A recovery is open |
 |---|---|---|---|
 | `broadcast` | Refused, exit `2`: `A pause run is open; resume or close it first.` | With no text, or with the same text, it continues that broadcast (a re-run). A different text is refused, exit `2`: `A broadcast is open; run broadcast with no text to keep waiting, or close it first.` | Refused, exit `2`: `a recovery is open; re-run recover or close it` |
 | `resume` | It resumes the run. | `nothing to resume` | `nothing to resume` |
-| `pause` | It extends the run. | It stops the broadcast. See "Pause stops a waiting broadcast". | At the commit point, it abandons the recovery (reason `paused`). It prints one warning line if the recovery had a row that was not final. |
+| `pause` | It extends the run. | It stops the broadcast. See "Pause stops a waiting broadcast". | At the commit point, it abandons the recovery (reason `paused`). It prints one warning line if the recovery had a row that was not final: `recovery <id> was closed by this pause: <N> agents were not recovered yet and will not be waited for`. |
 | `recover` | It runs in pause-run mode. | Refused, exit `2`: ``a broadcast is still open; run `orca-broadcast close` and then `recover` again`` | It continues that recovery (a re-run). |
 | `close` | It abandons the run. | It abandons the pending targets. | It abandons every row that is not final (reason `closed`). |
 
-"`nothing to resume`" means that `resume` finds no pause run. It exits `0`.
+`nothing to resume` means that `resume` finds no pause run to resume. It exits `0`.
 
 ### The broken state
 
 A recovery and a broadcast can be open together. This is a broken state. It has these rules:
 
 - Both records stay open.
-- Every command that loads records prints this line: `recovery <id> and broadcast <id> are both open; run orca-broadcast close to abandon both`.
+- Every command that loads records, except `recover`, prints this line: `recovery <id> and broadcast <id> are both open; run orca-broadcast close to abandon both`.
 - `current` points to the newer record. On a tie, it points to the recovery.
 - `broadcast` and `recover` refuse and exit `2`. The `recover` message is ``a recovery and a broadcast are both open; run `orca-broadcast close` and then `recover` again``.
 - `pause` abandons both records.
@@ -70,7 +70,7 @@ One lock covers `broadcast`, `pause`, `resume`, `close` and `recover`. Each comm
 
 A second command fails at once with `another orca-broadcast is running`. The `group` commands and `roster save` take no lock.
 
-The one exception is the hand-over. In the hand-over, `pause` stops a broadcast that it has proven to be the lock holder. See "Pause stops a waiting broadcast".
+The one exception is the hand-over. In the hand-over, `pause` stops a broadcast that it has proven to be the lock owner. See "Pause stops a waiting broadcast".
 
 There is no hand-over from `recover`. While `recover` waits for restarts and acks, `pause` and `close` refuse with `another orca-broadcast is running`. They refuse until `recover` ends or you interrupt it. To interrupt it, press Ctrl-C in its terminal. [ADR 0003](../adr/0003-recover-holds-the-lock-with-no-hand-over.md) says why.
 
@@ -89,7 +89,7 @@ If a start time is missing, only the pid test applies.
 
 A command that takes over a stale lock first creates the file `lock.takeover`. If that file already exists, the command refuses to start. The tool never removes a leftover `lock.takeover` file by itself.
 
-A `lock` file that does not hold a pid (and optionally a start time) is also never removed by the tool. The command refuses to start in that case too.
+The tool also never removes a `lock` file that does not hold a pid (and optionally a start time). The command refuses to start in that case too.
 
 In both cases the message names the file to delete:
 
@@ -102,6 +102,7 @@ another orca-broadcast is running (if none is, delete <file>)
 A `broadcast` that waits for acks in another terminal holds the lock. `pause` does not wait for it. It stops the broadcast in these steps:
 
 1. `pause` checks its arguments before it takes the lock. With filters or `--group`, it resolves their values with read-only calls to Orca. A typo in a filter value fails with exit `2` before any broadcast is stopped.
+
    Next, `pause` tries to take the lock. If the lock is held, the hand-over starts only when all of these are true:
    - No pause run is open.
    - The lock file holds a start time.
@@ -121,11 +122,11 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
    | The lock is still held after 5 seconds | `the broadcast (pid <pid>) did not stop within 5 s` |
    | A different process takes the lock while `pause` waits | `another orca-broadcast is running` |
 
-   In the first three rows, `pause` sends no signal. A process that is already gone (ESRCH) is not an error. `pause` then waits for the lock as usual.
+   `pause` sends no signal in the first case, the second case and the EPERM case. A process that is already gone (ESRCH) is not an error. `pause` then waits for the lock as usual.
 3. With an open broadcast, `pause` always shows its first prompt. Your "yes" (or `--yes`) is the commit point. At the commit point, `pause` does these things in this order:
    1. It writes its run.
    2. It abandons the unacked targets of the broadcast (reason `paused`) and closes the broadcast.
-   3. It prints one warning line on stderr: `broadcast <id> was closed by this pause: <N> agents had not acknowledged it and will not be waited for`. Under `--json`, the line goes to the `warnings` field.
+   3. It prints one warning line on stderr: `broadcast <id> was closed by this pause: <N> agents had not acknowledged it and will not be waited for`. For one agent, the text says `1 agent`. Under `--json`, the line goes to the `warnings` field.
 
    If you decline, or an interrupt or an error comes before the commit point, the broadcast stays open. It is stopped and has no pid. `close` abandons it. `broadcast` with no text continues it.
 4. A pause run, a broadcast and a recovery can also be open together after a crash. "One record at a time" has these cases.
@@ -136,7 +137,7 @@ Orca keeps an agent in state `working` after its turn ends while background work
 
 `broadcast`, `pause` and `recover` show a pending agent in that state with the reason `background`, not `still-working`. Only the label changes. The status, the exit codes and the proof rules stay the same. The agent counts only from a new reply whose last line is the exact token line.
 
-The label says "background work" because the pair may also match work that is not a shell.
+The label says "background work" because `state: "working"` with `mainAgent.state: "done"` may also match work that is not a shell.
 
 `background` needs `mainAgent.state`. A row without `mainAgent` keeps `still-working`, even with `workingMode: "monitoring"`. Orca does not document `mainAgent`. It was seen on Claude Code v2.1.296 only.
 
