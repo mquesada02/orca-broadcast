@@ -2,7 +2,7 @@
 
 This file provides guidance to coding agents (Claude Code and others) when working with code in this repository.
 
-Behaviour: `README.md`. Full design: spec issue #14.
+Behaviour: `README.md` and `docs/guide/`. Terms: `CONTEXT.md`. Decisions: `docs/adr/`.
 
 ## Never touch real agents
 
@@ -25,6 +25,8 @@ To capture a real `orca-ide` output shape, send only to a throwaway terminal you
 Save each research note as `docs/research/<topic>.md`, on a branch that merges to `main` through a PR. A note left only on its own research branch gets lost. Redact live output before you commit it: no home paths, user names, or names and IDs from other projects.
 
 ## Agent skills
+
+These files configure the mattpocock/skills agent skills that the maintainer uses.
 
 ### Issue tracker
 
