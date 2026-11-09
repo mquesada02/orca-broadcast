@@ -2,14 +2,13 @@ import { throwIfAborted } from './abort.js';
 import { classify } from './recover-classify.js';
 import { paneOfSession } from './roster.js';
 import { iso, listFresh } from './shared.js';
-import type { Clock, OrcaPort, RecoveryRecord, RecoveryRow, SessionScan } from './types.js';
+import type { Clock, OrcaPort, RecoveryRow, SessionScan } from './types.js';
 
 export interface StartDeps {
   port: OrcaPort;
   clock: Clock;
   signal?: AbortSignal;
-  /** The record whose rows are started; `save` writes it. */
-  record: RecoveryRecord;
+  /** Writes the record, or the pause run, that holds the rows being started. */
   save: () => Promise<void>;
   /** The end of the `--timeout` clock, the confirmation wait included. */
   deadline: number;

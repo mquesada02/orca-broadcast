@@ -1,5 +1,5 @@
 import { clearPid } from './shared.js';
-import type { BroadcastRecord, RecoverReason, RecoverRow, RecoveryRecord, RecoveryRow, RosterEntry } from './types.js';
+import type { BroadcastRecord, RecoverReason, RecoverRow, RecoveryRecord, RecoveryRow, RosterEntry, RunRecoveryRow } from './types.js';
 
 /**
  * A row is final when no further start, send or wait is planned for it: `acked`, `gone`, `left-to-coordinator`, `no-coordinator`, `failed`
@@ -62,7 +62,7 @@ export function entryOf(row: RecoveryRow): RosterEntry {
 export const isRecoveryRecord = (record: BroadcastRecord | RecoveryRecord | null | undefined): record is RecoveryRecord => record !== null && record !== undefined && 'rows' in record;
 
 /** The row as the table and the `--json` line show it. */
-export function recoveryRowOf(row: RecoveryRow): RecoverRow {
+export function recoveryRowOf(row: RunRecoveryRow): RecoverRow {
   return {
     sessionId: row.sessionId,
     repo: row.repo,

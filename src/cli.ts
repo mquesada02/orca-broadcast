@@ -111,9 +111,9 @@ async function askYes(ask: NonNullable<CliIo['ask']>, question: string, signal?:
 }
 
 // The JSON object of `recover`: the rows and the snapshot lines of its summary, or none for an error that has no recover summary.
-function recoverJsonLine(summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'error' | 'warnings' | 'recovery'>): string {
-  const { outcome, exitCode, error, warnings, recovery } = summary;
-  return `${JSON.stringify({ command: 'recover', outcome, exitCode, run: null, record: recovery?.record ?? null, error, rows: recovery?.rows ?? [], snapshots: recovery?.snapshots ?? [], warnings: warnings ?? [] })}\n`;
+function recoverJsonLine(summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'error' | 'warnings' | 'recovery'> & { run?: RunSummary['run'] }): string {
+  const { outcome, exitCode, error, warnings, recovery, run } = summary;
+  return `${JSON.stringify({ command: 'recover', outcome, exitCode, run: run ?? null, record: recovery?.record ?? null, error, rows: recovery?.rows ?? [], snapshots: recovery?.snapshots ?? [], warnings: warnings ?? [] })}\n`;
 }
 
 // Lists the targets on stderr and asks once.

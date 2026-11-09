@@ -1,7 +1,7 @@
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { agentRecord, broadcastTarget, openBroadcastRecord, seedOpenRun } from './helpers/fake-orca.js';
+import { broadcastTarget, openBroadcastRecord } from './helpers/fake-orca.js';
 import { doneEntry, GONE, parseJson, recoverRun, resultsOf } from './helpers/recover.js';
 import { readBroadcasts } from './helpers/records.js';
 import { agent, minutesBefore, readRoster, rosterEntry, rosterNames, rosterSnapshot, scanOf, seedRosters } from './helpers/roster.js';
@@ -69,20 +69,6 @@ describe('refusals', () => {
     expect(err).toContain('a broadcast is still open; run `orca-broadcast close` and then `recover` again');
     expect(port.listCalls).toBe(0);
     expect((await readBroadcasts(dir)).map((r) => [r.id, r.status])).toEqual([['b-1', 'open']]);
-  });
-
-  // The guard is temporary (approved by the user): ticket 134 removes it with this test.
-  it('refuses while a pause run is open (temporary), and repairs nothing: an open broadcast beside it stays open', async () => {
-    const seed: Seed = async (store) => {
-      await seedRosters(rosterSnapshot(GONE, [doneEntry('s-a')]))(store);
-      await seedOpenRun(store, [agentRecord('a:1')]);
-      await store.saveBroadcast(openBroadcastRecord([broadcastTarget('a:1')]));
-    };
-    const { code, err, port, dir } = await runCli(['recover', '--yes'], [], { seed });
-    expect(code).toBe(2);
-    expect(err).toContain('a pause run is open; recover with an open pause run is not available yet');
-    expect(port.listCalls).toBe(0);
-    expect((await readBroadcasts(dir)).map((r) => r.status)).toEqual(['open']);
   });
 
   it('refuses without a terminal and without --yes before it reads, locks or lists anything', async () => {

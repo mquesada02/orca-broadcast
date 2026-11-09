@@ -219,11 +219,12 @@ describe('a recovery beside a pause run', () => {
     expect(only(dir).status).toBe('closed');
   });
 
-  it('makes recover refuse with the pause-run message, and leaves the recovery open until a command loads the records', async () => {
-    const { code, err, dir } = await runCli(['recover', '--yes'], [], { seed: seedBeside });
-    expect(code).toBe(2);
-    expect(err).toContain('a pause run is open');
-    expect(only(dir).status).toBe('open');
+  it('is abandoned by recover with an open pause run, which finds nothing to recover (its only run agent was resumed, and there is no roster)', async () => {
+    const { code, out, err, dir } = await runCli(['recover', '--yes'], [], { seed: seedBeside });
+    expect(code).toBe(0);
+    expect(out).toContain('nothing to recover');
+    expect(err).toContain('recovery r1 was open beside a pause run; abandoned');
+    expect(only(dir)).toMatchObject({ status: 'closed', endedBy: 'abandoned' });
   });
 
   it('is abandoned when pause extends the open run, with its own note', async () => {

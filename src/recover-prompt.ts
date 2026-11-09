@@ -25,11 +25,14 @@ export function workerItems(rows: WorkerLike[], extra: WorkerLike[]): string[] {
   return [...rows, ...sorted].map(workerItem);
 }
 
+/** The worker sentence, with its leading space; empty when `items` is empty. It ends the continue prompt of `recover` and the CONTINUE message of `resume`. */
+export const workersSentence = (items: string[]): string =>
+  items.length === 0
+    ? ''
+    : ` These workers of yours did not come back: ${items.join('; ')}. For each one, decide whether to retry it with orca-ide orchestration worker-start --task <its task id> --retry-of <dispatch id>, repeating its worktree and agent choices (--retry-of does not inherit them).`;
+
 /** The continue prompt of `recover`, on one line. `items` is empty for an agent that is not a coordinator with missing workers. */
 export function continueText(token: string, items: string[]): string {
-  const workers =
-    items.length === 0
-      ? ''
-      : ` These workers of yours did not come back: ${items.join('; ')}. For each one, decide whether to retry it with orca-ide orchestration worker-start --task <its task id> --retry-of <dispatch id>, repeating its worktree and agent choices (--retry-of does not inherit them).`;
+  const workers = workersSentence(items);
   return `[orca-broadcast] Orca or the PC restarted, and your Claude Code session was restored. Your last turn did not finish, and a tool call that was running when it stopped did not run again. Check where you stopped, then continue your task.${workers} If you are in the middle of a step, finish that step first. When you have handled this, end your reply with a short note on what you did. The last line of your reply must be exactly: ${ackLine(token)}`;
 }
