@@ -174,9 +174,9 @@ describe('missing workers', () => {
   const coordinatorEntry = doneEntry('s-coord', { role: 'coordinator' });
   const live = scanOf({ sessionId: 's-coord', paneKey: 'new:c', startTime: 5 });
 
-  it('is never restarted; its restored coordinator is prompted and the worker is left to it (pending timed-out after yes)', async () => {
+  it('is never restarted; its restored coordinator is prompted with the list and the worker is left to it', async () => {
     const { out, port } = await recoverRun(['--yes', '--json'], [agent('new:c')], [coordinatorEntry, worker('s-w', 's-coord')], { scan: live });
-    expect(resultsOf(out)).toEqual({ 's-coord': 'pending/timed-out', 's-w': 'pending/timed-out' });
+    expect(resultsOf(out)).toEqual({ 's-coord': 'pending/still-working', 's-w': 'left-to-coordinator' });
     expect(port.starts).toEqual([]);
   });
 
@@ -205,7 +205,7 @@ describe('missing workers', () => {
     const { out } = await recoverRun(['--yes', '--json'], [agent('new:d'), agent('new:w')], entries, {
       scan: scanOf({ sessionId: 's-wd', paneKey: 'new:d', startTime: 5 }, { sessionId: 's-ww', paneKey: 'new:w', startTime: 6 }),
     });
-    expect(resultsOf(out)).toEqual({ 's-wd': 'restored', 's-ww': 'pending/timed-out' });
+    expect(resultsOf(out)).toEqual({ 's-wd': 'restored', 's-ww': 'pending/still-working' });
   });
 
   it('a restored coordinator that was done and has no missing worker is restored, with no prompt', async () => {
@@ -259,21 +259,22 @@ describe('confirmation', () => {
     expect(resultsOf(out)).toEqual({ 's-x': 'no-coordinator/coordinator-missing', 's-held': 'failed/session-held' });
   });
 
-  it('"yes" restarts the missing agents and sends nothing: a restart that never appears is failed, and the rows that a prompt would handle are pending timed-out', async () => {
+  it('"yes" restarts the missing agents and prompts the live ones: a restart that never appears is failed, and the prompted rows wait for their ack', async () => {
     const { code, out, port, questions } = await recoverRun([], agents, entries, { ask: ['y'], scan });
     expect(code).toBe(1);
     expect(questions).toHaveLength(1);
     expect(port.starts.map((start) => [start.sessionId, start.permission])).toEqual([['s-a', BYPASS], ['s-b', null]]);
-    expect(port.sends).toEqual([]);
+    expect(port.sends.map((send) => send.handle)).toEqual(['term_new:c', 'term_new:l']);
     expect(out.match(/failed\s+did-not-appear/g)).toHaveLength(2);
-    expect(out.match(/pending\s+timed-out/g)).toHaveLength(3);
+    expect(out.match(/pending\s+still-working/g)).toHaveLength(2);
+    expect(out.match(/left-to-coordinator/g)).toHaveLength(1);
   });
 
   it('--yes asks nothing and gives the same rows', async () => {
     const { questions, out } = await recoverRun(['--yes'], agents, entries, { scan });
     expect(questions).toEqual([]);
     expect(out.match(/failed\s+did-not-appear/g)).toHaveLength(2);
-    expect(out.match(/pending\s+timed-out/g)).toHaveLength(3);
+    expect(out.match(/pending\s+still-working/g)).toHaveLength(2);
   });
 
   it('asks nothing when it would list nothing', async () => {

@@ -12,6 +12,15 @@ export function sessionsByPane(scan: SessionScan): Map<string, SessionRecord> {
   return byPane;
 }
 
+/** The pane of the newest process in the scan that holds the session ID; undefined when no record with a pane has it. */
+export function paneOfSession(scan: SessionScan, sessionId: string): string | undefined {
+  let newest: SessionRecord | undefined;
+  for (const record of scan.sessions) {
+    if (record.sessionId === sessionId && record.paneKey !== null && (newest === undefined || record.startTime > newest.startTime)) newest = record;
+  }
+  return newest?.paneKey ?? undefined;
+}
+
 /** A live Claude agent of a snapshot, with the scan record of its pane (undefined when the scan missed it). */
 export interface LivePane {
   row: AgentRow;

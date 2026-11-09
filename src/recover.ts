@@ -3,9 +3,11 @@ import { isFiltered, matches, NO_FILTERS } from './filters.js';
 import { buildRows, classify, finalRows, recheckHeld, type Classified } from './recover-classify.js';
 import { recoveryRowOf, releaseRecovery } from './recover-record.js';
 import { preRestartSet } from './recover-set.js';
-import { startAgents, waitForAppearance, type StartDeps } from './recover-start.js';
+import { workerItem } from './recover-prompt.js';
+import { startAgents, type StartDeps } from './recover-start.js';
+import { resolveWorkers, settle } from './recover-wait.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
-import { sessionsByPane } from './roster.js';
+import { paneOfSession, sessionsByPane } from './roster.js';
 import { clearPid, failure, iso, listSnapshot, liveSources, locate, randomToken, recordId, resolveFilterSet, roleInfoOf, setPid, withWarnings, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
 import type { Clock, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoverRow, RecoverSelf, RecoveryRecord, RecoveryRow, RecoverySummary, RosterEntry, RunSummary, SessionScan, SnapshotLine } from './types.js';
@@ -69,14 +71,12 @@ function resolveSelf(selfKey: string | undefined, snapshot: Snapshot, scan: Sess
 
 const emptyRecovery = (snapshots: SnapshotLine[]): RecoverySummary => ({ rows: [], snapshots, self: null, record: null });
 
-const workerItem = (row: RecoverRow): string => `${row.repo}/${row.worktree} (dispatch ${row.dispatchId ?? 'unknown'})`;
-
 const NOT_DONE = new Set(['pending', 'gone', 'no-coordinator', 'failed']);
 
 /**
  * `recover` after a crash: reads the roster from before the restart, classifies every agent against the live fleet and the scan, shows
  * the report and asks once. After a yes it writes the recovery record, restarts every missing non-worker agent and waits for each one to
- * appear. Prompts are not built yet: a row that a prompt would handle ends `pending`, reason `timed-out`.
+ * appear. It then sends the continue prompt to each agent that is due one, coordinators first, and waits for each ack.
  */
 export function recover(timeoutMs: number, deps: RecoverDeps): Promise<RunSummary> {
   return withWarnings(async (warnings) => {
@@ -126,7 +126,13 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
   if (recoverySet.length === 0) return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], recovery: emptyRecovery(read.snapshots) };
 
   const items = classify(recoverySet, snapshot, scan);
-  const scanFailed = await recheckHeld(items, { port, clock, signal, deadline: startedAt + timeoutMs });
+  const { scanFailed, scan: rechecked } = await recheckHeld(items, { port, clock, signal, deadline: startedAt + timeoutMs });
+  // The rows that are live now (a held row that appeared during the re-check included), and the pane that holds each one.
+  const panes = new Map<string, string>();
+  for (const { entry, standing } of items) {
+    const pane = standing === 'restored' ? ((rechecked && paneOfSession(rechecked, entry.sessionId)) ?? paneOfSession(scan, entry.sessionId)) : undefined;
+    if (pane !== undefined) panes.set(entry.sessionId, pane);
+  }
   const classified = buildRows(items, { selfSessionId: self?.sessionId ?? null, everyone: preRestart.entries, scanFailed });
 
   const { plan } = classified;
@@ -142,7 +148,7 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
   const selfLine: RecoverSelf | null = self?.display ? { ...self.display, missingWorkers: rows.filter((row) => row.reason === 'coordinator-is-self').map(workerItem) } : null;
   if (declined || !due) return { outcome: 'done', exitCode: exitCodeOf(rows), run: null, error: null, rows: [], recovery: { rows, snapshots: read.snapshots, self: selfLine, record: null } };
 
-  return execute({ deps, warnings, classified, snapshotKey: preRestart.key, liveRuntime: { bootId, runtimeId: snapshot.runtimeId }, snapshots: read.snapshots, selfLine, deadline, roster });
+  return execute({ deps, warnings, classified, snapshotKey: preRestart.key, liveRuntime: { bootId, runtimeId: snapshot.runtimeId }, snapshots: read.snapshots, selfLine, deadline, roster, scan: rechecked ?? scan, panes });
 }
 
 const exitCodeOf = (rows: { status: RecoverRow['status'] }[]): 0 | 1 => (rows.some((row) => NOT_DONE.has(row.status)) ? 1 : 0);
@@ -157,6 +163,10 @@ interface Execution {
   selfLine: RecoverSelf | null;
   deadline: number;
   roster: AutoRoster;
+  /** The newest scan of the run. */
+  scan: SessionScan;
+  /** Session ID to the pane of each agent that is live when the starts begin. */
+  panes: Map<string, string>;
 }
 
 // The row as the record stores it: a row that a restart, a prompt or a leave would handle is `pending`, reason `timed-out`, until its turn comes.
@@ -164,15 +174,23 @@ function recordRows({ rows }: Classified): { rows: RecoveryRow[]; restarts: Reco
   const restarts: RecoveryRow[] = [];
   const recordRowsOut = rows.map((row) => {
     const pending = row.restart || row.prompt || row.leave;
-    const recordRow: RecoveryRow = { ...row.entry, status: pending ? 'pending' : row.status, reason: pending ? 'timed-out' : row.reason, promptDue: row.prompt };
+    const recordRow: RecoveryRow = {
+      ...row.entry,
+      status: pending ? 'pending' : row.status,
+      reason: pending ? 'timed-out' : row.reason,
+      promptDue: row.prompt,
+      messagePending: row.prompt,
+      baseline: null,
+      ...(row.leave ? { listDue: true as const } : {}),
+    };
     if (row.restart) restarts.push(recordRow);
     return recordRow;
   });
   return { rows: recordRowsOut, restarts };
 }
 
-/** After a yes with something to start or send: the record, the starts, the appearance wait and the end. */
-async function execute({ deps, warnings, classified, snapshotKey, liveRuntime, snapshots, selfLine, deadline, roster }: Execution): Promise<RunSummary> {
+/** After a yes with something to start or send: the record, the starts, the appearance and prompt loop and the end. */
+async function execute({ deps, warnings, classified, snapshotKey, liveRuntime, snapshots, selfLine, deadline, roster, scan, panes }: Execution): Promise<RunSummary> {
   const { port, clock, store, signal } = deps;
   const token = (deps.newToken ?? randomToken)();
   const now = clock.now();
@@ -198,11 +216,11 @@ async function execute({ deps, warnings, classified, snapshotKey, liveRuntime, s
   try {
     const startDeps: StartDeps = { port, clock, signal, record, save, deadline, warnings };
     const started = await startAgents(restarts, startDeps);
-    if (started.count > 0) {
-      await waitForAppearance(started, startDeps);
-      // The end snapshot comes before the record closes: a failed listing leaves the record open like any other.
-      await roster.end(await listSnapshot({ port, clock, signal }));
-    }
+    for (const [sessionId, pane] of started.panes) panes.set(sessionId, pane);
+    if (started.count > 0 || record.rows.some((row) => row.promptDue && row.status === 'pending')) await settle(started, { ...startDeps, token, scan, panes });
+    // The end snapshot comes before the record closes: a failed listing leaves the record open like any other.
+    if (started.count > 0) await roster.end(await listSnapshot({ port, clock, signal }));
+    resolveWorkers(record.rows);
     releaseRecovery(record);
     await save();
     if (record.status === 'closed') await store.clearCurrent('recovery', record.id);

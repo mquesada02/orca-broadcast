@@ -277,8 +277,14 @@ export interface RuntimeKey {
 export type RecoveryRow = RosterEntry & {
   status: RecoverStatus;
   reason: RecoverReason | null;
-  /** True when a continue prompt will handle this row (the prompts themselves are not built yet). */
+  /** True when a continue prompt will handle this row. */
   promptDue: boolean;
+  /** True while the row's continue prompt is not sent yet; the shared send predicate and ack proof read it. */
+  messagePending: boolean;
+  /** The agent's last reply before the prompt was sent; null before the send. */
+  baseline: string | null;
+  /** A missing worker whose coordinator has not received the worker list yet. */
+  listDue?: true;
   /** ISO time of the recorded start, present only after a start was recorded. */
   startedAt?: string;
 };

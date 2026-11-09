@@ -503,7 +503,7 @@ describe('recovery records', () => {
       ...recovery('r1', '2026-01-01T00:00:00.000Z'),
       pid: 100,
       startTime: '5000',
-      rows: [{ sessionId: 's1', paneKey: 'old:1', repo: 'repo', repoId: 'rp', worktree: 'tree', worktreeId: 'w', worktreePath: '/work/tree', role: 'coordinator', orchestrationRunIds: ['run_1'], state: 'working', stateStartedAt: 1, savedAt: '2026-01-01T00:00:00.000Z', status: 'pending', reason: 'awaiting-start', promptDue: true, startedAt: '2026-01-01T00:01:00.000Z' }],
+      rows: [{ sessionId: 's1', paneKey: 'old:1', repo: 'repo', repoId: 'rp', worktree: 'tree', worktreeId: 'w', worktreePath: '/work/tree', role: 'coordinator', orchestrationRunIds: ['run_1'], state: 'working', stateStartedAt: 1, savedAt: '2026-01-01T00:00:00.000Z', status: 'pending', reason: 'awaiting-start', promptDue: true, messagePending: true, baseline: null, startedAt: '2026-01-01T00:01:00.000Z' }],
     };
     await s.saveRecovery(record);
     expect(await readdir(join(dir, 'recoveries'))).toEqual(['r1.json']);
