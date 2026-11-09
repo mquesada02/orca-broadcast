@@ -29,9 +29,29 @@ const takesValue = (word: string): string | null => {
   return name !== null && specOf(name)?.type === 'string' ? name : null;
 };
 
+// Bash splits `--flag=value` at `=` (it is in COMP_WORDBREAKS): join the pieces again, so `--role=worker` is one word.
+function joinEquals(words: readonly string[]): string[] {
+  const joined: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const last = joined.at(-1);
+    if (words[i] === '=' && last?.startsWith('--') && !last.includes('=')) {
+      joined[joined.length - 1] = `${last}=${words[i + 1] ?? ''}`;
+      i++;
+    } else joined.push(words[i]!);
+  }
+  return joined;
+}
+
 /** The candidates for the last word of `words` (the words after `orca-broadcast`; the last one is the word being typed, maybe empty). */
-export function complete(words: readonly string[], groupNames: readonly string[]): string[] {
+export function complete(raw: readonly string[], groupNames: readonly string[]): string[] {
+  const words = joinEquals(raw);
   const current = words.at(-1) ?? '';
+  // The value of `--flag=<value>`: bash replaces only the piece after `=`, or the `=` itself when it is the word being typed.
+  const inline = /^--([^=]+)=(.*)$/.exec(current);
+  if (inline) {
+    const values = valuesOf(inline[1]!, groupNames).filter((value) => value.startsWith(inline[2]!));
+    return raw.at(-1) === '=' ? values.map((value) => `=${value}`) : [...values];
+  }
   const before = words.slice(0, -1);
   const pick = (candidates: readonly string[]) => candidates.filter((word) => word.startsWith(current));
   const valueFlag = before.length > 0 ? takesValue(before.at(-1)!) : null;

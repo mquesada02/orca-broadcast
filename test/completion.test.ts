@@ -73,6 +73,19 @@ describe('complete: flag values', () => {
   });
 });
 
+describe('complete: the --flag=value form, which bash splits at =', () => {
+  it('reads --role = worker as one flag with its value, not as a command', () => {
+    expect(c('--role', '=', 'worker', 'pa')).toEqual(['pause']);
+    expect(c('pause', '--role', '=', 'worker', '--')).toContain('--yes');
+  });
+
+  it('completes the value after =, keeping the = when it is the word being typed', () => {
+    expect(c('pause', '--role', '=', 'wor')).toEqual(['worker']);
+    expect(c('pause', '--role', '=')).toEqual(['=coordinator', '=worker', '=session']);
+    expect(c('recover', '--timeout', '=', '')).toEqual([]);
+  });
+});
+
 describe('complete: group, roster and completion', () => {
   it('offers the group subcommands, then the group names for show and remove', () => {
     expect(c('group', '')).toEqual(['add', 'list', 'show', 'remove']);
