@@ -38,9 +38,8 @@ export interface RunMembers {
   sessionIds: Set<string>;
 }
 
-// A run agent that the roster does not know: nothing is known of its state, its coordinator or its dispatch.
-const entryOfRecord = (record: AgentRecord, sessionId: string, savedAt: string): RosterEntry => ({
-  sessionId,
+// The roster fields of a run agent that the roster does not know: nothing is known of its state, its coordinator or its dispatch.
+const fieldsOfRecord = (record: AgentRecord, savedAt: string) => ({
   paneKey: record.paneKey,
   repo: record.repo,
   repoId: record.repoId,
@@ -49,9 +48,14 @@ const entryOfRecord = (record: AgentRecord, sessionId: string, savedAt: string):
   worktreePath: record.worktreePath,
   role: record.role,
   orchestrationRunIds: record.orchestrationRunIds,
-  state: 'done',
+  state: 'done' as const,
   stateStartedAt: 0,
   savedAt,
+});
+
+const entryOfRecord = (record: AgentRecord, sessionId: string, savedAt: string): RosterEntry => ({
+  sessionId,
+  ...fieldsOfRecord(record, savedAt),
   ...(record.permission === undefined ? {} : { permission: record.permission }),
 });
 
@@ -86,17 +90,7 @@ export function poolOf(preRestart: RosterEntry[], members: RunMembers): RosterEn
 /** The row of a run agent that has no session ID: it is never classified, started or waited on. */
 export const noSessionRow = (record: AgentRecord, savedAt: string): RunRecoveryRow => ({
   sessionId: null,
-  paneKey: record.paneKey,
-  repo: record.repo,
-  repoId: record.repoId,
-  worktree: record.worktree,
-  worktreeId: record.worktreeId,
-  worktreePath: record.worktreePath,
-  role: record.role,
-  orchestrationRunIds: record.orchestrationRunIds,
-  state: 'done',
-  stateStartedAt: 0,
-  savedAt,
+  ...fieldsOfRecord(record, savedAt),
   status: 'failed',
   reason: 'no-session-id',
   promptDue: false,
@@ -192,13 +186,16 @@ export function pauseMode(state: PauseState): Mode {
     await store.save(run);
   };
   return {
+    // No prompt is sent in this mode, so no ack line is ever built from the token.
     token: '',
     begin: write,
     save: write,
     async finish() {
-      decideWorkers(rows, merged());
+      // The rows are the same objects in every call, so the decisions below show in this list.
+      const all = merged();
+      decideWorkers(rows, all);
       markNotInRun(rows, new Set(state.members.map((member) => member.sessionId)));
-      storeMissingWorkers(run, state.members, merged(), state.selfSessionId);
+      storeMissingWorkers(run, state.members, all, state.selfSessionId);
       await write();
     },
     onError: write,

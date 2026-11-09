@@ -175,6 +175,7 @@ export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed, 
     if (id !== undefined && id === selfSessionId) row.reason = 'coordinator-is-self';
     else if (id !== undefined && everyoneIds.has(id) && !inSet.has(id)) row.reason = 'coordinator-filtered';
     else if (!coordinator) row.reason = 'coordinator-missing';
+    // The order is the spec's: a coordinator outside the run is `coordinator-not-paused` even when it failed.
     else if (pauseRun && id !== undefined && !pauseRun.runSessionIds.has(id)) row.reason = 'coordinator-not-paused';
     else if (coordinator.status === 'failed') row.reason = 'coordinator-missing';
     else {

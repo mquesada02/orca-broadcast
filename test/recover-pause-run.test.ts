@@ -105,6 +105,15 @@ describe('recover with an open pause run', () => {
     expect(rowsOf(dir).map((row) => row.sessionId)).toEqual(expect.arrayContaining(['s-a', null]));
   });
 
+  it('makes the entry of a run agent that the roster does not hold from its run record, with its permission flag, beside the roster agents', async () => {
+    const { code, port } = await recoverRun(['--yes', '--json'], ['a', 'r'].map((id) => appears(`new:${id}`, 4)), [], {
+      seed: seedRun([rosterEntry('s-a')], [runAgent('s-r', { permission: BYPASS })]),
+      scan: joined(4, ['s-a', 'new:a'], ['s-r', 'new:r']),
+    });
+    expect(code).toBe(0);
+    expect(port.starts.map((s) => [s.sessionId, s.worktreePath, s.permission])).toEqual(expect.arrayContaining([['s-r', '/work/tree-old:s-r', BYPASS]]));
+  });
+
   it('works with no roster at all: the agents of the run are the recovery set', async () => {
     const { code, out, port } = await recoverRun(['--yes', '--json'], [appears('new:a', 3)], [], {
       seed: async (store) => {
@@ -301,6 +310,23 @@ describe('a later recover on the same run', () => {
     expect(resultsOf(out)).toEqual({ 's-a': 'pending/awaiting-start' });
     expect(readRun(dir).status).toBe('open');
     expect(readRun(dir).recovery?.starts).toEqual([{ sessionId: 's-a', startedAt }]);
+  });
+
+  it('keeps the stored list of a coordinator that a filter leaves out of the retake', async () => {
+    const coordinator = rosterEntry('s-c', { role: 'coordinator', state: 'done' });
+    const worker = rosterEntry('s-w', { role: 'worker', coordinatorSessionId: 's-c', dispatchId: 'd-1' });
+    const recovery = stored([
+      { ...coordinator, status: 'restarted' },
+      { ...worker, status: 'left-to-coordinator' },
+      { sessionId: 's-x', status: 'failed', reason: 'did-not-appear' },
+    ]);
+    const { out, dir, port } = await recoverRun(['--yes', '--json', '--role', 'session'], [appears('new:x', 3)], [], {
+      seed: seedRun([coordinator, worker, rosterEntry('s-x')], [runAgent('s-c', { role: 'coordinator' })], { recovery }),
+      scan: joined(3, ['s-x', 'new:x']),
+    });
+    expect(port.starts.map((s) => s.sessionId)).toEqual(['s-x']);
+    expect(resultsOf(out)).toEqual({ 's-x': 'restarted/not-in-run' });
+    expect(readRun(dir).agents[0]?.missingWorkers).toEqual([{ sessionId: 's-w', repo: 'repo', worktree: 'tree-s-w', dispatchId: 'd-1' }]);
   });
 
   it('does not retake a recovery record that closed earlier in the same restart', async () => {

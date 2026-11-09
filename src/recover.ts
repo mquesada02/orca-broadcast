@@ -228,7 +228,9 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
   const selfLine = selfLineOf(self, rows);
   if (members && declined) {
     // Nothing is written to the run: the next `recover` is again a first recovery of it.
-    const shown = inTableOrder([...rows.map((row, i) => ({ row, paneKey: classified.rows[i]?.entry.paneKey as string })), ...withoutSessionId.map((row) => ({ row: recoveryRowOf(row), paneKey: row.paneKey }))], ({ row, paneKey }) => ({ ...row, paneKey })).map(({ row }) => row);
+    // `finalRows` gives one row per classified row, in the same order, so the pane key of each is at the same index.
+    const keyed = rows.map((row, i) => ({ row, paneKey: (classified.rows[i] as Classified['rows'][number]).entry.paneKey }));
+    const shown = inTableOrder([...keyed, ...withoutSessionId.map((row) => ({ row: recoveryRowOf(row), paneKey: row.paneKey }))], ({ row, paneKey }) => ({ ...row, paneKey })).map(({ row }) => row);
     return { outcome: 'done', exitCode: exitCodeOf(shown), run: pauseRun, error: null, rows: [], recovery: { rows: shown, snapshots: read.snapshots, self: selfLine, record: null } };
   }
   // A start that an earlier run recorded and that is still awaited needs a record and a wait, even when nothing else is due. A pause run stores its outcome whatever is due.
@@ -246,7 +248,7 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
       liveRuntime,
       rows: recordRowList,
       withoutSessionId,
-      // A retake keeps the rows it did not take again; a new recovery of the run replaces them.
+      // A retake keeps the rows it did not take again; a new recovery of the run replaces them. A row with no session ID is always made again from the run, so a filter can leave it out of the stored rows.
       untouched: base && stored ? stored.rows.filter((row) => row.sessionId !== null && !taken.has(row.sessionId)) : [],
       carriedStarts: [...pauseStarts].filter(([sessionId]) => !taken.has(sessionId)).map(([sessionId, startedAt]) => ({ sessionId, startedAt })),
       members: members.members,
@@ -361,8 +363,8 @@ function crashMode(record: RecoveryRecord, store: RecordStore, rows: RecoveryRow
 
 /** After a yes with something to start, send or wait on (in pause-run mode, always): the first write, the starts, the appearance and prompt loop and the end. */
 async function execute({ deps, warnings, mode, run, restarts, earlier, rows, snapshots, selfLine, deadline, roster, scan, panes }: Execution): Promise<RunSummary> {
-  const { port, clock, store, signal } = deps;
-  const summaryOf = (): RecoverySummary => ({ rows: mode.table(), snapshots, self: selfLine, record: mode.record ?? null });
+  const { port, clock, signal } = deps;
+  const summaryOf = (table: RecoverRow[] = mode.table()): RecoverySummary => ({ rows: table, snapshots, self: selfLine, record: mode.record ?? null });
 
   try {
     await mode.begin();
@@ -379,7 +381,8 @@ async function execute({ deps, warnings, mode, run, restarts, earlier, rows, sna
     // The end snapshot comes before the record closes: a failed listing leaves the record open like any other.
     if (started.count > 0) await roster.end(await listSnapshot({ port, clock, signal }));
     await mode.finish();
-    summary = { outcome: 'done', exitCode: exitCodeOf(mode.table()), run: run ?? null, error: null, rows: [], recovery: summaryOf() };
+    const table = mode.table();
+    summary = { outcome: 'done', exitCode: exitCodeOf(table), run: run ?? null, error: null, rows: [], recovery: summaryOf(table) };
   } catch (error) {
     summary = { ...failure(error, null), recovery: summaryOf() };
     try {
