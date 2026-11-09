@@ -79,6 +79,26 @@ describe('the re-run of an open recovery record', () => {
     expect(resultsOf(out)).toEqual({ 's-a': 'acked', 's-b': 'acked', 's-c': 'pending/still-working' });
   });
 
+  it('never sends again to a sent row, even when its stored reason is waiting-permission', async () => {
+    const { out, port } = await rerun([], [live('new:a', repliesWithoutAck)], record([sent('s-a', { reason: 'waiting-permission' })]), { scan: scanOf(holds('s-a', 'new:a')) });
+    expect(port.sends).toEqual([]);
+    expect(resultsOf(out)).toEqual({ 's-a': 'pending/still-working' });
+  });
+
+  it('sends again to an unsent row whose stored reason is still-working or background', async () => {
+    const rows = [row('s-a', { reason: 'still-working' }), row('s-b', { reason: 'background' })];
+    const { out, port } = await rerun([], [live('new:a'), live('new:b')], record(rows), { scan: scanOf(holds('s-a', 'new:a'), holds('s-b', 'new:b', 6)) });
+    expect(port.sends.map((s) => s.handle).sort()).toEqual(['term_new:a', 'term_new:b']);
+    expect(resultsOf(out)).toEqual({ 's-a': 'acked', 's-b': 'acked' });
+  });
+
+  it('turns a sent row gone when no live row holds it, even when it still has a young recorded start', async () => {
+    const stored = sent('s-a', { reason: 'waiting-permission', startedAt: new Date(T0 - 10_000).toISOString() });
+    const { out, port } = await rerun([], [], record([stored]), { scan: scanOf() });
+    expect(port.sends).toEqual([]);
+    expect(resultsOf(out)).toEqual({ 's-a': 'gone/terminal-closed' });
+  });
+
   it('counts a late ack of a sent row, with no new send', async () => {
     const { out, port } = await rerun([], [live('new:a', acks)], record([sent('s-a')]), { scan: scanOf(holds('s-a', 'new:a')) });
     expect(port.sends).toEqual([]);

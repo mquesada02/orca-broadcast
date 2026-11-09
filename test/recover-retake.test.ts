@@ -1,11 +1,13 @@
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { continueText } from '../src/recover-prompt.js';
 import { createRecordStore } from '../src/store.js';
-import { tempStateDir, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
+import { fakeClock, tempStateDir, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
 import { doneEntry, GONE, parseJson, recoverRun, resultsOf, type RecoverOptions } from './helpers/recover.js';
-import { readPointer, readRecoveries } from './helpers/records.js';
+import { readPointer, readRecoveries, storeDir } from './helpers/records.js';
 import { agent, rosterEntry, rosterSnapshot, scanOf, seedRosters, T0 } from './helpers/roster.js';
-import type { Seed } from './helpers/run-cli.js';
+import { runCli, type Seed } from './helpers/run-cli.js';
 import type { RecoveryRecord, RecoveryRow, RosterEntry } from '../src/types.js';
 
 const OLD = 'Earlier reply.';
@@ -117,6 +119,30 @@ describe('recovering again from the same restart', () => {
     const old = closed([earlierRow(a, 'failed', 'start-failed')], { snapshotKey: { bootId: 'boot-0', runtimeId: 'runtime-9' } });
     const { out } = await retake([live('new:a'), live('new:b')], [a, b], old, { scan: scanOf(holds('s-a', 'new:a'), holds('s-b', 'new:b', 6)) });
     expect(resultsOf(out)).toEqual({ 's-a': 'restored', 's-b': 'restored' });
+  });
+
+  it('asks once, and "no" writes no record, leaves the earlier record as it was and exits 1 with the rows pending/declined', async () => {
+    const b = doneEntry('s-b');
+    const old = closed([earlierRow(b, 'failed', 'start-failed')]);
+    const { code, out, questions, port, dir } = await runCli(['recover'], [], { seed: seeded([b], old), ask: ['n'], isTTY: true, clock: fakeClock(T0), configure: (p) => (p.scanAt = () => scanOf()) });
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toContain('Restart 1 agents, prompt 0 and leave 0 workers to their coordinators?');
+    expect(code).toBe(1);
+    expect(out).toContain('declined');
+    expect(port.starts).toEqual([]);
+    expect(readRecoveries(dir)).toEqual([old]);
+  });
+
+  it('refuses, naming the file, when a record in recoveries/ cannot be read', async () => {
+    const b = doneEntry('s-b');
+    const seed: Seed = async (store, dir) => {
+      await seeded([b], closed([]))(store, dir);
+      await writeFile(join(storeDir(dir), 'recoveries', 'broken.json'), 'not json');
+    };
+    const { code, err } = await recoverRun(['--yes'], [], [b], { seed });
+    expect(code).toBe(2);
+    expect(err).toContain('unreadable record');
+    expect(err).toContain('broken.json');
   });
 
   it('applies the filters to the retaken rows', async () => {
