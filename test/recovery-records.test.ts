@@ -226,6 +226,13 @@ describe('a recovery beside a pause run', () => {
     expect(only(dir).status).toBe('open');
   });
 
+  it('is abandoned when pause extends the open run, with its own note', async () => {
+    const { code, err, dir } = await runCli(['pause', '--yes'], [], { seed: seedBeside });
+    expect(code).toBe(0);
+    expect(err).toContain('recovery r1 was open beside a pause run; abandoned');
+    expect(only(dir).status).toBe('closed');
+  });
+
   it('does not print the broken-state note when a broadcast is open too: both are abandoned', async () => {
     const seedAll: Seed = async (store, dir) => {
       await seedBeside(store, dir);

@@ -317,6 +317,7 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
       if (recoveryRecord) {
         const open = abandonRecovery(recoveryRecord, 'paused');
         await store.saveRecovery(recoveryRecord);
+        // No line when nothing was left to abandon (every row was final): there was nothing to stop.
         if (open > 0) warnings.push(`recovery ${recoveryRecord.id} was closed by this pause: ${open} ${open === 1 ? 'agent was' : 'agents were'} not recovered yet and will not be waited for`);
       }
     } catch (error) {

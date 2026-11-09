@@ -24,14 +24,17 @@ export function isFinalRow(row: Pick<RecoveryRow, 'status' | 'reason' | 'promptD
   }
 }
 
-/** The process no longer runs this recovery: drop its pid, and close the record by itself when every row is final. */
-export function releaseRecovery(record: RecoveryRecord): void {
+// Drops the pid, and closes the record when every row is final.
+function closeIfFinal(record: RecoveryRecord, endedBy: NonNullable<RecoveryRecord['endedBy']>): void {
   clearPid(record);
   if (record.rows.every((row) => isFinalRow(row, record.rows))) {
     record.status = 'closed';
-    record.endedBy = 'done';
+    record.endedBy = endedBy;
   }
 }
+
+/** The process no longer runs this recovery: drop its pid, and close the record by itself when every row is final. */
+export const releaseRecovery = (record: RecoveryRecord): void => closeIfFinal(record, 'done');
 
 /**
  * Abandons the rows of a recovery that nobody runs any more: every row that is not final (and that `select` picks) becomes `abandoned`
@@ -45,11 +48,7 @@ export function abandonRecovery(record: RecoveryRecord, reason: Extract<RecoverR
     row.status = 'abandoned';
     row.reason = reason;
   }
-  clearPid(record);
-  if (record.rows.every((row) => isFinalRow(row, record.rows))) {
-    record.status = 'closed';
-    record.endedBy = 'abandoned';
-  }
+  closeIfFinal(record, 'abandoned');
   return chosen.length;
 }
 
