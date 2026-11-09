@@ -40,6 +40,10 @@ _Avoid_: Backup, agent list
 `recover` with no open pause run. It reads the roster from before the restart, shows which agents are restored, missing or failed, and after one confirmation restarts the missing agents that are not workers and prompts the agents whose last turn did not finish and the coordinators that have a missing worker.
 _Avoid_: Reboot mode, recovery run
 
+**Pause-run mode**:
+`recover` with an open pause run (a planned restart). It restarts the missing agents of the run and the missing roster agents outside it, and sends no prompt, so the agents stay paused until `resume`. It writes no recovery record: the outcome of each agent, the starts, and the missing workers of each coordinator are stored in the pause run, and `resume` adds those workers to the CONTINUE message of their coordinator.
+_Avoid_: Planned-restart mode, run recovery
+
 **Recovery record**:
 The durable record of one crash recovery: its token and one row per agent with its status. It is written after the confirmation and before the first start, and it closes by itself when every row is final.
 _Avoid_: Recovery run, recover log
