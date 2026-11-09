@@ -66,7 +66,7 @@ orca-broadcast close
    Send receipts are never proof. A background task can keep Orca showing the agent as `working`. That does not matter for the proof. The table then shows the reason `background`, not `still-working`. See [Background work](how-it-works.md#background-work).
 9. `pause` waits up to `--timeout`. The default is `10m`. The wait loop also adds agents that start working later and match any filter set of the run. It sends the message again once to a confirmed agent that wakes up. A second wake-up shows the reason `re-woken`. In that call, `pause` sends nothing more.
 
-If you run `pause` in a Claude session, that session is not paused. The output shows it in a block that starts with `self (not paused)`. That block appears when the session is a Claude agent that matches your filters. `resume` marks it resumed at once, but only when you run `resume` from that same session. See [How resume works](#how-resume-works).
+If you run `pause` in a Claude session, that session is not paused. The output shows it in a block that starts with `self (not paused)`. That block appears when the session is a Claude agent that matches your filters. If no other agent is paused, it appears only when the session is `working`. `resume` marks it resumed at once, but only when you run `resume` from that same session. See [How resume works](#how-resume-works).
 
 `pause` also handles an open broadcast or an open recovery. See [One record at a time](how-it-works.md#one-record-at-a-time) and [Pause stops a waiting broadcast](how-it-works.md#pause-stops-a-waiting-broadcast).
 
