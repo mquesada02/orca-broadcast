@@ -6,15 +6,14 @@ After a PC restart or an Orca crash, every Claude Code process is gone. Orca res
 
 The terms on this page are defined in [CONTEXT.md](../../CONTEXT.md).
 
-Run `recover` from a plain terminal, not from inside a Claude session. An agent cannot be prompted while it runs a command.
-
+Run `recover` from a plain terminal, not from inside a Claude session.
 ## Modes
 
 `recover` has two modes:
 
 | Mode | When | What it does |
 |---|---|---|
-| Crash mode | No pause run is open. | Restarts the missing agents, then sends the continue prompt. Writes a recovery record. |
+| Crash mode | No pause run is open. | Restarts the missing agents, then sends the continue prompt. |
 | Pause-run mode | A pause run is open (a planned restart). | Restarts the missing agents. Sends no prompt. Writes no recovery record. See [Pause-run mode](#pause-run-mode). |
 
 Most of this page describes crash mode.
@@ -38,7 +37,7 @@ orca-broadcast recover --repo alpha --role coordinator   # only part of the flee
 | `--group <name>` | Selects the part of the fleet to recover. Repeat it for a union of groups. |
 | `--repo`, `--worktree`, `--role`, `--run` | Select the part of the fleet to recover. |
 
-`recover` refuses `--state`, `--file` and `--reason` with exit `2`. Every other option that `recover` does not take also exits `2`.
+`recover` refuses `--state`, `--file` and `--reason` with exit `2`. Every other option that `recover` does not take also exits `2`, unless `--help` is also given.
 
 For the full definition of each option, see [Options](reference.md#options). For how filters and groups combine, see [Filters](filters-and-groups.md#filters) and [Groups](filters-and-groups.md#groups).
 
@@ -54,9 +53,6 @@ For the full definition of each option, see [Options](reference.md#options). For
 The report starts with one line for each snapshot used, with its age.
 
 The design relies on Orca changing its runtime ID at every Orca start. The tool does not test whether Orca keeps the runtime ID after a crash of Orca alone. If Orca keeps it, a save after the crash writes to the same file as before. Only a new boot ID (a PC restart) then protects the earlier snapshot.
-
-The options `--repo`, `--worktree`, `--role`, `--run` and `--group` select the part of the fleet to recover.
-
 ## How recover matches agents
 
 `recover` matches each agent to a live Orca agent by its Claude session ID. It never matches by pane key alone.
@@ -102,7 +98,7 @@ If you answer no, `recover` does these things:
 2. `recover` restarts each missing agent that is not a worker. Coordinators go first.
 3. `recover` checks Orca at short intervals. It waits for each restarted agent to appear in Orca.
 4. In the same checks, `recover` sends the continue prompt to each agent that is due one, as soon as that agent is live. An agent that came back by itself gets it at once. Coordinators go first within each check.
-5. `recover` keeps checking until each reply ends with `ORCA-ACK <token>`, or until the time limit ends.
+5. `recover` keeps checking until each prompted agent has acked or has another result, or until the time limit ends.
 
 A restart opens a new terminal in the worktree of the agent. The terminal runs this command:
 
@@ -121,7 +117,7 @@ An agent is due the continue prompt in these cases:
 
 This holds whether the agent came back by itself or `recover` restarted it. `recover` never sends the prompt to an agent on a permission prompt.
 
-The proof rule is the token line. An agent counts as done when its reply ends with this exact last line:
+The proof rule is the token line. An agent counts as acked when its reply ends with this exact last line:
 
 ```
 ORCA-ACK <token>
@@ -151,7 +147,7 @@ A worker whose coordinator does not get this list shows `no-coordinator`.
 | `left-to-coordinator` | The list of the missing workers was sent to the coordinator. This does not mean that the workers were restarted. The coordinator decides. |
 | `no-coordinator` | A missing worker whose coordinator did not get the list. See the table below. |
 | `failed` | `recover` could not restart it. See the table below. |
-| `abandoned` | `close` abandoned it. See [Close an open recovery](#close-an-open-recovery). |
+| `abandoned` | `close` abandoned it (reason `closed`), or `pause` abandoned it (reason `paused`). See [Close an open recovery](#close-an-open-recovery). |
 
 ### Reasons of a pending row
 
@@ -196,7 +192,7 @@ An agent that is due a prompt never ends `restored` or `restarted`. It ends `ack
 
 The recovery record closes by itself when every row is final. These rows are final:
 
-- `acked`, `gone`, `left-to-coordinator` and `failed`.
+- `acked`, `gone`, `left-to-coordinator`, `failed` and `abandoned`.
 - `restored` and `restarted`, because no prompt is due.
 - `no-coordinator`, once its coordinator is no longer `pending`.
 
@@ -216,13 +212,7 @@ Exit codes: `0` when no row is `pending`, `gone`, `no-coordinator` or `failed`. 
 
 ## Manual check
 
-The restart command was checked by hand on a throwaway session before the first live use. The resumed agent showed its old conversation and started no turn by itself. The command is:
-
-```sh
-env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN claude --resume <session id>
-```
-
-No test runs this command. Tests use a fake Orca and a fixture of the process folder.
+The restart command (see [What happens after you answer yes](#what-happens-after-you-answer-yes)) was checked by hand on a throwaway session before the first live use. The resumed agent showed its old conversation and started no turn by itself. No test runs this command. Tests use a fake Orca and a fixture of the process folder.
 
 ## Close an open recovery
 
@@ -237,7 +227,7 @@ orca-broadcast close                  # abandon the open recovery
 orca-broadcast close --repo alpha     # abandon only the rows of the repo alpha
 ```
 
-A recovery and a broadcast can be open together. See [One record at a time](how-it-works.md#one-record-at-a-time).
+A recovery and a broadcast that are open together are a broken state. See [One record at a time](how-it-works.md#one-record-at-a-time).
 
 ## Pause-run mode
 
