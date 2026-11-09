@@ -49,6 +49,19 @@ describe('session-ID identity documents', () => {
     expect(await read(join('docs', 'adr', name as string))).toMatch(/^# Agents are identified across a restart by Claude session ID, not `paneKey`/m);
   });
 
+  it('ADR 0003 records that recover holds the lock, as an exception to ADR 0001', async () => {
+    const adrs = await readdir(join(import.meta.dirname, '..', 'docs', 'adr'));
+    const name = adrs.find((file) => file.startsWith('0003-'));
+    expect(name).toBeDefined();
+    const adr = await read(join('docs', 'adr', name as string));
+    expect(adr).toMatch(/^# `recover` holds the lock: there is no hand-over from it/m);
+    expect(adr).toContain('ADR 0001');
+  });
+
+  it('README names the recoveries folder of the record store', async () => {
+    expect(await read('README.md')).toContain('`recoveries/`');
+  });
+
   it('AGENTS.md holds the session-ID rule next to the paneKey gotcha', async () => {
     const agents = await read('AGENTS.md');
     expect(agents).toContain('Agents are identified by `paneKey`');
