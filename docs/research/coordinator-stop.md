@@ -35,7 +35,7 @@ Source tags: [S] `orca-ide skills get orchestration`; [S:<name>] `... --referenc
 ### Coordinator identity
 - `run-list` entries carry `coordinator_handle` (a `term_...`); `terminal list --json` has `worktreePath`, `tabId`, `leafId`, `agentIdentity`; `worktree ps --json` has `agents[].paneKey` (`<tabId>:<leafId>`) [L]. Joining on `tabId:leafId` identifies which agent row is the coordinator, per Run.
 - Terminal list: 38 terminals; 6 in `*coord*` worktrees; only one of them has `agentIdentity: claude` [L:terminal list].
-- Runs listed (live): about ten Runs from several projects [L:run-list]. Run `run_<A>`: tasks 14 completed, 3 dispatched [L:task-list]. Run `run_<B>` worker counts: active 3, retained 2, released 7 [L:worker-list].
+- Runs listed (live): several Runs from several projects [L:run-list]. Run `run_<A>`: tasks 14 completed, 3 dispatched [L:task-list]. Run `run_<B>` worker counts: active 3, retained 2, released 7 [L:worker-list].
 
 ## Implications for orca-pause (inputs to #2, not decisions)
 - `pause` selecting "agents with state working" will include coordinators (state stays `working` while in `check --wait`, because a tool call is running). Distinguish coordinators by joining `run-list.coordinator_handle` to `terminal list` and then `tabId:leafId` to `paneKey`.
