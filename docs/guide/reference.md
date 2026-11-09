@@ -52,11 +52,11 @@ Each row names the commands that accept the option. A command that gets an optio
 | `2` | `pause` | The hand-over is refused: the lock holder is not the open broadcast, the lock owner changed, the signal is not allowed (EPERM), or the lock is still held after 5 seconds. |
 | `2` | `broadcast` | A pause run or a recovery is open. There is no text and no open broadcast. The text differs from the open broadcast. The text is empty, too long, or has a refused character. The `--file` cannot be read. |
 | `2` | `close` with filters | A recovery and a broadcast are open together. Also an open run of an older format. |
-| `2` | `recover` | There is no roster and no open pause run. A roster file cannot be read. The scan of the Claude processes fails. A broadcast is open and no pause run is open. The fleet restarted again while a recovery is open. |
+| `2` | `recover` | There is no roster, no open pause run and no open recovery. A roster file cannot be read. The scan of the Claude processes fails. A broadcast is open and no pause run is open. The fleet restarted again while a recovery is open. |
 | `2` | `group` | A usage error: the subcommand is missing or unknown, an option does not apply, or the argument count is wrong. The groups file is invalid or cannot be saved. A value does not resolve. The Orca listing fails. The group name is invalid, has no filter, exists already, or is unknown. |
 | `2` | `roster save` | A usage error: the subcommand is missing or unknown, an option does not apply, or there is an extra argument. |
-| `2` | `completion` | Any flag other than `--help`, no argument, or an argument other than `bash`. |
-| `130` | `pause`, `resume`, `broadcast`, `close`, `recover` | The command was interrupted by SIGINT, SIGTERM or SIGHUP, or by Ctrl-C at its question. Run the command again to continue. |
+| `2` | `completion` | Any option other than `--help`, no argument, or an argument other than `bash`. |
+| `130` | `pause`, `resume`, `broadcast`, `close`, `recover` | The command was interrupted by SIGINT, SIGTERM or SIGHUP, or by Ctrl-C at its question (`close` asks no question). Run the command again to continue. |
 
 What an interrupted command leaves on disk depends on the command and the phase:
 
@@ -65,7 +65,7 @@ What an interrupted command leaves on disk depends on the command and the phase:
 
 ## Tab completion
 
-To complete commands, flags and flag values in bash, add this line to `~/.bashrc`:
+To complete commands, options and option values in bash, add this line to `~/.bashrc`:
 
 ```sh
 eval "$(orca-broadcast completion bash)"
@@ -74,7 +74,7 @@ eval "$(orca-broadcast completion bash)"
 Tab then offers:
 
 - the commands `broadcast`, `pause`, `resume`, `close`, `recover`, `group`, `roster` and `completion`, and the subcommands of `group`, `roster` and `completion`;
-- only the flags that the typed command accepts;
+- only the options that the typed command accepts;
 - the values of `--role`, `--state` and `--reason`, also in the form `--flag=value`;
 - your saved group names after `--group`, `group show` and `group remove`.
 
@@ -82,7 +82,7 @@ Anything else falls back to file names. Tab completion reads only the groups fil
 
 ## JSON output
 
-`--json` prints one JSON object on stdout and a newline. It prints nothing on stderr, except the line about each skipped group `state` kind. It never prompts, so `broadcast`, `pause`, `resume` and `recover` need `--yes`. `close` needs no `--yes`.
+`--json` prints one JSON object on stdout and a newline. It prints nothing on stderr. The one exception is the line about each skipped group `state` kind. It never prompts, so `broadcast`, `pause`, `resume` and `recover` need `--yes`.
 
 Every object has a `warnings` array. It holds the warning lines that text mode prints on stderr, such as a roster save that failed. The line about a skipped group `state` kind is not in `warnings`.
 
@@ -111,9 +111,9 @@ The fields mean:
 
 These rules also hold:
 
-- For `broadcast`, `pause`, `resume`, `close` and `recover`, an exit `1` run has outcome `done`, and an exit `2` or `130` run has outcome `error`. A skipped `roster save` has outcome `skipped` and exits `1`.
+- For `broadcast`, `pause`, `resume`, `close` and `recover`, a command that exits `1` has outcome `done`, and a command that exits `2` or `130` has outcome `error`. A skipped `roster save` has outcome `skipped` and exits `1`.
 - A `roster save` error object also has `exitCode` (`2`) and `error`.
 - When `close` closes a recovery and a broadcast that are open together, `warnings` holds `closed broadcast <id>`.
-- A `broadcast` object has a `record` and a `run` of `null`. When nothing is in scope, the outcome is `nothing-to-do` and `record` is `null`.
+- A `broadcast` object has `run` set to `null`. Its `record` holds the broadcast record, or `null` when the broadcast is refused or nothing is in scope. When nothing is in scope, the outcome is `nothing-to-do`.
 - Each agent of a pause `run` has `orchestrationRunIds`.
-- A `--json` call that fails before the command name is set prints the first object shape with `command` `null`. This holds for `broadcast a b --json`, `recover --json --bogus` and `completion bash --json`. A call that `orca-broadcast` labels `group` or `roster` prints the shape of that command.
+- A `--json` call that fails before the command name is set prints the shape of `broadcast`, `pause`, `resume` and `close` with `command` `null`. This holds for `broadcast a b --json`, `recover --json --bogus` and `completion bash --json`. A call that `orca-broadcast` labels `group` or `roster` prints the shape of that command.
