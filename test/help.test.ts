@@ -83,6 +83,11 @@ describe('per-command help', () => {
     expect(out).toContain('ORCA-ACK');
   });
 
+  it('gives the exit codes of recover: 0 also for acked, left-to-coordinator and abandoned rows', async () => {
+    const { out } = await runCli(['recover', '--help']);
+    expect(out).toContain('Exit 0 if every row is restored, restarted, acked, left-to-coordinator or abandoned (or there is nothing to recover), 1 if any row is pending, gone, no-coordinator or failed, 2 on a refusal.');
+  });
+
   it('notes on the recover filter flags that they narrow the agents to recover, with no re-run', async () => {
     const { out } = await runCli(['recover', '--help']);
     expect(out).toContain('Narrows the agents to recover.');
