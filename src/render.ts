@@ -1,5 +1,5 @@
 import type { BroadcastProgress } from './broadcast.js';
-import type { AgentRecord, BroadcastSelf, BroadcastTarget, PauseStatus, Progress, RecoverySummary, ResumeProgress, ResumeStatus } from './types.js';
+import type { AgentRecord, BroadcastSelf, BroadcastTarget, PauseStatus, Progress, RecoverRow, RecoverySummary, ResumeProgress, ResumeStatus } from './types.js';
 
 const HINTS: Partial<Record<PauseStatus, string>> = {
   unconfirmed: 'not confirmed paused; check these agents before you leave',
@@ -108,11 +108,15 @@ export function renderBroadcastSelfBlock(self: BroadcastSelf): string {
 
 const RECOVER_SELF_HEADING = 'self (not restarted or prompted) — this session runs recover';
 
+// The table of the rows of a recovery; `close` prints it alone.
+export const renderRecoveryTable = (rows: RecoverRow[]): string =>
+  [...formatTable(['repo', 'worktree', 'role', 'status', 'reason'], rows.map((r) => [r.repo, r.worktree, r.role, r.status, r.reason ?? '-'])), ''].join('\n');
+
 // What `recover` prints: the snapshot lines, then the table and the self line, or the words "nothing to recover" when there is no row.
 export function renderRecover({ rows, snapshots, self }: RecoverySummary): string {
   const header = snapshots.map((s) => `snapshot ${s.lastSave} (${s.ageMinutes} ${s.ageMinutes === 1 ? 'minute' : 'minutes'} old)\n`).join('');
   if (rows.length === 0) return `${header}nothing to recover\n`;
-  const table = [...formatTable(['repo', 'worktree', 'role', 'status', 'reason'], rows.map((r) => [r.repo, r.worktree, r.role, r.status, r.reason ?? '-'])), ''].join('\n');
+  const table = renderRecoveryTable(rows);
   const missing = self && self.missingWorkers.length > 0 ? [`missing workers: ${self.missingWorkers.join('; ')}`] : [];
   const selfBlock = self ? `\n${[RECOVER_SELF_HEADING, ...formatTable(['repo', 'worktree', 'role'], [[self.repo, self.worktree, self.role]]), ...missing, ''].join('\n')}` : '';
   return `${header}\n${table}${selfBlock}`;

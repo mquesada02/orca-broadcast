@@ -1,11 +1,11 @@
 import { clearPid } from './shared.js';
-import type { RecoverRow, RecoveryRecord, RecoveryRow } from './types.js';
+import type { BroadcastRecord, RecoverReason, RecoverRow, RecoveryRecord, RecoveryRow } from './types.js';
 
 /**
  * A row is final when no further start, send or wait is planned for it: `acked`, `gone`, `left-to-coordinator`, `no-coordinator`, `failed`
  * and `abandoned` always; `restored` and `restarted` only when no prompt follows. `pending` never is.
  */
-function isFinalRow(row: Pick<RecoveryRow, 'status' | 'reason' | 'promptDue' | 'coordinatorSessionId'>, rows: Pick<RecoveryRow, 'sessionId' | 'status'>[]): boolean {
+export function isFinalRow(row: Pick<RecoveryRow, 'status' | 'reason' | 'promptDue' | 'coordinatorSessionId'>, rows: Pick<RecoveryRow, 'sessionId' | 'status'>[]): boolean {
   switch (row.status) {
     case 'no-coordinator':
       // The exception: a worker whose coordinator did not get the list yet is decided again with its coordinator, while that row is pending.
@@ -24,14 +24,36 @@ function isFinalRow(row: Pick<RecoveryRow, 'status' | 'reason' | 'promptDue' | '
   }
 }
 
-/** The process no longer runs this recovery: drop its pid, and close the record by itself when every row is final. */
-export function releaseRecovery(record: RecoveryRecord): void {
+// Drops the pid, and closes the record when every row is final.
+function closeIfFinal(record: RecoveryRecord, endedBy: NonNullable<RecoveryRecord['endedBy']>): void {
   clearPid(record);
   if (record.rows.every((row) => isFinalRow(row, record.rows))) {
     record.status = 'closed';
-    record.endedBy = 'done';
+    record.endedBy = endedBy;
   }
 }
+
+/** The process no longer runs this recovery: drop its pid, and close the record by itself when every row is final. */
+export const releaseRecovery = (record: RecoveryRecord): void => closeIfFinal(record, 'done');
+
+/**
+ * Abandons the rows of a recovery that nobody runs any more: every row that is not final (and that `select` picks) becomes `abandoned`
+ * with the reason, and every final row keeps its result. The record drops its pid, and closes (`endedBy: abandoned`) when every row is
+ * final afterwards. Returns the number of rows it abandoned.
+ */
+export function abandonRecovery(record: RecoveryRecord, reason: Extract<RecoverReason, 'closed' | 'paused'>, select: (row: RecoveryRow) => boolean = () => true): number {
+  // Chosen before any row changes: a worker that waits for a pending coordinator is not final yet.
+  const chosen = record.rows.filter((row) => !isFinalRow(row, record.rows) && select(row));
+  for (const row of chosen) {
+    row.status = 'abandoned';
+    row.reason = reason;
+  }
+  closeIfFinal(record, 'abandoned');
+  return chosen.length;
+}
+
+/** A recovery record has `rows`; a broadcast record has `targets`. */
+export const isRecoveryRecord = (record: BroadcastRecord | RecoveryRecord | null | undefined): record is RecoveryRecord => record !== null && record !== undefined && 'rows' in record;
 
 /** The row as the table and the `--json` line show it. */
 export function recoveryRowOf(row: RecoveryRow): RecoverRow {

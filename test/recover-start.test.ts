@@ -365,14 +365,15 @@ describe('the open recovery guard (temporary)', () => {
     expect([port.listCalls, port.scanCalls, port.starts]).toEqual([0, 0, []]);
   });
 
-  it('prints the guard message, not the broadcast message, when a broadcast is open beside the recovery, and checks the pause-run guard first', async () => {
+  it('prints only the broken-state message when a broadcast is open beside the recovery, not the broadcast or the open-recovery message', async () => {
     const seed: Seed = async (store) => {
       await seedRosters(rosterSnapshot(GONE, [doneEntry('s-a')]))(store);
       await store.saveRecovery(open('r1'));
       await store.saveBroadcast({ id: 'b1', token: 'tok', text: 'hi', createdAt: '2026-01-02T00:00:00.000Z', status: 'open', targets: [] });
     };
     const { err } = await recoverRun(['--yes'], [], [], { seed });
-    expect(err).toContain('a recovery is open;');
+    expect(err).toContain('a recovery and a broadcast are both open; run `orca-broadcast close` and then `recover` again');
+    expect(err).not.toContain('a recovery is open;');
     expect(err).not.toContain('a broadcast is still open');
   });
 });

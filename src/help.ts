@@ -7,7 +7,7 @@ const PURPOSE: Record<Command, string> = {
   broadcast: 'Send text (several lines allowed) to every working or done Claude Code agent and prove each one handled it',
   pause: 'Ask every working Claude Code agent to stop at a clean point and prove it did',
   resume: 'Tell every paused agent to continue and prove it did',
-  close: 'Abandon the open run or broadcast without resuming it; nothing is sent',
+  close: 'Abandon the open run, broadcast or recovery without resuming it; nothing is sent',
   recover: 'Show which agents were alive before a restart or a crash, and which came back',
 };
 
@@ -29,7 +29,7 @@ const DETAILS: Record<Command, string[]> = {
   ],
   recover: [
     'Reads the roster saved before the restart, matches each agent to a live session by Claude session ID, and shows what is restored, missing or failed. It asks once before it acts; the filters select the part of the fleet to recover.',
-    'After a yes it restarts every missing agent that is not a worker with claude --resume, coordinators first, and waits for each one to appear in Orca; it never starts a session that a live process holds. Prompts are not sent in this version: a row that a prompt would handle ends pending, reason timed-out. Answering no prints the report, writes no record and exits 1.',
+    'After a yes it restarts every missing agent that is not a worker with claude --resume, coordinators first, and waits for each one to appear in Orca; it never starts a session that a live process holds. It then sends the continue prompt to each live agent whose last state was working or waiting and to each coordinator that has a missing worker, and waits for the ORCA-ACK proof, as broadcast does. Answering no prints the report, writes no record and exits 1.',
     'Exit 0 if every row is restored or restarted (or there is nothing to recover), 1 if any row is pending, gone, no-coordinator or failed, 2 on a refusal.',
   ],
 };

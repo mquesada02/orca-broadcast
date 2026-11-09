@@ -549,7 +549,9 @@ describe('recovery records', () => {
     await s.save(run('p1', '2026-01-01T00:00:00.000Z'));
     const open = await s.loadOpen();
     expect(await pointer(dir)).toEqual({ kind: 'pause', id: 'p1' });
-    expect(open.recovery?.record.id).toBe('r2');
+    expect(open.recovery).toBeNull();
+    expect(open.notes).toContain('recovery r2 was open beside a pause run; abandoned');
+    expect(open.notes).toContain('recovery r1 was open beside a pause run; abandoned');
   });
 
   it('reports other open recoveries and leaves them as they are; leftover temporary files are ignored', async () => {

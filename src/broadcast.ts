@@ -8,6 +8,7 @@ import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, 
 const MAX_TEXT_LENGTH = 4000;
 const NO_BROADCAST_MESSAGE = 'No broadcast is open; give a text.';
 const PAUSE_OPEN_MESSAGE = 'A pause run is open; resume or close it first.';
+const RECOVERY_OPEN_MESSAGE = 'a recovery is open; re-run recover or close it';
 
 export interface BroadcastProgress {
   acked: number;
@@ -108,6 +109,7 @@ async function openBroadcast(store: RecordStore, text: string | undefined, warni
   const open = await store.loadOpen();
   warnings.push(...open.notes);
   if (open.pause) throw new Error(PAUSE_OPEN_MESSAGE);
+  if (open.recovery) throw new Error(RECOVERY_OPEN_MESSAGE);
   const record = open.broadcast?.record;
   if (!record && text === undefined) throw new Error(NO_BROADCAST_MESSAGE);
   if (record && text !== undefined && text !== record.text) throw new Error(BROADCAST_OPEN_MESSAGE);

@@ -17,8 +17,9 @@ const BROADCAST_OPEN_MESSAGE = 'a broadcast is still open; run `orca-broadcast c
 // TEMPORARY, approved by the user: `recover` has no pause-run mode yet, so it refuses while a run is open instead of ignoring the agents
 // of that run. Ticket #134 (`recover` with an open pause run) removes this guard and its test.
 const PAUSE_RUN_OPEN_MESSAGE = 'a pause run is open; recover with an open pause run is not available yet';
-// TEMPORARY, approved by the user: `recover` cannot continue an open recovery record yet (the re-run is ticket #133) and nothing else
-// closes one yet (ticket #132), so it refuses instead of writing a second open record. Ticket #133 removes this guard and its test.
+const BROKEN_STATE_MESSAGE = 'a recovery and a broadcast are both open; run `orca-broadcast close` and then `recover` again';
+// TEMPORARY, approved by the user: `recover` cannot continue an open recovery record yet (the re-run is ticket #133), so it refuses
+// instead of writing a second open record; `close` abandons the open record. Ticket #133 removes this guard and its test.
 const RECOVERY_OPEN_MESSAGE = 'a recovery is open; recover with an open recovery record is not available yet';
 
 export interface RecoverDeps {
@@ -98,6 +99,7 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
   // The read-only check: the repairing load would rewrite a broadcast that is open beside a pause run.
   const open = await store.peekOpen();
   if (open.pause) throw new Error(PAUSE_RUN_OPEN_MESSAGE);
+  if (open.recovery && open.broadcast) throw new Error(BROKEN_STATE_MESSAGE);
   if (open.recovery) throw new Error(RECOVERY_OPEN_MESSAGE);
   if (open.broadcast) throw new Error(BROADCAST_OPEN_MESSAGE);
 

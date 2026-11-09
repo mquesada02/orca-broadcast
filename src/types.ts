@@ -204,8 +204,10 @@ export interface RunSummary {
   error: string | null;
   rows: AgentRecord[];
   self?: AgentRecord | null;
-  /** The broadcast record that `broadcast` or `close` worked on; absent or null for the pause commands. */
-  record?: BroadcastRecord | null;
+  /** The broadcast or recovery record that `broadcast` or `close` worked on; absent or null for the pause commands. */
+  record?: BroadcastRecord | RecoveryRecord | null;
+  /** The id of the broadcast that a `close` of a recovery closed too (a recovery and a broadcast open together). */
+  closedBroadcast?: string;
   /** This session as `broadcast` shows it on its own line. */
   broadcastSelf?: BroadcastSelf | null;
   /** How many targets `close` abandoned in a broadcast. */
