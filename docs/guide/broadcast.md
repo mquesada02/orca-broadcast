@@ -17,7 +17,7 @@ Other commands can block `broadcast`. See [One record at a time](how-it-works.md
 
 ## Examples
 
-Give the same instruction to every working or done agent:
+Give the same instruction to every working or done agent, and prove that each one handled it:
 
 ```sh
 orca-broadcast broadcast "back up the /tmp files you need"
@@ -47,11 +47,11 @@ If a rule fails, the command exits `2` and names the reason. For a text that is 
 Before the command sends anything, it asks you to confirm. It shows:
 
 1. The targets, one line each: `<repo>/<worktree> (<role>)`.
-2. The message, after `Message:`. The prompt shows each invisible Unicode format character, such as U+202E, as `\u{HEX}`.
+2. The message, after `Message:`. The prompt shows each Unicode format character, such as U+202E, as `\u{HEX}`.
 3. The session that runs the command, after `Not sent to this session:`. This line appears only when that session is a live Claude agent, or a target of the open broadcast.
 4. The question `Send to N agents? [y/N]`. For one target, the question says `1 agent`.
 
-Pass `--yes` to skip the question. Without a terminal, `--yes` is required. This holds even when the command sends nothing. See [Options](reference.md#options).
+Pass `--yes` to skip the whole prompt. Without a terminal, `--yes` is required. This holds even when the command sends nothing. See [Options](reference.md#options).
 
 ## The message
 
@@ -111,7 +111,7 @@ A pending target shows one reason:
 
 | Reason | Meaning |
 |---|---|
-| `send-failed` | Orca rejected the send. |
+| `send-failed` | Orca did not accept the send. |
 | `waiting-permission` | The agent is on a permission prompt, or in a state other than `working` or `done`. |
 | `no-ack` | The agent replied since the send, but the last line is not the ack line. The command does not send the message again. A later ack still counts. |
 | `background` | The agent's turn ended and background work runs. See [Background work](how-it-works.md#background-work). |
@@ -135,6 +135,8 @@ A different text is refused with exit `2`. Run `close` first. See [Close](#close
 ## Filters
 
 `--repo`, `--worktree`, `--role`, `--run`, `--state working|done` and `--group` select the agents of a first broadcast. Repeat a flag to give several values. For how the kinds combine, and for the groups, see [How filters combine](filters-and-groups.md#how-filters-combine) and [Groups](filters-and-groups.md#groups). For the flags of every command, see the [flag table](filters-and-groups.md#flag-table-per-command).
+
+A group's `state` kind applies to `broadcast`. See [The state kind](filters-and-groups.md#the-state-kind).
 
 A re-run uses the filters to narrow the recorded targets:
 
@@ -163,7 +165,7 @@ For `broadcast`, the fields differ from the usual object in these ways:
 | Field | Value |
 |---|---|
 | `run` | Always `null`. |
-| `record` | The broadcast record. It is `null` when the command refuses to run or when nothing is in scope. |
+| `record` | The broadcast record. It is `null` when no record exists, for example when the command refuses to run or when nothing is in scope. |
 | `outcome` | `nothing-to-do` when nothing is in scope. |
 
 ## Close
@@ -173,7 +175,9 @@ For `broadcast`, the fields differ from the usual object in these ways:
 | Command | What it abandons |
 |---|---|
 | `close` | Every pending target. |
-| `close` with filters or `--group` | Only the matching pending targets. The command matches them against the live listings, when Orca answers, and against the identity saved in the record. |
+| `close` with filters or `--group` | Only the matching pending targets. |
+
+With filters, the command matches the targets against the live listings, when Orca answers, and against the identity saved in the record.
 
 Acked and gone targets stay as they are.
 
