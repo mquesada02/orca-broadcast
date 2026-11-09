@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for your interest in orca-broadcast. This page tells you how to work on the code.
+This page tells you how to work on the code.
 
 ## Build and test
 
@@ -13,9 +13,9 @@ Every test uses a fake Orca. No test needs a real Orca.
 
 ## Never touch real agents
 
-Do not run the built command (`node dist/bin.js` or `orca-broadcast`) to test your change. Do not run any other command that sends to real Orca terminals.
+Do not run the built command (`node dist/bin.js` or `orca-broadcast`) to test your change. Do not run any other command that sends to real Orca terminals. They send real messages to every working Claude session on your machine.
 
-These commands send real messages to every working Claude session on your machine. Verify behaviour only through the tests. The same rule is in `AGENTS.md`.
+Verify behaviour only through the tests. The same rule is in `AGENTS.md`.
 
 ## Commit and PR style
 
