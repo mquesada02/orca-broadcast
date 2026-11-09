@@ -2,7 +2,7 @@
 
 A filter narrows the agents that a command acts on. With no filter and no group, the command is not narrowed.
 
-A group is a saved set of filters (see [Groups](#groups) and the term [Group](../../CONTEXT.md)). Repeat a flag to give several values. Repeat `--group` to use the union of several groups.
+A group is a saved set of filters (see [Groups](#groups) and the term [Group](../../CONTEXT.md)). Repeat a filter flag to give several values. Repeat `--group` to use the union of several groups.
 
 `orca-broadcast <command> --help` lists the flags of one command.
 
@@ -13,11 +13,13 @@ Each filter flag selects agents:
 | Flag | Selects |
 |---|---|
 | `--repo <id\|path\|name>` | The agents in that repo. A path must be absolute: a relative path never matches. |
-| `--worktree <path\|id\|name>` | The agents in that worktree. A path may be relative to the current folder. A name is looked up among all known worktrees. When you give `--repo`, the lookup uses only the worktrees of those repos. A name that matches several worktrees is refused. |
+| `--worktree <path\|id\|name>` | The agents in that worktree. A path may be relative to the current folder. A name is looked up among all known worktrees. When you give `--repo`, the lookup uses only the worktrees of those repos. |
 | `--role <coordinator\|worker\|session>` | The agents with that role. |
 | `--state <working\|done>` | The agents in that live state. `broadcast` only. |
-| `--run <id>` | The agents of that orchestration run. Give an exact run ID. |
+| `--run <id>` | The agents that have that orchestration run among their runs. Give an exact run ID. |
 | `--group <name>` | The agents of that saved group. |
+
+A `--repo`, `--worktree` or `--run` value that matches nothing known is refused with exit 2. So is a value that matches several things.
 
 `--reason <name>` is not a filter. It sets the reason of a `pause`.
 
@@ -45,7 +47,14 @@ The cells mean this:
 
 A `broadcast` re-run also narrows its recorded targets with these flags. It never includes abandoned targets or the calling session.
 
-`pause` with an open run also adds the filter set to that run. Matching agents already in the run are paused again when they were resumed, when a filtered `close` abandoned them, or when their earlier pause failed to send or a wake-up undid it. Matching agents that still wait for their pause are included in this call. The set stays on the run, so the pause also takes in new working agents that match it.
+`pause` with an open run also adds the filter set to that run. A matching agent that is already in the run is paused again in these cases:
+
+- You resumed it.
+- A filtered `close` abandoned it.
+- Its earlier pause failed to send.
+- A wake-up undid its earlier pause.
+
+Matching agents that still wait for their pause are included in this call. The set stays on the run, so the pause also takes in new working agents that match it.
 
 `close` has one exception. When a recovery record and a broadcast are both open, `close` with any filter or `--group` is refused with exit 2. The message is ``a recovery and a broadcast are both open; run `orca-broadcast close` without filters``.
 
@@ -73,7 +82,7 @@ orca-broadcast pause --group web --group docs           # the agents of either g
 
 ## Groups
 
-A group is a saved, named filter. The five commands `broadcast`, `pause`, `resume`, `close` and `recover` take `--group <name>`. The other filters narrow every group.
+The five commands `broadcast`, `pause`, `resume`, `close` and `recover` take `--group <name>`. The filters `--repo`, `--worktree`, `--role`, `--run` and, on `broadcast`, `--state` narrow every group.
 
 ```sh
 orca-broadcast group add web --repo alpha --role worker   # every value must resolve to one thing now
@@ -93,7 +102,7 @@ No `group` subcommand sends a message. `group show` reads the live agents. It li
 - You may edit the file by hand.
 - An invalid file exits 2 and names the path.
 - A missing file means no groups.
-- Writes are atomic: the tool writes a temporary file, then renames it. A write takes no lock.
+- Writes are atomic: the command writes a temporary file, then renames it. A write takes no lock.
 
 ### Group names
 
@@ -101,7 +110,7 @@ A name has lowercase letters, digits and `-`. It starts with a letter. It has at
 
 ### How a group is used
 
-- `group add` checks the `--repo`, `--worktree` and `--run` values at once. Each value must resolve to exactly one thing now. A value that matches none or several is refused with exit 2.
+- `group add` checks the `--repo`, `--worktree` and `--run` values at once. Each value must resolve to exactly one thing now. This is the refusal rule of [Filters](#filters).
 - `group add` saves a `--worktree` value that holds a `/` or starts with `.` as an absolute path. It saves any other value as you typed it.
 - A command resolves the values again at each use. A value that no longer resolves exits 2 and names the group and the value.
 - Naming a group twice is the same as naming it once. An unknown name exits 2 before anything is sent.
@@ -111,6 +120,6 @@ A name has lowercase letters, digits and `-`. It starts with a letter. It has at
 
 `group add --state working|done` saves a `state` kind. Only `broadcast` uses it.
 
-`pause`, `resume`, `close` and `recover` skip the `state` kind of each group. They print one line on stderr per group: `orca-broadcast: group <name>: state filter skipped (<command> does not use it)`.
+`pause`, `resume`, `close` and `recover` skip the `state` kind of each group. They print one line on stderr for each group that has a `state` kind: `orca-broadcast: group <name>: state filter skipped (<command> does not use it)`.
 
 A group that has no other kind is dropped from a union. It never selects every agent. When every named group has only a `state` kind, the command is refused with exit 2.
