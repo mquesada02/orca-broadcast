@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { abandonRecovery } from './recover-record.js';
 import { releaseBroadcast } from './shared.js';
 import type { BroadcastReason, BroadcastRecord, BroadcastTarget, RecoveryRecord, RosterSnapshot, Run } from './types.js';
 
@@ -347,6 +348,19 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
         notes.push(`broadcast ${record.id} was open beside a pause run and is now abandoned`);
       }
       open.broadcast = null;
+    }
+    // The same for every recovery open beside a pause run.
+    if (open.pause && open.recovery) {
+      for (const record of [open.recovery.record, ...open.recovery.others]) {
+        abandonRecovery(record, 'paused');
+        await writeRecord(recoveriesDir, record.id, record, tmpNames);
+        notes.push(`recovery ${record.id} was open beside a pause run; abandoned`);
+      }
+      open.recovery = null;
+    }
+    // A recovery and a broadcast open together, with no pause run: both stay open, and the user is told how to clear them.
+    if (!open.pause && open.recovery && open.broadcast) {
+      notes.push(`recovery ${open.recovery.record.id} and broadcast ${open.broadcast.record.id} are both open; run orca-broadcast close to abandon both`);
     }
     // A pause run wins. Between a recovery and a broadcast the newer wins; a tie goes to the recovery.
     const recoveryWins = open.recovery && (!open.broadcast || open.recovery.record.createdAt >= open.broadcast.record.createdAt);

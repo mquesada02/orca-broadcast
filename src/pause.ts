@@ -1,12 +1,13 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
+import { abandonRecovery } from './recover-record.js';
 import { abandonPending, type RecordStore } from './store.js';
 import { ALL_AGENTS, isFiltered, matches, NO_FILTERS } from './filters.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
 import { sessionsByPane } from './roster.js';
 import { applySessionMatches, matchSessions, type SessionMatches } from './session-match.js';
 import { assertCurrentFormat, busyReason, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, keepRecordedRole, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordedRoleInfo, recordId, resolveFilterSet, roleInfoOf, subjectOfRow, withWarnings, type RoleInfo, type Roles, type Snapshot } from './shared.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, OrcaPort, PauseReason, Progress, Role, Run, RunSummary, SessionRecord, TerminalRow } from './types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, OrcaPort, PauseReason, Progress, RecoveryRecord, Role, Run, RunSummary, SessionRecord, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
 
@@ -252,6 +253,8 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
   const scope: Scope = { set: ALL_AGENTS, selected: new Set(), swept: new Set(), sessions: new Map(), matches: new Map() };
   // A broadcast that is open when this pause starts (no pause run is open then): the first "yes" is the commit point that abandons it.
   let broadcastRecord: BroadcastRecord | null = null;
+  // A recovery that is open when this pause starts: treated like the broadcast above, and abandoned at the same commit point.
+  let recoveryRecord: RecoveryRecord | null = null;
   // The answer may have taken minutes: look again and start the clock now.
   const afterYes = async () => {
     confirmed = true;
@@ -269,6 +272,7 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
     const open = await store.loadOpen();
     warnings.push(...open.notes);
     broadcastRecord = open.broadcast?.record ?? null;
+    recoveryRecord = open.recovery?.record ?? null;
     loaded = open.pause?.record ?? null;
     if (loaded) assertCurrentFormat(loaded);
     if (loaded && deps.reason !== undefined && deps.reason !== loaded.reason) {
@@ -286,8 +290,8 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
     prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, roles, selfKey, scope);
     if (deps.confirm && 'run' in prepared) {
       const targets = planSends(prepared.run, agents, terminals, roles, deps, selfKey, scope);
-      // With an open broadcast the first prompt always runs, so the commit point below is always a "yes".
-      if (targets.length > 0 || broadcastRecord) {
+      // With an open broadcast or recovery the first prompt always runs, so the commit point below is always a "yes".
+      if (targets.length > 0 || broadcastRecord || recoveryRecord) {
         if (!(await deps.confirm(targets, deps.signal))) return withSelf(cancelled(), selfKey);
         throwIfAborted(deps.signal);
         await afterYes();
@@ -302,12 +306,19 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
   const { run, extending } = prepared;
   await store.save(run);
   if (!extending) await store.setCurrent('pause', run.runId); // findOpenRun already points at an open run
-  if (broadcastRecord) {
-    // The commit point: from here the pause owns the agents the broadcast was still waiting for.
+  if (broadcastRecord || recoveryRecord) {
+    // The commit point: from here the pause owns the agents the broadcast was still waiting for, and the recovery stops.
     try {
-      const unacked = abandonPending(broadcastRecord, 'paused');
-      await store.saveBroadcast(broadcastRecord);
-      warnings.push(`broadcast ${broadcastRecord.id} was closed by this pause: ${unacked} ${unacked === 1 ? 'agent' : 'agents'} had not acknowledged it and will not be waited for`);
+      if (broadcastRecord) {
+        const unacked = abandonPending(broadcastRecord, 'paused');
+        await store.saveBroadcast(broadcastRecord);
+        warnings.push(`broadcast ${broadcastRecord.id} was closed by this pause: ${unacked} ${unacked === 1 ? 'agent' : 'agents'} had not acknowledged it and will not be waited for`);
+      }
+      if (recoveryRecord) {
+        const open = abandonRecovery(recoveryRecord, 'paused');
+        await store.saveRecovery(recoveryRecord);
+        if (open > 0) warnings.push(`recovery ${recoveryRecord.id} was closed by this pause: ${open} ${open === 1 ? 'agent was' : 'agents were'} not recovered yet and will not be waited for`);
+      }
     } catch (error) {
       return withSelf(failure(error, run), selfKey);
     }

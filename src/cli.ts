@@ -15,13 +15,14 @@ import { isGroupSubcommand, runGroup, type GroupResult } from './group-cmd.js';
 import { loadGroups, lookupGroup, resolveGroupsPath, toGroupFilter, type GroupSpec } from './groups.js';
 import { checkStates, isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, validateRosterArgs, type Command, type FlagValues } from './flags.js';
 import { isRosterSubcommand, runRosterSave, type RosterResult } from './roster-cmd.js';
-import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderRecover, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
+import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderRecover, renderRecoveryTable, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { helpFor, helpTopicOf, usageLine, type HelpTopic } from './help.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
 import { recover } from './recover.js';
+import { isRecoveryRecord } from './recover-record.js';
 import { resume } from './resume.js';
 import { createRecordStore, type StoreOptions } from './store.js';
-import type { AgentState, Clock, Confirm, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoverySummary, Role, RunSummary } from './types.js';
+import type { AgentState, Clock, Confirm, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoveryRecord, RecoverySummary, Role, RunSummary } from './types.js';
 
 const CLEAR_LINE = '\r\x1b[K';
 
@@ -151,10 +152,17 @@ async function readTextFile(path: string): Promise<string> {
 function renderBroadcastOutput(command: Command | null, summary: RunSummary, filterLine: string, selfPaneKey: string | undefined): string {
   const self = summary.broadcastSelf ? `${renderBroadcastSelfBlock(summary.broadcastSelf)}\n` : '';
   if (summary.outcome === 'nothing-to-do') return `nothing to ${command === 'broadcast' ? 'broadcast' : 'close'}\n${filterLine}${self}`;
-  const record = summary.record;
+  const record = isRecoveryRecord(summary.record) ? null : summary.record;
   const heading = command !== 'close' ? '' : record?.status === 'closed' ? `closed broadcast ${record.id}\n` : `broadcast ${record?.id} stays open: ${summary.abandoned} ${summary.abandoned === 1 ? 'target' : 'targets'} abandoned\n`;
   const targets = (record?.targets ?? []).filter((t) => command === 'close' || t.paneKey !== selfPaneKey);
   return `${heading}${renderBroadcastTable(targets)}${self}`;
+}
+
+// What `close` prints when it closed or narrowed a recovery: the heading, the line of the broadcast it closed beside it, and the table of the rows.
+function renderRecoveryClose(summary: RunSummary, record: RecoveryRecord): string {
+  const heading = record.status === 'closed' ? `closed recovery ${record.id}\n` : `recovery ${record.id} stays open\n`;
+  const broadcastLine = summary.closedBroadcast ? `closed broadcast ${summary.closedBroadcast}\n` : '';
+  return `${heading}${broadcastLine}${renderRecoveryTable(summary.recovery?.rows ?? [])}`;
 }
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, deps: CliDeps = {}): Promise<number> {
@@ -226,7 +234,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
         : resume({ port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderResumeProgress), confirm, signal });
     }, guardOptions);
     if (json) {
-      io.stdout(command === 'recover' ? recoverJsonLine(summary) : jsonLine(command, summary));
+      // The broadcast that a close closed beside a recovery shows as a warning in the JSON line, and as its own line in text.
+      const withClosed = summary.closedBroadcast ? { ...summary, warnings: [...(summary.warnings ?? []), `closed broadcast ${summary.closedBroadcast}`] } : summary;
+      io.stdout(command === 'recover' ? recoverJsonLine(summary) : jsonLine(command, withClosed));
       return summary.exitCode;
     }
     if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
@@ -239,6 +249,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       io.stderr(`orca-broadcast: ${summary.error}\n`);
     } else if (command === 'recover') {
       io.stdout(renderRecover(summary.recovery as RecoverySummary));
+    } else if (isRecoveryRecord(summary.record)) {
+      io.stdout(renderRecoveryClose(summary, summary.record));
     } else if (command === 'broadcast' || summary.record) {
       io.stdout(renderBroadcastOutput(command, summary, filterLine, env.ORCA_PANE_KEY));
     } else if (summary.outcome === 'nothing-to-do') {
