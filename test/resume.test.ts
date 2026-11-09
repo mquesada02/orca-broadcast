@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { continueMessage, resume, type ResumeDeps } from '../src/resume.js';
 import { createRecordStore } from '../src/store.js';
 import type { AgentRecord, ResumeProgress, Run } from '../src/types.js';
+import { scanOf } from './helpers/roster.js';
 import { type FakeAgent, fakeClock, FakeOrca, PAUSED_REPLY, pausedDone, seedOpenRun, startsNewTurnAfterContinue, tempStateDir, working } from './helpers/fake-orca.js';
 
 function agentRecord(paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord {
@@ -488,5 +489,42 @@ describe('resume from the self session', () => {
     await go(undefined, { selfPaneKey: 's:1' });
 
     expect(progress.at(-1)).toEqual({ resumed: 2, total: 2 });
+  });
+});
+
+describe('the missing workers that recover stored on a coordinator', () => {
+  const SENTENCE = (items: string) =>
+    ` These workers of yours did not come back: ${items}. For each one, decide whether to retry it with orca-ide orchestration worker-start --task <its task id> --retry-of <dispatch id>, repeating its worktree and agent choices (--retry-of does not inherit them).`;
+  const missingWorkers = [
+    { sessionId: 's-1', repo: 'repo', worktree: 'tree-b', dispatchId: 'd-2' },
+    { sessionId: 's-2', repo: 'repo', worktree: 'tree-a' },
+    { sessionId: 's-3', repo: 'repo', worktree: 'tree-a', dispatchId: 'd-9' },
+  ];
+  const withWorkers = async (liveSessions: [string, string][] = []) => {
+    const t = await setup(
+      [{ paneKey: 'c:1', behavior: startsNewTurnAfterContinue }, ...liveSessions.map(([, paneKey]) => ({ paneKey, behavior: working }))],
+      [agentRecord('c:1', { role: 'coordinator', missingWorkers })],
+    );
+    t.port.scanAt = () => scanOf(...liveSessions.map(([sessionId, paneKey]) => ({ sessionId, paneKey, startTime: 5 })));
+    return t;
+  };
+
+  it('are appended to the CONTINUE message, ordered by repo, worktree and dispatch ID (a missing dispatch ID last)', async () => {
+    const { port, go } = await withWorkers();
+    await go();
+    expect(port.sends[0]?.text).toBe(continueMessage() + SENTENCE('repo/tree-a (dispatch d-9); repo/tree-a (dispatch unknown); repo/tree-b (dispatch d-2)'));
+    expect(continueMessage(undefined, missingWorkers)).toBe(port.sends[0]?.text);
+  });
+
+  it('leave out a worker whose session is live again', async () => {
+    const { port, go } = await withWorkers([['s-3', 'w:9']]);
+    await go();
+    expect(port.sends[0]?.text).toBe(continueMessage() + SENTENCE('repo/tree-a (dispatch unknown); repo/tree-b (dispatch d-2)'));
+  });
+
+  it('leave the message exactly as it is today when every stored worker is live again', async () => {
+    const { port, go } = await withWorkers([['s-1', 'w:7'], ['s-2', 'w:8'], ['s-3', 'w:9']]);
+    await go();
+    expect(port.sends[0]?.text).toBe(continueMessage());
   });
 });
