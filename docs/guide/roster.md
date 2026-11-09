@@ -1,8 +1,8 @@
 # Roster
 
-The roster is a set of snapshots of the live Claude agents. It keeps one file per Orca runtime. A later command can then find the agents that were alive before a restart. `recover` reads it. See the term [Roster](../../CONTEXT.md).
+The roster is a set of snapshots of the live Claude agents. The roster keeps one file per Orca runtime. A later command can then find the agents that were alive before a restart. `recover` reads it. See the term [Roster](../../CONTEXT.md).
 
-`roster save` reads Orca and sends nothing. It has no token line, because no agent has to reply. It takes no lock. See [The lock](how-it-works.md#the-lock). It touches only the `roster/` folder of the state folder.
+`roster save` reads Orca and sends nothing, so it has no token line. It takes no lock. See [The lock](how-it-works.md#the-lock). It touches only the `roster/` folder of the state folder.
 
 ## What the roster holds
 
@@ -32,7 +32,7 @@ An entry never holds prompt or reply text. These are its fields:
 
 `roster save` writes one snapshot now. It takes one listing and one scan of the Claude processes.
 
-These commands also save the roster. They use listings that they already take:
+These commands also save the roster. Except for the end save of `recover`, they use listings that they already take:
 
 | Command | Saves |
 |---|---|
@@ -44,7 +44,7 @@ A run that stops before that point saves nothing. An example is `resume` with no
 
 Each save costs at most one extra scan of the Claude processes. No save runs while a command waits, so no save takes a scan then. The `recover` start save reuses the scan that `recover` already took.
 
-The end save of `broadcast`, `pause` and `resume` writes the newest listing of the run. It writes nothing when that listing is the one that the start save used. The end save of `recover` takes its own listing. If that listing fails, `recover` fails and its record stays open.
+The end save of `broadcast`, `pause` and `resume` writes the newest listing of the run. It writes nothing when that listing is the one that the start save used. The end save of `recover` takes its own listing. If that listing fails, `recover` fails and its record stays open. That is not a failed save.
 
 A failed save never fails the command. The warning is `roster not saved: <reason>`. Text mode prints it on stderr, with the prefix `orca-broadcast: `. Under `--json`, the warning goes to the `warnings` field.
 
@@ -64,7 +64,7 @@ These rules apply to a save:
 
 - A save in the same runtime replaces the entries of that file. The file keeps its `firstSavedAt` time.
 - An agent that you closed on purpose drops out at the next save.
-- An agent whose pane is live, but whose session ID the scan could not read this time, keeps its old entry.
+- An agent keeps its old entry when its pane is live but the scan could not read its session ID this time.
 - A save after a restart writes a new file. It never changes an older file.
 - The tool keeps the newest 5 files. It never removes the file that it just wrote.
 
@@ -131,18 +131,18 @@ A systemd user timer can save the roster every 5 minutes. A crash long after you
    WantedBy=timers.target
    ```
 
-3. Turn the timer on:
+3. Start the service once by hand, and read the journal. Nobody has tested this unit text under systemd. Check it before you rely on the timer.
 
    ```sh
    systemctl --user daemon-reload
-   systemctl --user enable --now orca-broadcast-roster.timer
-   ```
-
-4. Start the service once by hand, and read the journal. Nobody has tested this unit text under systemd. Check it before you rely on it.
-
-   ```sh
    systemctl --user start orca-broadcast-roster.service
    journalctl --user -u orca-broadcast-roster.service
+   ```
+
+4. Turn the timer on:
+
+   ```sh
+   systemctl --user enable --now orca-broadcast-roster.timer
    ```
 
 To turn the timer off:
