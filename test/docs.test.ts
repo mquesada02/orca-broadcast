@@ -13,24 +13,19 @@ interface Tree {
 
 const isMissing = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '');
 
+const orMissing = async <T>(work: Promise<T>, fallback: T): Promise<T> => {
+  try {
+    return await work;
+  } catch (error) {
+    if (isMissing(error)) return fallback;
+    throw error;
+  }
+};
+
 const diskTree: Tree = {
-  async kind(path) {
-    try {
-      return (await stat(join(root, path))).isDirectory() ? 'dir' : 'file';
-    } catch (error) {
-      if (isMissing(error)) return undefined;
-      throw error;
-    }
-  },
+  kind: (path) => orMissing(stat(join(root, path)).then((info) => (info.isDirectory() ? 'dir' : 'file')), undefined),
   text: read,
-  async list(dir) {
-    try {
-      return await readdir(join(root, dir));
-    } catch (error) {
-      if (isMissing(error)) return [];
-      throw error;
-    }
-  },
+  list: (dir) => orMissing(readdir(join(root, dir)), []),
 };
 
 const fenceOpen = /^ {0,3}(`{3,}|~{3,})/;
@@ -106,7 +101,6 @@ async function checkLinks(tree: Tree): Promise<string[]> {
     if ((await tree.kind(`docs/guide/${name}`)) === 'file') guide.push(`docs/guide/${name}`);
   }
   const problems: string[] = [];
-  const anchorsOf = new Map<string, Set<string>>();
   for (const file of ['README.md', ...guide]) {
     if ((await tree.kind(file)) !== 'file') {
       problems.push(`${file}: ${file} (missing target)`);
@@ -124,8 +118,7 @@ async function checkLinks(tree: Tree): Promise<string[]> {
         continue;
       }
       if (anchor === '') continue;
-      if (kind === 'file' && !anchorsOf.has(resolved)) anchorsOf.set(resolved, headingAnchors(await tree.text(resolved)));
-      if (kind === 'dir' || !anchorsOf.get(resolved)?.has(anchor)) problems.push(`${file}: ${target} (unknown anchor)`);
+      if (kind === 'dir' || !headingAnchors(await tree.text(resolved)).has(anchor)) problems.push(`${file}: ${target} (unknown anchor)`);
     }
   }
   return problems;
