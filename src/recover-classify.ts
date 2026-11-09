@@ -133,6 +133,8 @@ export interface ClassifyContext {
   everyone: RosterEntry[];
   /** True when a scan failed in the held re-check: no agent is started in this run. */
   scanFailed: boolean;
+  /** Pause-run mode: the session IDs of the agents of the run. No row is due a prompt, and a coordinator outside the run gets no list. */
+  pauseRun?: { runSessionIds: Set<string> };
 }
 
 const isWorker = (entry: RosterEntry): boolean => entry.role === 'worker';
@@ -142,7 +144,7 @@ const isWorker = (entry: RosterEntry): boolean => entry.role === 'worker';
  * A missing non-worker is due a restart; a restored or restarted agent whose last state was `working` or `waiting`, and every
  * coordinator with a linkable missing worker, is due a prompt. A missing worker is never restarted.
  */
-export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed }: ClassifyContext): Classified {
+export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed, pauseRun }: ClassifyContext): Classified {
   const ordered = tableOrder(items);
   const inSet = new Set(ordered.map(({ entry }) => entry.sessionId));
   const everyoneIds = new Set(everyone.map((entry) => entry.sessionId));
@@ -152,7 +154,7 @@ export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed }
   for (const { entry, standing, startedAt, awaiting, bringIn } of ordered) {
     if (standing === 'free' && isWorker(entry)) continue;
     // A brought-in coordinator is prompted only for the list of a missing worker, below.
-    const prompt = entry.state !== 'done' && !bringIn;
+    const prompt = !pauseRun && entry.state !== 'done' && !bringIn;
     const flags = bringIn ? { bringIn } : {};
     if (standing === 'held') rows.set(entry.sessionId, failed(entry, scanFailed ? 'scan-failed' : 'session-held'));
     else if (standing === 'unverifiable') rows.set(entry.sessionId, failed(entry, 'unverifiable'));
@@ -172,18 +174,22 @@ export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed }
     const coordinator = id === undefined ? undefined : receivers.get(id);
     if (id !== undefined && id === selfSessionId) row.reason = 'coordinator-is-self';
     else if (id !== undefined && everyoneIds.has(id) && !inSet.has(id)) row.reason = 'coordinator-filtered';
-    else if (!coordinator || coordinator.status === 'failed') row.reason = 'coordinator-missing';
+    else if (!coordinator) row.reason = 'coordinator-missing';
+    // The order is the spec's: a coordinator outside the run is `coordinator-not-paused` even when it failed.
+    else if (pauseRun && id !== undefined && !pauseRun.runSessionIds.has(id)) row.reason = 'coordinator-not-paused';
+    else if (coordinator.status === 'failed') row.reason = 'coordinator-missing';
     else {
       row.status = 'restored';
       row.leave = true;
       row.coordinator = coordinator.entry;
-      coordinator.prompt = true;
+      // A pause run sends no prompt: the list is stored in the run.
+      if (!pauseRun) coordinator.prompt = true;
     }
     rows.set(entry.sessionId, row);
   }
 
-  // A brought-in coordinator with no list to receive is not part of the recovery.
-  const all = ordered.map(({ entry }) => rows.get(entry.sessionId) as Row).filter((row) => !(row.bringIn && !row.prompt));
+  // A brought-in coordinator with no list to receive is not part of the recovery; in a pause run none is (it is no row of this `recover`).
+  const all = ordered.map(({ entry }) => rows.get(entry.sessionId) as Row).filter((row) => !(row.bringIn && (pauseRun || !row.prompt)));
   const target = (row: Row) => ({ repo: row.entry.repo, worktree: row.entry.worktree, role: row.entry.role });
   const plan: RecoverPlan = {
     restarts: all.filter((row) => row.restart).map((row) => ({ ...target(row), permission: row.entry.permission ?? null })),

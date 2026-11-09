@@ -1,11 +1,13 @@
 import { entryOf } from './recover-record.js';
 import { sameRuntime } from './recover-set.js';
-import type { RecoveryRecord, RecoveryRow, RosterEntry, RuntimeKey } from './types.js';
+import type { RecoveryRecord, RecoveryRow, RosterEntry, RunRecovery, RuntimeKey } from './types.js';
 
-const sameKey = (a: RuntimeKey, b: RuntimeKey): boolean => a.bootId === b.bootId && a.runtimeId === b.runtimeId;
+export const sameKey = (a: RuntimeKey, b: RuntimeKey): boolean => a.bootId === b.bootId && a.runtimeId === b.runtimeId;
 
 // The results that a later `recover` takes again; every other result stays only in the earlier record.
 const RETAKEN = new Set<RecoveryRow['status']>(['failed', 'gone', 'no-coordinator']);
+// The same in pause-run mode, which sends no prompt (so no `gone` row) and whose `pending` rows are taken again.
+const RETAKEN_IN_RUN = new Set<RecoveryRow['status']>(['failed', 'no-coordinator', 'pending']);
 
 /**
  * Whether a closed recovery record is the earlier recovery of this restart: it used the same newest snapshot (the same key, whatever
@@ -22,15 +24,24 @@ export interface RetakeSet {
   bringIn: Set<string>;
 }
 
-export function retakeSet(closed: RecoveryRecord): RetakeSet {
-  const retaken = closed.rows.filter((row) => RETAKEN.has(row.status));
+function takeRows(rows: RecoveryRow[], statuses: Set<RecoveryRow['status']>): RetakeSet {
+  const retaken = rows.filter((row) => statuses.has(row.status));
   const taken = new Set(retaken.map((row) => row.sessionId));
   const wanted = new Set(retaken.filter((row) => row.role === 'worker' && row.coordinatorSessionId !== undefined).map((row) => row.coordinatorSessionId as string));
-  const candidates = closed.rows.filter((row) => wanted.has(row.sessionId) && !taken.has(row.sessionId));
+  const candidates = rows.filter((row) => wanted.has(row.sessionId) && !taken.has(row.sessionId));
   const starts = new Map<string, string>();
   for (const row of retaken) if (row.startedAt !== undefined) starts.set(row.sessionId, row.startedAt);
   return { entries: [...retaken, ...candidates].map(entryOf), starts, bringIn: new Set(candidates.map((row) => row.sessionId)) };
 }
+
+export const retakeSet = (closed: RecoveryRecord): RetakeSet => takeRows(closed.rows, RETAKEN);
+
+/** The retake of an open pause run: the stored rows that have a session ID (a row without one is made again from the run each time). */
+export const retakeRunSet = (stored: RunRecovery): RetakeSet =>
+  takeRows(
+    stored.rows.filter((row): row is RecoveryRow => row.sessionId !== null),
+    RETAKEN_IN_RUN,
+  );
 
 /** The workers that the earlier record left to this coordinator: they are listed in its prompt when their sessions are still free. */
 export const leftWorkers = (closed: RecoveryRecord, coordinatorSessionId: string): RosterEntry[] =>

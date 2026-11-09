@@ -183,6 +183,16 @@ export interface AgentRecord {
   sessionId?: string;
   /** The permission flag of the agent's process, when the scan knew it. */
   permission?: string;
+  /** A coordinator only: the workers that `recover` found missing and left to it. `resume` adds them to its CONTINUE message. */
+  missingWorkers?: MissingWorker[];
+}
+
+/** A worker as `resume` lists it: its session ID is how `resume` finds out that it is live again. */
+export interface MissingWorker {
+  sessionId: string;
+  repo: string;
+  worktree: string;
+  dispatchId?: string;
 }
 
 export interface Progress {
@@ -379,6 +389,21 @@ export interface Run {
   /** The filter sets of every `pause` of this run, in order; a plain `pause` adds the empty set. */
   scope: FilterSet[];
   agents: AgentRecord[];
+  /** What the latest `recover` of this run stored. Absent before the first one. `resume` and `close` never read it. */
+  recovery?: RunRecovery;
+}
+
+// A row of the latest `recover` of a pause run. The session ID is null for a run agent that has none (reason `no-session-id`).
+export type RunRecoveryRow = Omit<RecoveryRow, 'sessionId'> & { sessionId: string | null };
+
+export interface RunRecovery {
+  /** The newest snapshot that `recover` used (the live runtime when no roster exists). */
+  snapshotKey: RuntimeKey;
+  /** The runtime `recover` ran in. */
+  liveRuntime: RuntimeKey;
+  /** The starts that `recover` recorded, each stored before `startAgent`. */
+  starts: { sessionId: string; startedAt: string }[];
+  rows: RunRecoveryRow[];
 }
 
 export type BroadcastStatus = 'pending' | 'acked' | 'gone' | 'abandoned';

@@ -29,6 +29,17 @@ describe('recover crash mode documents', () => {
     expect(await read('CONTEXT.md')).toMatch(new RegExp(`^\\*\\*${term}\\*\\*:`, 'm'));
   });
 
+  it('CONTEXT.md defines the term Pause-run mode', async () => {
+    expect(await read('CONTEXT.md')).toMatch(/^\*\*Pause-run mode\*\*:/m);
+  });
+
+  it('README describes pause-run mode and the worker sentence of resume', async () => {
+    const readme = await read('README.md');
+    expect(readme).toContain('pause-run mode');
+    expect(readme).toContain('coordinator-not-paused');
+    expect(readme).toMatch(/\*\*Resume\.\*\*[^\n]*stored missing workers[^\n]*worker-start --retry-of/);
+  });
+
   it('README says that left-to-coordinator means the list was sent, not that the workers were restarted', async () => {
     expect(await read('README.md')).toMatch(/left-to-coordinator[^\n]*not[^\n]*restarted/);
   });

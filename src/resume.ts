@@ -1,11 +1,13 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { continueSentence, type Preset } from './reasons.js';
+import { liveSessionIds } from './recover-classify.js';
+import { workerItems, workersSentence } from './recover-prompt.js';
 import { isFiltered, matches, NO_FILTERS } from './filters.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
 import { applySessionMatches, matchSessions } from './session-match.js';
 import { assertCurrentFormat, cancelled, coordinatorsLast, failure, identityOf, iso, listAgentsFresh, listSnapshot, nothingToDo, locate, POLL_INTERVAL_MS, liveSources, recordedRoleInfo, resolveFilterSet, withWarnings, type Roles, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
-import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, ContinueBaseline, FilterSpec, GroupFilter, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, TerminalRow } from './types.js';
+import type { AgentRecord, AgentRow, Clock, Confirm, ConfirmTarget, ContinueBaseline, FilterSpec, GroupFilter, MissingWorker, OrcaPort, ResumeProgress, ResumeReason, Run, RunSummary, SessionScan, TerminalRow } from './types.js';
 
 const PROOF_WINDOW_MS = 60_000;
 
@@ -27,8 +29,9 @@ interface Awaiting {
   sentAt: number;
 }
 
-export const continueMessage = (reason?: Preset): string =>
-  `[orca-broadcast] CONTINUE. ${continueSentence(reason)} Continue your task from the note in your last pause reply.`;
+// `workers` are the missing workers of a coordinator that `recover` stored and that are not live again.
+export const continueMessage = (reason?: Preset, workers: MissingWorker[] = []): string =>
+  `[orca-broadcast] CONTINUE. ${continueSentence(reason)} Continue your task from the note in your last pause reply.${workersSentence(workerItems([], workers))}`;
 
 function movedSince(row: AgentRow, baseline: ContinueBaseline): boolean {
   return row.stateStartedAt !== baseline.stateStartedAt || row.lastAssistantMessage !== baseline.lastAssistantMessage;
@@ -83,11 +86,14 @@ async function resumeSteps(deps: ResumeDeps, warnings: string[], roster: AutoRos
   let roles: Roles;
   // The agents this invocation acts on: the pending agents that match the filters, by the values saved in the record.
   let selected: AgentRecord[];
+  // The sessions that are live at the start of the run, when the scan of the start save worked: a stored missing worker among them is not listed.
+  let liveSessions: Set<string> | null = null;
   try {
     const snapshot = await listSnapshot(deps);
     seen.newest = snapshot;
     ({ agents: rows, terminals, roles } = snapshot);
-    const scan = await roster.start(snapshot);
+    const scan: SessionScan | null = await roster.start(snapshot);
+    liveSessions = scan === null ? null : liveSessionIds(snapshot, scan);
     // In memory only: nothing saves the run before the user's yes, so a "no" or a failure leaves the file as it was.
     applySessionMatches(run.agents, matchSessions(run.agents, snapshot, scan, warnings, deps.signal));
     const filters = deps.filters ?? NO_FILTERS;
@@ -108,7 +114,7 @@ async function resumeSteps(deps: ResumeDeps, warnings: string[], roster: AutoRos
   }
 
   try {
-    const awaiting = await sendAll(run, selected, rows, terminals, roles, selfKey, deps);
+    const awaiting = await sendAll(run, selected, rows, terminals, roles, selfKey, deps, liveSessions);
     reportProgress(selected, deps);
     await awaitProof(run, selected, awaiting, deps);
   } catch (error) {
@@ -124,7 +130,7 @@ async function resumeSteps(deps: ResumeDeps, warnings: string[], roster: AutoRos
   return { outcome: 'done', exitCode: settled ? 0 : 1, run, error: null, rows: run.agents };
 }
 
-async function sendAll(run: Run, selected: AgentRecord[], rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, selfKey: string | undefined, deps: ResumeDeps): Promise<Awaiting[]> {
+async function sendAll(run: Run, selected: AgentRecord[], rows: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, selfKey: string | undefined, deps: ResumeDeps, liveSessions: Set<string> | null): Promise<Awaiting[]> {
   const awaiting: Awaiting[] = [];
   // The records change only inside the send loop, so a signal leaves the agents it never reached untouched.
   const pending = selected
@@ -162,7 +168,7 @@ async function sendAll(run: Run, selected: AgentRecord[], rows: Map<string, Agen
     agent.continueBaseline = { stateStartedAt: row.stateStartedAt, lastAssistantMessage: row.lastAssistantMessage };
     delete agent.continueSentAt;
     await deps.store.save(run);
-    const result = await deps.port.send(handle, continueMessage(run.reason)).catch(() => ({ accepted: false as const }));
+    const result = await deps.port.send(handle, continueMessage(run.reason, (agent.missingWorkers ?? []).filter((worker) => !liveSessions?.has(worker.sessionId)))).catch(() => ({ accepted: false as const }));
     if (!result.accepted) {
       agent.resumeReason = 'send-failed';
       continue;

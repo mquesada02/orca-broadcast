@@ -29,7 +29,7 @@ const DETAILS: Record<Command, string[]> = {
   ],
   recover: [
     'Reads the roster saved before the restart, matches each agent to a live session by Claude session ID, and shows what is restored, missing or failed. It asks once before it acts; the filters select the part of the fleet to recover.',
-    'After a yes it restarts every missing agent that is not a worker with claude --resume, coordinators first, and waits for each one to appear in Orca; it never starts a session that a live process holds. It then sends the continue prompt to each live agent whose last state was working or waiting and to each coordinator that has a missing worker, and waits for the ORCA-ACK proof, as broadcast does. Answering no prints the report, writes no record and exits 1.',
+    'After a yes it restarts every missing agent that is not a worker with claude --resume, coordinators first, and waits for each one to appear in Orca; it never starts a session that a live process holds. It then sends the continue prompt to each live agent whose last state was working or waiting and to each coordinator that has a missing worker, and waits for the ORCA-ACK proof, as broadcast does. Answering no prints the report, writes no record and exits 1. With an open pause run it sends no prompt and writes no recovery record: it stores the outcome and each coordinator\'s missing workers in the run, and resume adds those workers to the CONTINUE message.',
     'Exit 0 if every row is restored, restarted, acked, left-to-coordinator or abandoned (or there is nothing to recover), 1 if any row is pending, gone, no-coordinator or failed, 2 on a refusal.',
   ],
 };
