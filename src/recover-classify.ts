@@ -1,7 +1,7 @@
 import { sleepOrAbort } from './abort.js';
 import { holdersBySession, livePanes, sessionsByPane } from './roster.js';
 import { listFresh, POLL_INTERVAL_MS, type Snapshot } from './shared.js';
-import type { Clock, OrcaPort, RecoverPlan, RecoverReason, RecoverRow, RecoverStatus, RosterEntry, SessionScan } from './types.js';
+import type { Clock, OrcaPort, RecoverPlan, RecoverReason, RecoverRow, RecoverStatus, RecoveryRow, RosterEntry, SessionScan } from './types.js';
 
 // How an agent of the recovery set stands against the live fleet and the scan.
 // `restored`: a live row has its session ID. Else its session is `held` by a live process, `unverifiable` (a process of unknown session may hold it), or `free` (the agent is missing).
@@ -13,6 +13,28 @@ type Listing = Pick<Snapshot, 'agents' | 'terminals'>;
 export interface Item {
   entry: RosterEntry;
   standing: Standing;
+  /** ISO time of a start that an earlier run recorded for this agent. */
+  startedAt?: string;
+  /** Set by `applyStarts`: a missing agent whose recorded start is still young, so the run waits for it. */
+  awaiting?: true;
+  /** A coordinator of an earlier record that a retake brings in only when a missing worker of it gets its list. */
+  bringIn?: true;
+}
+
+/** A recorded start is dropped when it is this old and no live row holds the session. */
+export const START_WINDOW_MS = 120_000;
+
+/**
+ * The recorded-start rules for the items that carry a start: a missing agent whose start is younger than the window is awaited, not
+ * started again; at the window or older, its start is dropped and it is a missing agent like any other. A live agent keeps its start
+ * (it is `restarted`); the other standings fail as they do without a start.
+ */
+export function applyStarts(items: Item[], now: number): void {
+  for (const item of items) {
+    if (item.startedAt === undefined || item.standing !== 'free') continue;
+    if (now - Date.parse(item.startedAt) < START_WINDOW_MS) item.awaiting = true;
+    else delete item.startedAt;
+  }
 }
 
 /** A held session is checked again for at most this long (or the time left of `--timeout`). */
@@ -89,6 +111,13 @@ interface Row {
   leave: boolean;
   /** For a `leave` worker: the row of its coordinator. */
   coordinator?: RosterEntry;
+  /** A missing agent with a young recorded start: it waits for that start and is not started again. */
+  awaiting?: true;
+  /** The recorded start that the row keeps: a start still awaited, or one whose agent is live. */
+  startedAt?: string;
+  bringIn?: true;
+  /** A coordinator of a retake: the earlier workers that its prompt lists without a row. */
+  extraWorkers?: NonNullable<RecoveryRow['extraWorkers']>;
 }
 
 export interface Classified {
@@ -120,12 +149,17 @@ export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed }
   const rows = new Map<string, Row>();
   const failed = (entry: RosterEntry, reason: RecoverReason): Row => ({ entry, status: 'failed', reason, restart: false, prompt: false, leave: false });
 
-  for (const { entry, standing } of ordered) {
+  for (const { entry, standing, startedAt, awaiting, bringIn } of ordered) {
     if (standing === 'free' && isWorker(entry)) continue;
+    // A brought-in coordinator is prompted only for the list of a missing worker, below.
+    const prompt = entry.state !== 'done' && !bringIn;
+    const flags = bringIn ? { bringIn } : {};
     if (standing === 'held') rows.set(entry.sessionId, failed(entry, scanFailed ? 'scan-failed' : 'session-held'));
     else if (standing === 'unverifiable') rows.set(entry.sessionId, failed(entry, 'unverifiable'));
+    else if (standing === 'free' && awaiting) rows.set(entry.sessionId, { entry, status: 'pending', reason: 'awaiting-start', restart: false, prompt, leave: false, awaiting, startedAt, ...flags });
     else if (standing === 'free' && scanFailed) rows.set(entry.sessionId, failed(entry, 'scan-failed'));
-    else rows.set(entry.sessionId, { entry, status: 'restored', reason: null, restart: standing === 'free', prompt: entry.state !== 'done', leave: false });
+    else if (standing === 'restored' && startedAt !== undefined) rows.set(entry.sessionId, { entry, status: 'restarted', reason: null, restart: false, prompt, leave: false, startedAt, ...flags });
+    else rows.set(entry.sessionId, { entry, status: 'restored', reason: null, restart: standing === 'free', prompt, leave: false, ...flags });
   }
 
   // A coordinator can only be a row of the first pass: a missing worker is never restarted, so it cannot receive a list.
@@ -148,7 +182,8 @@ export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed }
     rows.set(entry.sessionId, row);
   }
 
-  const all = ordered.map(({ entry }) => rows.get(entry.sessionId) as Row);
+  // A brought-in coordinator with no list to receive is not part of the recovery.
+  const all = ordered.map(({ entry }) => rows.get(entry.sessionId) as Row).filter((row) => !(row.bringIn && !row.prompt));
   const target = (row: Row) => ({ repo: row.entry.repo, worktree: row.entry.worktree, role: row.entry.role });
   const plan: RecoverPlan = {
     restarts: all.filter((row) => row.restart).map((row) => ({ ...target(row), permission: row.entry.permission ?? null })),

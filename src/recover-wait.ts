@@ -1,5 +1,6 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import type { Started, StartDeps } from './recover-start.js';
+import { START_WINDOW_MS } from './recover-classify.js';
+import { startAgents, type Started, type StartDeps } from './recover-start.js';
 import { continueText, workerItems } from './recover-prompt.js';
 import { holdersBySession, livePanes, sessionsByPane } from './roster.js';
 import { busyReason, coordinatorsFirst, hasNewReply, isSendable, isWaitingLike, listFresh, locate, POLL_INTERVAL_MS, proves, sendDue } from './shared.js';
@@ -16,6 +17,10 @@ export interface SettleDeps extends StartDeps {
    * entry has not been seen live, and the loop does not touch it.
    */
   panes: Map<string, string>;
+  /** The rows this run works on: every row of the record, or on a re-run the rows in its scope. Other rows are never started, prompted or waited on. */
+  rows: RecoveryRow[];
+  /** The rows that wait for a start that an earlier run recorded and that has not appeared: this run did not start them and does not fail them at its timeout. */
+  earlier: RecoveryRow[];
 }
 
 const setResult = (row: RecoveryRow, status: RecoveryRow['status'], reason: RecoveryRow['reason']): void => {
@@ -26,7 +31,7 @@ const setResult = (row: RecoveryRow, status: RecoveryRow['status'], reason: Reco
 const isAwaitingStart = (row: RecoveryRow): boolean => row.status === 'pending' && row.reason === 'awaiting-start';
 
 // A row the loop still has to bring to a result: a start that has not appeared, or a prompt that is not acked and can still progress.
-const needsWait = (row: RecoveryRow): boolean => isAwaitingStart(row) || (row.promptDue && row.status === 'pending' && row.reason !== 'send-failed');
+export const needsWait = (row: RecoveryRow): boolean => isAwaitingStart(row) || (row.promptDue && row.status === 'pending' && row.reason !== 'send-failed');
 
 interface LiveRow {
   row: RecoveryRow;
@@ -38,12 +43,14 @@ interface LiveRow {
  * The loop that follows the starts. Each tick takes a listing; joins the started rows that appeared (one scan, only when a live row is
  * in no record of the latest scan); decides the result of every live row due a prompt (ack, gone, or the reason it is still pending);
  * and sends the prompt to each row that is due, coordinators first. It always makes one tick, and ends when no row needs more waiting
- * or the deadline has passed after a tick. A started row that has still not appeared then fails.
+ * or the deadline has passed after a tick. A row that this run started and that has still not appeared then fails. A row that waits
+ * for a start of an earlier run stays pending; when that start reaches the window, it is dropped and the row is started like any other.
  */
 export async function settle(started: Started, deps: SettleDeps): Promise<void> {
-  const { port, clock, signal, deadline, record, token, panes } = deps;
+  const { port, clock, signal, deadline, token, panes, rows } = deps;
   let scan = started.scan ?? deps.scan;
-  let awaiting = started.awaiting;
+  let awaiting = [...started.awaiting, ...deps.earlier];
+  const earlier = new Set(deps.earlier);
   let lastScanFailed = false;
   let unjoined = false;
   while (true) {
@@ -70,13 +77,26 @@ export async function settle(started: Started, deps: SettleDeps): Promise<void> 
       setResult(row, row.promptDue ? 'pending' : 'restarted', null);
     }
     awaiting = awaiting.filter(isAwaitingStart);
+
+    // A start of an earlier run that reached the window without its agent: dropped, and the row is started like any missing agent.
+    for (const row of awaiting.filter((r) => earlier.has(r) && clock.now() - Date.parse(r.startedAt as string) >= START_WINDOW_MS)) {
+      earlier.delete(row);
+      awaiting = awaiting.filter((r) => r !== row);
+      delete row.startedAt;
+      setResult(row, 'pending', 'timed-out');
+      const again = await startAgents([row], deps);
+      started.count += again.count;
+      if (again.scan) scan = again.scan;
+      for (const [sessionId, pane] of again.panes) panes.set(sessionId, pane);
+      awaiting.push(...again.awaiting);
+    }
     for (const sessionId of panes.keys()) {
       const holder = holders.get(sessionId);
       if (holder) panes.set(sessionId, holder.row.paneKey);
     }
 
     const due: LiveRow[] = [];
-    for (const row of record.rows.filter((r) => r.promptDue && r.status === 'pending' && panes.has(r.sessionId))) {
+    for (const row of rows.filter((r) => r.promptDue && r.status === 'pending' && panes.has(r.sessionId))) {
       // The map was just refreshed from the live holders, so it names the live pane, else the pane where the session was last seen.
       const paneKey = panes.get(row.sessionId) as string;
       const found = locate(paneKey, agents, terminals);
@@ -108,8 +128,8 @@ export async function settle(started: Started, deps: SettleDeps): Promise<void> 
         row.reason = 'waiting-permission';
         continue;
       }
-      const listed = record.rows.filter((worker) => worker.listDue && worker.coordinatorSessionId === row.sessionId);
-      const result = await port.send(found.handle, continueText(token, workerItems(listed, []))).catch(() => ({ accepted: false as const }));
+      const listed = rows.filter((worker) => worker.listDue && worker.coordinatorSessionId === row.sessionId);
+      const result = await port.send(found.handle, continueText(token, workerItems(listed, row.extraWorkers ?? []))).catch(() => ({ accepted: false as const }));
       if (result.accepted) {
         row.baseline = found.row.lastAssistantMessage;
         row.messagePending = false;
@@ -126,10 +146,10 @@ export async function settle(started: Started, deps: SettleDeps): Promise<void> 
     }
 
     await deps.save();
-    if (!record.rows.some(needsWait) || clock.now() >= deadline) break;
+    if (!rows.some(needsWait) || clock.now() >= deadline) break;
     await sleepOrAbort(clock, Math.min(POLL_INTERVAL_MS, deadline - clock.now()), signal);
   }
-  for (const row of awaiting) setResult(row, 'failed', lastScanFailed && unjoined ? 'scan-failed' : 'did-not-appear');
+  for (const row of awaiting) if (!earlier.has(row)) setResult(row, 'failed', lastScanFailed && unjoined ? 'scan-failed' : 'did-not-appear');
 }
 
 /**

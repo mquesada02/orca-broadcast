@@ -289,6 +289,8 @@ export type RecoveryRow = RosterEntry & {
   listDue?: true;
   /** ISO time of the recorded start, present only after a start was recorded. */
   startedAt?: string;
+  /** A coordinator of a retake: the workers of its earlier record that were left to it, still missing at the retake, and that have no row. Its prompt lists them. */
+  extraWorkers?: { repo: string; worktree: string; dispatchId?: string | null }[];
 };
 
 // The durable record of a crash recovery, in `recoveries/<id>.json`.

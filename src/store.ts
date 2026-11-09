@@ -72,6 +72,8 @@ export interface RecordStore {
   save(run: Run): Promise<void>;
   saveBroadcast(record: BroadcastRecord): Promise<void>;
   saveRecovery(record: RecoveryRecord): Promise<void>;
+  /** The newest recovery record that closed by itself (`endedBy` `done`), or null. An abandoned or open record never counts. */
+  loadNewestClosedRecovery(): Promise<RecoveryRecord | null>;
   /** Writes (or replaces) the file of the snapshot's runtime, then keeps only the newest 5 files; the file just written is never removed. */
   saveRoster(snapshot: RosterSnapshot): Promise<void>;
   /** Every kept roster snapshot, newest first. Fails naming the file when one cannot be read. */
@@ -163,6 +165,9 @@ function isRosterSnapshot(value: unknown): value is RosterSnapshot {
   return typeof v === 'object' && v !== null && typeof v.bootId === 'string' && (typeof v.runtimeId === 'string' || v.runtimeId === null) && typeof v.firstSavedAt === 'string' && typeof v.lastSavedAt === 'string' && Array.isArray(v.entries);
 }
 
+// A plain comparison, not `localeCompare`: the order must not depend on the locale of the process.
+const newerFirst = (a: string, b: string): number => (a < b ? 1 : a > b ? -1 : 0);
+
 // Every roster file, newest first by last save time (equal times: the greater file name first). A missing folder counts as empty.
 async function listRosters(folder: string): Promise<{ id: string; snapshot: RosterSnapshot }[]> {
   let names: string[];
@@ -186,8 +191,6 @@ async function listRosters(folder: string): Promise<{ id: string; snapshot: Rost
         }
       }),
   );
-  // A plain comparison, not `localeCompare`: the order must not depend on the locale of the process.
-  const newerFirst = (a: string, b: string): number => (a < b ? 1 : a > b ? -1 : 0);
   return files.sort((a, b) => newerFirst(a.snapshot.lastSavedAt, b.snapshot.lastSavedAt) || newerFirst(a.id, b.id));
 }
 
@@ -423,6 +426,20 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     saveBroadcast: (record) => writeRecord(broadcastsDir, record.id, record, tmpNames),
 
     saveRecovery: (record) => writeRecord(recoveriesDir, record.id, record, tmpNames),
+
+    async loadNewestClosedRecovery() {
+      let names: string[];
+      try {
+        names = await readdir(recoveriesDir);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+        throw error;
+      }
+      const records = await Promise.all(names.filter((n) => n.endsWith('.json')).map((n) => readRecord<RecoveryRecord>(join(recoveriesDir, n))));
+      const done = records.filter((r): r is RecoveryRecord => r?.status === 'closed' && r.endedBy === 'done');
+      done.sort((a, b) => newerFirst(a.createdAt, b.createdAt) || newerFirst(a.id, b.id));
+      return done[0] ?? null;
+    },
 
     async saveRoster(snapshot) {
       const id = rosterFileId(snapshot.bootId, snapshot.runtimeId);
