@@ -50,6 +50,15 @@ If a run can never finish (for example an agent ignores the message), abandon it
 orca-broadcast close
 ```
 
+After a PC restart or an Orca crash, to find the agents that did not come back and restart them (see "Recover"):
+
+```sh
+orca-broadcast recover            # shows the report, asks once, then restarts and prompts
+orca-broadcast recover --timeout 5m
+orca-broadcast recover --yes      # no question; needed without a terminal
+orca-broadcast recover --repo alpha --role coordinator   # only part of the fleet
+```
+
 To save a snapshot of the live agents (see "Roster"). It reads Orca and sends nothing:
 
 ```sh
@@ -99,17 +108,17 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
 
 By default a command acts on every agent. Filters narrow that, and a group is a saved set of filters (see "Groups"). Repeat `--group` to act on the union of several groups. `orca-broadcast <command> --help` lists the flags of one command.
 
-| Flag | `broadcast` | `pause` | `resume` | `close` |
-|---|---|---|---|---|
-| `--repo` | yes | yes | narrows the run | narrows the run |
-| `--worktree` | yes | yes | narrows the run | narrows the run |
-| `--role` | yes | yes | narrows the run | narrows the run |
-| `--state` | yes | refused (exit 2); skipped in groups | refused (exit 2); skipped in groups | refused (exit 2); skipped in groups |
-| `--run` | yes | yes | narrows the run | narrows the run |
-| `--group` | yes | yes | narrows the run | narrows the run |
-| `--reason` | refused (exit 2) | yes | refused (exit 2) | refused (exit 2) |
+| Flag | `broadcast` | `pause` | `resume` | `close` | `recover` |
+|---|---|---|---|---|---|
+| `--repo` | yes | yes | narrows the run | narrows the run | selects the agents to recover |
+| `--worktree` | yes | yes | narrows the run | narrows the run | selects the agents to recover |
+| `--role` | yes | yes | narrows the run | narrows the run | selects the agents to recover |
+| `--state` | yes | refused (exit 2); skipped in groups | refused (exit 2); skipped in groups | refused (exit 2); skipped in groups | refused (exit 2); skipped in groups |
+| `--run` | yes | yes | narrows the run | narrows the run | selects the agents to recover |
+| `--group` | yes | yes | narrows the run | narrows the run | selects the agents to recover |
+| `--reason` | refused (exit 2) | yes | refused (exit 2) | refused (exit 2) | refused (exit 2) |
 
-"Narrows the run" means the flag only selects among the agents the open run (or, for a `broadcast` re-run, the open broadcast) already recorded; it never adds an agent. Several `--group` flags select the union of their groups. On `resume` and `close` the union still only selects among the recorded agents. "Skipped in groups" means that `--state` itself is refused, but a group that has a `state` kind still works: the kind is skipped with one line on stderr per group.
+"Narrows the run" means the flag only selects among the agents the open run (or, for a `broadcast` re-run, the open broadcast) already recorded; it never adds an agent. Several `--group` flags select the union of their groups. On `resume` and `close` the union still only selects among the recorded agents. "Skipped in groups" means that `--state` itself is refused, but a group that has a `state` kind still works: the kind is skipped with one line on stderr per group. "Selects the agents to recover" means the flag picks the part of the pre-restart roster that `recover` works on (see "Recover").
 
 Different kinds of filter are ANDed, and several values of one kind are ORed. So `--repo alpha --repo beta --role worker` means the workers in `alpha` or `beta`.
 
@@ -125,7 +134,7 @@ orca-broadcast pause --group web --group docs           # the agents of either g
 
 ### Groups
 
-A group is a saved, named filter. `broadcast`, `pause`, `resume` and `close` take `--group <name>`, which you may repeat; other filters (`--repo`, `--worktree`, `--role`, `--run`, and `--state` on `broadcast`) narrow every group.
+A group is a saved, named filter. `broadcast`, `pause`, `resume`, `close` and `recover` take `--group <name>`, which you may repeat; other filters (`--repo`, `--worktree`, `--role`, `--run`, and `--state` on `broadcast`) narrow every group.
 
 ```sh
 orca-broadcast group add web --repo alpha --role worker   # every value must resolve to one thing now
@@ -138,11 +147,11 @@ orca-broadcast pause --group web --role worker
 - **File.** `$XDG_CONFIG_HOME/orca-broadcast/groups.json` (default `~/.config/orca-broadcast/groups.json`), `{"version": 1, "groups": {"<name>": {"repo": [], "worktree": [], "role": [], "state": [], "run": []}}}`. Omit a kind to leave it unfiltered; a group needs at least one kind. You may edit the file by hand. An invalid file exits 2 and names the path. A missing file means no groups. Writes are atomic and take no lock.
 - **Names.** Lowercase letters, digits and `-`, starting with a letter, at most 40 characters. `group add` refuses a name that exists: `group remove` it first.
 - **Use.** Values are resolved again at each use; a value that no longer resolves exits 2 and names the group and the value. Several `--group` flags are a union: an agent is selected when it matches any one group, and each group keeps its own meaning (kinds ANDed, values of one kind ORed). Naming a group twice is the same as once, and an unknown name exits 2 before anything is sent. A kind in both a group and the ad-hoc flags gives the intersection (an empty one prints "nothing to <command>", except that `pause` on an open run still adds the empty set). `pause` copies the resolved groups into the run, so editing the file does not change an open run until your next `pause`.
-- **State.** `group add --state working|done` is for `broadcast`, where the `state` kind applies. `pause`, `resume` and `close` skip each group's `state` kind with one line on stderr. A group that then has no other kind is dropped from a union (it never selects every agent), and the command is refused (exit 2) when every named group has only a `state` kind.
+- **State.** `group add --state working|done` is for `broadcast`, where the `state` kind applies. `pause`, `resume`, `close` and `recover` skip each group's `state` kind with one line on stderr. A group that then has no other kind is dropped from a union (it never selects every agent), and the command is refused (exit 2) when every named group has only a `state` kind.
 
 ### Roster
 
-The roster is a set of snapshots of the live Claude agents, one file per Orca runtime, so that a later command can find the agents that were alive before a restart. `roster save` writes one snapshot now. `broadcast`, `pause` and `resume` also save the roster at their start and at their end, from listings they already take (one extra scan of the Claude processes each, and none while they wait). A save that fails never fails the command: its warning `roster not saved: <reason>` goes to stderr, or to the `warnings` field under `--json`. A command that was interrupted by a signal saves nothing. Each entry holds the Claude session ID, the pane key, the repo and worktree, the role, the last state (`working`, `done` or `waiting`) and, when known, the permission flag. For a worker it also holds the session ID of its coordinator and its dispatch ID. It never holds prompt or reply text.
+The roster is a set of snapshots of the live Claude agents, one file per Orca runtime, so that a later command can find the agents that were alive before a restart. `roster save` writes one snapshot now. `broadcast`, `pause` and `resume` also save the roster at their start and at their end, and `recover` saves it at its start and, when it started agents, at its end, from listings they already take (one extra scan of the Claude processes each, and none while they wait). A save that fails never fails the command: its warning `roster not saved: <reason>` goes to stderr, or to the `warnings` field under `--json`. A command that was interrupted by a signal saves nothing. Each entry holds the Claude session ID, the pane key, the repo and worktree, the role, the last state (`working`, `done` or `waiting`) and, when known, the permission flag. For a worker it also holds the session ID of its coordinator and its dispatch ID. It never holds prompt or reply text.
 
 - **Files.** `$XDG_STATE_HOME/orca-broadcast/roster/<boot ID>-<runtime ID>.json` (`none` when Orca gives no runtime ID). A save in the same runtime replaces that file's entries, so an agent you closed on purpose drops out at the next save; an agent whose pane is live but whose session ID could not be read this time keeps its old entry. A save after a restart writes a new file and never changes an older one. The newest 5 files are kept.
 - **Output.** `roster saved: <N> agents`, or `roster not saved: <reason>`. With `--json`: `{"command":"roster save","outcome":"saved"|"skipped","agents":<N or null>,"warnings":[...]}`. Exit `0` when saved, `1` when it could not save (a failed scan or listing never replaces a snapshot), `2` on a usage error. It takes no lock and sends nothing.
@@ -185,16 +194,48 @@ The roster is a set of snapshots of the live Claude agents, one file per Orca ru
   To change the interval, edit `OnUnitActiveSec` in the timer file and run `systemctl --user daemon-reload`. A save that fails exits 1 and shows in `journalctl --user -u orca-broadcast-roster.service`. This unit text is not tested under systemd: start the service once by hand (`systemctl --user start orca-broadcast-roster.service`) and read the journal before you rely on it.
 - **Runtime ID caveat.** The design relies on Orca's runtime ID changing on every Orca start. Whether Orca keeps it across an Orca-only crash is not tested. If it does, a save after the crash writes to the same file as before it, and only a changed boot ID (a PC restart) protects the earlier snapshot.
 
+### Recover
+
+After a PC restart or an Orca crash, every Claude Code process is gone, and Orca restores only some sessions, in new panes. `recover` finds the agents that were alive before, shows which of them came back, and after your confirmation restarts the missing ones and tells each interrupted agent to continue. This is crash mode: it works when no pause run is open.
+
+- **What it reads.** The roster (see "Roster"): the newest snapshot of an earlier runtime. When the runtime of the last snapshot used lived less than an hour (a chain of quick restarts), the next older snapshot of an earlier runtime is added too, and entries merge by session ID, the newer one winning. With no snapshot of an earlier runtime, it uses the live runtime's snapshot and warns "best effort". The report starts with one line per snapshot used, with its age. The assumption about Orca's runtime ID is the "Runtime ID caveat" under "Roster". `--repo`, `--worktree`, `--role`, `--run` and `--group` select the part of the fleet to recover.
+- **Matching.** Each agent is matched to a live Orca agent by its Claude session ID, never by pane key alone. A restored agent has a live row. A missing agent has no live row, and no live process holds its session. A held session has no live row, but a live process holds it: `recover` checks it again for up to 60 seconds (or the time left of `--timeout`) and then shows it as `failed`, reason `session-held`. A session that a process of unknown session may hold is `failed`, reason `unverifiable`.
+- **Report.** One row per agent, with the columns `repo`, `worktree`, `role`, `status` and `reason`, coordinators first. The session that runs `recover` is shown on its own block and is never a row. When a coordinator is that session, the block lists its missing workers.
+- **Confirmation.** `recover` lists what it will `restart`, `prompt` and `leave` to coordinators, then asks once: "Restart N agents, prompt N and leave N workers to their coordinators? [y/N]". `--yes` skips the question. Answer no, and `recover` starts nothing, sends nothing and writes no recovery record. It prints the report with every row that a restart, a prompt or a worker list would have handled as `pending`, reason `declined`, and exits `1`.
+- **After yes.** `recover` writes the recovery record, then restarts each missing agent that is not a worker, coordinators first. The restart opens a new terminal in the agent's worktree that runs `env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN claude --resume <session id>`, plus the agent's saved permission flag when it has one (the question shows the flag). It starts a session only when no live process holds it. It waits for each restarted agent to appear in Orca. It then sends the continue prompt to each agent that is due one, coordinators first, and waits for each reply to end with `ORCA-ACK <token>`.
+- **Who is prompted.** An agent is due the continue prompt when its last saved state was `working` or `waiting`, and a coordinator is also due it when it has a missing worker to list, whatever its last saved state. This holds whether the agent came back by itself or was restarted. The prompt never goes to an agent on a permission prompt.
+- **Workers.** `recover` never restarts a worker. The continue prompt of a coordinator names its missing workers, each with its dispatch ID, and tells the coordinator to decide whether to retry them with `orca-ide orchestration worker-start --retry-of`. A worker whose coordinator does not get that list is shown as `no-coordinator`.
+- **Time.** `--timeout` (default `10m`) bounds the whole command from its start. The time that the question waits does not count.
+
+Statuses:
+
+| Status | Meaning |
+|---|---|
+| `restored` | A live agent has the session, and no prompt is due. |
+| `restarted` | `recover` started it, and no prompt is due. |
+| `acked` | It got the continue prompt and its reply ended with the ack line. |
+| `pending` | Not finished. The reason says why: `declined` (you answered no), `timed-out` (not handled before `--timeout` ended), `awaiting-start` (started, not yet in Orca), `waiting-permission` (on a permission prompt, so no prompt was sent), `send-failed` (Orca refused the send), `no-ack` (it replied without the ack line; a later ack still counts), `still-working` (it is still on its turn) or `background` (its turn ended and background work runs; see "Background work"). |
+| `gone` | Its terminal or agent went away. |
+| `left-to-coordinator` | The list of the missing workers was sent to the coordinator. It does not mean that the workers were restarted: the coordinator decides. |
+| `no-coordinator` | A missing worker whose coordinator did not get the list. Reasons: `coordinator-missing` (the coordinator is missing, or it did not get the list: its restart failed, it is on a permission prompt, or its prompt was held back or failed), `coordinator-filtered` (it is outside your filters), `coordinator-is-self` (it is the session that runs `recover`; see its own block under the table). Retry the worker yourself. |
+| `failed` | `recover` could not restart it. Reasons: `session-held`, `unverifiable`, `scan-failed` (a scan of the Claude processes failed, so no further agent was started, or a started agent could not be seen), `did-not-appear` (started, but never appeared), `no-transcript` (no transcript of the session in its worktree), `invalid-session-id`, `flag-not-allowed` (the saved permission flag is not one that `recover` accepts), `start-failed` (Orca could not create the terminal). |
+
+An agent that is due a prompt never ends `restored` or `restarted`: it ends `acked`, `pending`, `gone` or `failed`. The recovery record closes by itself when every row is final: `acked`, `gone`, `left-to-coordinator` and `failed` always, `restored` and `restarted` (no prompt is due), and `no-coordinator` once its coordinator is no longer `pending`. A `pending` row is never final.
+
+- **Output.** The table, or with `--json` one object with `rows`, `snapshots` and `record` (the recovery record, or `null`), and the usual `warnings`. The exit codes are in "Exit codes".
+- **Safety.** `recover` restarts a session only after your yes (or `--yes`), never one that a live process holds, never a worker, and never sends to an agent on a permission prompt. It holds the lock while it waits (see "Safety").
+- **Manual check.** The restart command `env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN claude --resume <session id>` was checked by hand on a throwaway session before the first live use: the resumed agent showed its old conversation and started no turn by itself. No test runs it. Tests use a fake Orca and a fixture of the process folder.
+
 ### Options
 
 | Option | Effect |
 |---|---|
-| `--timeout <n>s\|m\|h` | How long `pause` waits for confirmations, or `broadcast` waits for acks. Default `10m`. `pause` and `broadcast` only. |
+| `--timeout <n>s\|m\|h` | How long `pause` waits for confirmations, `broadcast` waits for acks, or `recover` runs (the wait for its question does not count). Default `10m`. `pause`, `broadcast` and `recover` only. |
 | `--file <path>` | Read the `broadcast` text from a file; it may have several lines. `broadcast` only. |
 | `--reason <name>` | Why you are pausing. One of the presets below. `pause` only. Without it the message is neutral. |
-| `--yes` | Skip the confirmation prompt. Without an interactive terminal, `broadcast`, `pause` and `resume` refuse to send unless you pass it. |
-| `--json` | Print one JSON object on stdout and nothing on stderr (except the line about each skipped group `state` kind). Every object has a `warnings` array: the lines that text mode prints on stderr, such as a roster save that failed. It never prompts, so `broadcast`, `pause` and `resume` need `--yes`. |
-| `--group <name>` | Use a saved group. Repeat it for the union of the groups. `broadcast`, `pause`, `resume` and `close`. |
+| `--yes` | Skip the confirmation prompt. Without an interactive terminal, `broadcast`, `pause`, `resume` and `recover` refuse to send unless you pass it. |
+| `--json` | Print one JSON object on stdout and nothing on stderr (except the line about each skipped group `state` kind). Every object has a `warnings` array: the lines that text mode prints on stderr, such as a roster save that failed. It never prompts, so `broadcast`, `pause`, `resume` and `recover` need `--yes`. The object of `recover` also has `rows`, `snapshots` and `record`. |
+| `--group <name>` | Use a saved group. Repeat it for the union of the groups. `broadcast`, `pause`, `resume`, `close` and `recover`. |
 | `--state working\|done` | Select agents by their live state. Repeatable. `broadcast` only. |
 | `--help` | Show help. |
 
@@ -211,17 +252,17 @@ The roster is a set of snapshots of the live Claude agents, one file per Orca ru
 | `restart` | The user will restart the PC soon, and everything in /tmp will be erased; first copy anything you still need from /tmp to a place outside it. | The PC has restarted; anything you left in /tmp is gone. |
 | *(no flag)* | The user asked all agents to pause. | The user asked you to continue. |
 
-After a real reboot, `resume` finds the restored agents of a pause run by their Claude session ID (see **Resume.** below). A run written before session IDs were recorded still matches on `paneKey`, so its moved agents show as `gone`. Agents that were not in a pause run are not restarted yet (#92).
+After a real reboot, `resume` finds the restored agents of a pause run by their Claude session ID (see **Resume.** below). A run written before session IDs were recorded still matches on `paneKey`, so its moved agents show as `gone`. For agents that were not in a pause run, see "Recover" (crash mode, when no pause run is open); the full feature is tracked in #92.
 
-An unknown name, or `--reason` on `resume`, `close` or `broadcast`, is a usage error (exit 2). Running `pause` again on an open run keeps its reason; give the same `--reason` or none. A different one is refused (exit 2, nothing sent): use `close` first. The `reason` column in the output tables is a different thing: it says why one agent is not confirmed or not resumed.
+An unknown name, or `--reason` on `resume`, `close`, `broadcast` or `recover`, is a usage error (exit 2). `recover` also refuses `--state` and `--file`. Running `pause` again on an open run keeps its reason; give the same `--reason` or none. A different one is refused (exit 2, nothing sent): use `close` first. The `reason` column in the output tables is a different thing: it says why one agent is not confirmed or not resumed.
 
 ### Exit codes
 
 | Code | Meaning |
 |---|---|
-| `0` | `pause`: every agent confirmed. `resume`: the run closed. `broadcast`: every target acked. Also "nothing to do". |
-| `1` | `pause`: at least one agent is unconfirmed. `resume`: at least one agent is still pending. `broadcast`: a target did not ack, or is gone. The table says why and what to do. |
-| `2` | Usage error, Orca listing failed, refused without `--yes`, or another `orca-broadcast` is running. |
+| `0` | `pause`: every agent confirmed. `resume`: the run closed. `broadcast`: every target acked. `recover`: every row is restored, restarted, acked or left to its coordinator. Also "nothing to do" (and "nothing to recover"). |
+| `1` | `pause`: at least one agent is unconfirmed. `resume`: at least one agent is still pending. `broadcast`: a target did not ack, or is gone. `recover`: a row is pending, gone, no-coordinator or failed, or you answered no. The table says why and what to do. |
+| `2` | Usage error, Orca listing failed, refused without `--yes`, or another `orca-broadcast` is running. `recover` also exits 2 when there is no roster to recover from, when the scan of the Claude processes fails, when the recovery record cannot be saved, or when a broadcast, a pause run or a recovery is still open. |
 | `130` | Interrupted (Ctrl-C, SIGTERM, SIGHUP). The record is saved; run the command again. |
 
 ## How it works
@@ -240,9 +281,9 @@ An unknown name, or `--reason` on `resume`, `close` or `broadcast`, is a usage e
 
 Each record is written atomically before every send. At most one record, of either kind, is open. If a crash leaves more than one open, the newest wins and the command reports the others. Running `pause` again before `resume` extends the same run.
 
-**Safety.** The tool never types into a terminal that is not a Claude agent. It never sends to an agent on a permission prompt. It asks for confirmation before it sends. The pane that runs `orca-broadcast` itself is never paused.
+**Safety.** The tool never types into a terminal that is not a Claude agent. It never sends to an agent on a permission prompt. It asks for confirmation before it sends. `recover` also creates terminals that run `claude --resume`, in the worktree of an agent that did not come back, and only after the confirmation (or `--yes`). The pane that runs `orca-broadcast` itself is never paused.
 
-One lock covers `broadcast`, `pause`, `resume` and `close`, for the whole run of each command, so two runs cannot overlap. A second command fails at once with "another orca-broadcast is running". `group` commands take no lock. The one exception is the hand-over above, where `pause` stops a broadcast it has proven to be the lock holder.
+One lock covers `broadcast`, `pause`, `resume`, `close` and `recover`, for the whole run of each command, so two runs cannot overlap. A second command fails at once with "another orca-broadcast is running". `group` commands take no lock. The one exception is the hand-over above, where `pause` stops a broadcast it has proven to be the lock holder. There is no hand-over from `recover`: while it waits for restarts and acks, `pause` and `close` refuse with the same message until it ends or is interrupted.
 
 The `lock` file holds the pid and the start time of its owner. A lock is stale, and the next command takes it over, when its pid is dead or when the pid is alive but has a different start time (the system reused the pid). If a start time is missing, only the pid test applies. A leftover `lock.takeover` file, or a `lock` file that is not readable, is never removed automatically: the command refuses to start and names the file to delete.
 
@@ -256,7 +297,7 @@ Orca keeps an agent `working` after its turn ends while background work runs (fo
 - Races remain between the last check and a send (an agent can open a dialog in between).
 - Whether an agent in the background state handles a message that is sent to it is not tested; the tool does not claim that it will ack or pause.
 - A queued broadcast can still be carried out just before a `pause` or a `close` abandons it. An agent that has the message in its queue may handle it while the tool marks it `abandoned`; a late ack on an abandoned target is ignored.
-- Machine sleep or reboot is out of scope; the scenario is "machine stays on, you are away" (network loss, a break, end of day or a usage limit).
+- Machine sleep is out of scope; the scenario is "machine stays on, you are away" (network loss, a break, end of day or a usage limit). A reboot or an Orca crash is handled by `recover` (see "Recover"), for Claude Code agents only.
 
 ## Development
 
