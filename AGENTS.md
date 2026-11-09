@@ -20,6 +20,10 @@ To capture a real `orca-ide` output shape, send only to a throwaway terminal you
 - Proof comes from Orca state and the agent's last reply (`ORCA-PAUSED <token>`, or a changed reply after CONTINUE), never from send receipts.
 - Fixtures in `test/fixtures/` must be redacted copies of real `orca-ide` output. A hand-written send receipt once hid a bug where every real send looked rejected.
 
+## Research notes
+
+Save each research note as `docs/research/<topic>.md`, on a branch that merges to `main` through a PR. A note left only on its own research branch gets lost. Redact live output before you commit it: no home paths, user names, or names and IDs from other projects.
+
 ## Agent skills
 
 ### Issue tracker
