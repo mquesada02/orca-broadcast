@@ -2,6 +2,7 @@
   "name": "orca-broadcast",
   "version": "0.1.0",
   "description": "Pause and resume every working Claude Code agent in Orca",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "orca-broadcast": "dist/bin.js"

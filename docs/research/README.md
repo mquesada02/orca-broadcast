@@ -1,0 +1,17 @@
+# Research notes
+
+These notes are dated snapshots of live observations. They informed design decisions at the time. Orca and Claude Code can change after a note is written.
+
+The guide pages in `docs/guide/` and the ADRs in `docs/adr/` are the current truth. Do not take an old note as the current behaviour of the tool.
+
+| Note | Topic |
+|---|---|
+| [agent-filter-fields.md](agent-filter-fields.md) | Which Orca fields identify an agent's repo, worktree, role and run |
+| [agent-restart.md](agent-restart.md) | How to restart an agent that did not come back |
+| [background-shell-state.md](background-shell-state.md) | Background-shell agent state in Orca |
+| [coordinator-stop.md](coordinator-stop.md) | How an Orca coordinator behaves when its workers stop |
+| [multiline-send.md](multiline-send.md) | Multi-line text in `orca-ide terminal send` |
+| [pre-crash-roster.md](pre-crash-roster.md) | Where to find the agents that were alive before a crash |
+| [restart-identity.md](restart-identity.md) | Which identity links a restored session to its old agent |
+| [terminal-identity.md](terminal-identity.md) | How the CLI identifies one agent's terminal reliably |
+| [tui-send.md](tui-send.md) | `orca-ide terminal send` to a Claude Code TUI that is mid-turn |
