@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a problem with orca-broadcast.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: orca-broadcast commit or version
+      description: Run `git rev-parse --short HEAD` in your clone, or give the version in `package.json`.
+    validations:
+      required: true
+  - type: input
+    id: orca-version
+    attributes:
+      label: Orca version
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command that you ran.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: json
+    attributes:
+      label: Output with `--json`
+      description: Run the same command with `--json` and paste the output. Remove private data first, such as names, paths and terminal handles.
+      render: json
+    validations:
+      required: true
