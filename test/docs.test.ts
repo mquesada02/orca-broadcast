@@ -230,18 +230,30 @@ describe('docs link check', () => {
 });
 
 describe('roster documents', () => {
-  it('README holds the commands that turn the roster timer on and off, and its 5-minute interval', async () => {
-    const readme = await read('README.md');
-    expect(readme).toContain('systemctl --user enable --now');
-    expect(readme).toContain('systemctl --user disable --now');
-    expect(readme).toContain('OnUnitActiveSec=5min');
+  it('the roster page holds the commands that turn the roster timer on and off, and its 5-minute interval', async () => {
+    const roster = await read('docs/guide/roster.md');
+    expect(roster).toContain('systemctl --user enable --now');
+    expect(roster).toContain('systemctl --user disable --now');
+    expect(roster).toContain('OnUnitActiveSec=5min');
   });
 
-  it('README documents the warnings field of --json and the automatic saves', async () => {
-    const readme = await read('README.md');
-    expect(readme).toContain('Every object has a `warnings` array');
-    expect(readme).not.toContain('(not in `--json`)');
-    expect(readme).toContain('`broadcast`, `pause` and `resume` also save the roster at their start and at their end');
+  it('the reference page documents the warnings field of --json', async () => {
+    expect(await read('docs/guide/reference.md')).toContain('Every object has a `warnings` array');
+  });
+
+  it('README.md and every guide page leave out the "(not in `--json`)" note', async () => {
+    const pages = (await diskTree.list('docs/guide')).filter((entry) => entry.endsWith('.md')).map((entry) => `docs/guide/${entry}`);
+    for (const page of ['README.md', ...pages]) {
+      expect(await read(page), page).not.toContain('(not in `--json`)');
+    }
+  });
+
+  it('the roster page documents the automatic saves', async () => {
+    const roster = await read('docs/guide/roster.md');
+    expect(roster).toContain('These commands also save the roster');
+    expect(roster).toContain('| `broadcast`, `resume` |');
+    expect(roster).toContain('| `pause` |');
+    expect(roster).toContain('| `recover` |');
   });
 
   it('CONTEXT.md defines the roster term', async () => {
@@ -258,19 +270,22 @@ describe('recover crash mode documents', () => {
     expect(await read('CONTEXT.md')).toMatch(/^\*\*Pause-run mode\*\*:/m);
   });
 
-  it('README describes pause-run mode and the worker sentence of resume', async () => {
-    const readme = await read('README.md');
-    expect(readme).toContain('pause-run mode');
-    expect(readme).toContain('coordinator-not-paused');
-    expect(readme).toMatch(/\*\*Resume\.\*\*[^\n]*stored missing workers[^\n]*worker-start --retry-of/);
+  it('the recover page describes pause-run mode', async () => {
+    const recover = await read('docs/guide/recover.md');
+    expect(recover).toContain('pause-run mode');
+    expect(recover).toContain('coordinator-not-paused');
   });
 
-  it('README says that left-to-coordinator means the list was sent, not that the workers were restarted', async () => {
-    expect(await read('README.md')).toMatch(/left-to-coordinator[^\n]*not[^\n]*restarted/);
+  it('the pause-and-resume page holds the worker sentence of resume', async () => {
+    expect(await read('docs/guide/pause-and-resume.md')).toMatch(/stored missing workers[^\n]*worker-start --retry-of/);
   });
 
-  it.each(['--timeout', '--yes', '--json', '--group'])('README Options row of %s names recover', async (flag) => {
-    const options = (await read('README.md')).split('### Options')[1]?.split('\n### ')[0] ?? '';
+  it('the recover page says that left-to-coordinator means the list was sent, not that the workers were restarted', async () => {
+    expect(await read('docs/guide/recover.md')).toMatch(/left-to-coordinator[^\n]*not[^\n]*restarted/);
+  });
+
+  it.each(['--timeout', '--yes', '--json', '--group'])('the reference page Options row of %s names recover', async (flag) => {
+    const options = (await read('docs/guide/reference.md')).split(/^## Options$/m)[1]?.split('\n## ')[0] ?? '';
     const row = options.split('\n').find((line) => line.startsWith(`| \`${flag}`));
     expect(row).toBeDefined();
     expect(row).toContain('`recover`');
@@ -294,8 +309,8 @@ describe('session-ID identity documents', () => {
     expect(adr).toContain('ADR 0001');
   });
 
-  it('README names the recoveries folder of the record store', async () => {
-    expect(await read('README.md')).toContain('`recoveries/`');
+  it('the how-it-works page names the recoveries folder of the record store', async () => {
+    expect(await read('docs/guide/how-it-works.md')).toContain('`recoveries/`');
   });
 
   it('AGENTS.md holds the session-ID rule next to the paneKey gotcha', async () => {
