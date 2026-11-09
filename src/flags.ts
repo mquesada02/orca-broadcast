@@ -33,8 +33,8 @@ export interface FlagSpec {
 const NARROWS_RUN = 'Only narrows the recorded agents of the open run.';
 const NEEDS_YES = 'It never asks for confirmation, so --yes is required.';
 const STATE_KIND_SKIPPED = "A group's state kind is skipped (one line on stderr per group). A group with only a state kind is dropped from a union, and refused when every group is like that.";
-const NARROWS_RERUN = 'On a re-run, only narrows the stored rows.';
-const NARROWING_NOTES = { resume: NARROWS_RUN, close: NARROWS_RUN, recover: NARROWS_RERUN } as const;
+const NARROWS_RECOVERY = 'Narrows the agents to recover.';
+const NARROWING_NOTES = { resume: NARROWS_RUN, close: NARROWS_RUN, recover: NARROWS_RECOVERY } as const;
 
 const FLAGS: Record<string, FlagSpec> = {
   help: { type: 'boolean', commands: COMMANDS, help: 'Show this help' },
@@ -125,7 +125,7 @@ const FLAGS: Record<string, FlagSpec> = {
       pause: STATE_KIND_SKIPPED,
       resume: `${STATE_KIND_SKIPPED} ${NARROWS_RUN}`,
       close: `${STATE_KIND_SKIPPED} ${NARROWS_RUN}`,
-      recover: `${STATE_KIND_SKIPPED} ${NARROWS_RERUN}`,
+      recover: `${STATE_KIND_SKIPPED} ${NARROWS_RECOVERY}`,
     },
   },
 };

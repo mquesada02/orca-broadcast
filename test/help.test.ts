@@ -76,6 +76,23 @@ describe('per-command help', () => {
     }
   });
 
+  it('says in the recover help that the continue prompt is sent, and no longer that prompts are not sent', async () => {
+    const { out } = await runCli(['recover', '--help']);
+    expect(out).not.toContain('Prompts are not sent');
+    expect(out).toContain('sends the continue prompt to each live agent whose last state was working or waiting');
+    expect(out).toContain('ORCA-ACK');
+  });
+
+  it('notes on the recover filter flags that they narrow the agents to recover, with no re-run', async () => {
+    const { out } = await runCli(['recover', '--help']);
+    expect(out).toContain('Narrows the agents to recover.');
+    expect(out).not.toMatch(/re-run/i);
+  });
+
+  it('names the recovery in the close help', async () => {
+    expect((await runCli(['close', '--help'])).out).toContain('Abandon the open run, broadcast or recovery');
+  });
+
   it('wins over other flags and over --json', async () => {
     const { code, out, err } = await runCli(['pause', '--help', '--yes', '--json']);
     expect(code).toBe(0);
