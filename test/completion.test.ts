@@ -1,26 +1,14 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { main } from '../src/cli.js';
-import { BASH_SCRIPT, complete, TOP_WORDS } from '../src/completion.js';
+import { BASH_SCRIPT, complete } from '../src/completion.js';
 import { COMMANDS, flagsOf } from '../src/flags.js';
-import { FakeOrca } from './helpers/fake-orca.js';
+import { runCli, seedGroups, writeGroups } from './helpers/run-cli.js';
 
 const GROUPS = ['web', 'workers'];
 const c = (...words: string[]) => complete(words, GROUPS);
 
-async function run(argv: string[], env: NodeJS.ProcessEnv = {}) {
-  let out = '';
-  let err = '';
-  const code = await main(argv, env, { stdout: (t) => (out += t), stderr: (t) => (err += t), isTTY: false }, { port: new FakeOrca([]) });
-  return { code, out, err };
-}
-
 describe('complete: the first word', () => {
   it('offers every command and the group, roster and completion words', () => {
-    expect(c('')).toEqual([...TOP_WORDS]);
-    expect(TOP_WORDS).toEqual([...COMMANDS, 'group', 'roster', 'completion']);
+    expect(c('')).toEqual([...COMMANDS, 'group', 'roster', 'completion']);
   });
 
   it('keeps only the words that start with what is typed', () => {
@@ -109,37 +97,30 @@ describe('complete: group, roster and completion', () => {
 
 describe('the CLI', () => {
   it('prints the bash script for completion bash and exits 0', async () => {
-    const { code, out, err } = await run(['completion', 'bash']);
+    const { code, out, err } = await runCli(['completion', 'bash']);
     expect([code, out, err]).toEqual([0, BASH_SCRIPT, '']);
     expect(out).toContain('complete -o default -F _orca_broadcast orca-broadcast');
     expect(out).toContain('orca-broadcast __complete "${COMP_WORDS[@]:1:COMP_CWORD}"');
   });
 
   it('refuses completion with another shell or a flag, exit 2', async () => {
-    expect((await run(['completion', 'zsh'])).code).toBe(2);
-    expect((await run(['completion'])).code).toBe(2);
-    expect((await run(['completion', 'bash', '--json'])).code).toBe(2);
+    expect((await runCli(['completion', 'zsh'])).code).toBe(2);
+    expect((await runCli(['completion'])).code).toBe(2);
+    expect((await runCli(['completion', 'bash', '--json'])).code).toBe(2);
   });
 
   it('answers __complete with one candidate per line, reading the group names from the groups file', async () => {
-    const config = await mkdtemp(join(tmpdir(), 'orca-broadcast-completion-'));
-    await mkdir(join(config, 'orca-broadcast'));
-    const spec = { repo: ['alpha'], worktree: [], role: [], run: [], state: [] };
-    await writeFile(join(config, 'orca-broadcast', 'groups.json'), JSON.stringify({ version: 1, groups: { web: spec } }));
-    const { code, out } = await run(['__complete', 'pause', '--group', ''], { XDG_CONFIG_HOME: config });
+    const { code, out } = await runCli(['__complete', 'pause', '--group', ''], [], { seed: seedGroups({ web: { repo: ['alpha'] } }) });
     expect([code, out]).toEqual([0, 'web\n']);
   });
 
   it('passes flags typed by the user through __complete without parsing them, and still completes with an unreadable groups file', async () => {
-    const config = await mkdtemp(join(tmpdir(), 'orca-broadcast-completion-'));
-    await mkdir(join(config, 'orca-broadcast'));
-    await writeFile(join(config, 'orca-broadcast', 'groups.json'), 'not json');
-    const { code, out } = await run(['__complete', 'pause', '--bogus', '--yes', '--ro'], { XDG_CONFIG_HOME: config });
+    const { code, out } = await runCli(['__complete', 'pause', '--bogus', '--yes', '--ro'], [], { seed: (_store, dir) => writeGroups(dir, 'not json') });
     expect([code, out]).toEqual([0, '--role\n']);
   });
 
   it('lists completion in the top help', async () => {
-    const { out } = await run(['--help']);
+    const { out } = await runCli(['--help']);
     expect(out).toMatch(/^ {2}completion +Print the bash Tab completion script/m);
   });
 });

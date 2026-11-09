@@ -5,7 +5,7 @@ import { GROUP_STATES } from './groups.js';
 import { PRESET_NAMES } from './reasons.js';
 import { ROSTER_SUBCOMMANDS } from './roster-cmd.js';
 
-export const TOP_WORDS = [...COMMANDS, 'group', 'roster', 'completion'] as const;
+const TOP_WORDS = [...COMMANDS, 'group', 'roster', 'completion'] as const;
 
 // The script that `completion bash` prints. Bash calls `orca-broadcast __complete <words>` on each Tab; an empty answer falls back to file names.
 export const BASH_SCRIPT = `_orca_broadcast() {
