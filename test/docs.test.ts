@@ -243,6 +243,7 @@ describe('roster documents', () => {
 
   it('README.md and every guide page leave out the "(not in `--json`)" note', async () => {
     const pages = (await diskTree.list('docs/guide')).filter((entry) => entry.endsWith('.md')).map((entry) => `docs/guide/${entry}`);
+    expect(pages).not.toEqual([]);
     for (const page of ['README.md', ...pages]) {
       expect(await read(page), page).not.toContain('(not in `--json`)');
     }

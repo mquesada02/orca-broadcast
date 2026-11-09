@@ -10,9 +10,11 @@
 
 ## Known limits
 
-- Claude Code agents only.
-- The local Orca host only.
-- Linux only. See [Known limits](docs/guide/how-it-works.md#known-limits).
+- It works with Claude Code agents only.
+- It works with the local Orca host only.
+- It works on Linux only.
+
+For the full limits, see [Known limits](docs/guide/how-it-works.md#known-limits).
 
 ## Install
 
@@ -24,6 +26,8 @@ pnpm build
 ```
 
 Then put the command on your `PATH`. Use `pnpm link --global` or a small wrapper. For `pnpm link --global`, pnpm's global bin directory must be on your `PATH` (see `pnpm setup`).
+
+This is the wrapper:
 
 ```sh
 printf '#!/bin/sh\nexec node %s/dist/bin.js "$@"\n' "$PWD" > ~/.local/bin/orca-broadcast
@@ -83,7 +87,7 @@ More: [Tab completion](docs/guide/reference.md#tab-completion).
 
 ## Safety
 
-The tool asks before it sends. It never types into a terminal that is not a Claude agent. It never sends to an agent on a permission prompt. Run it from a plain terminal, not from inside a Claude session. An agent cannot pause itself while it runs a command.
+`orca-broadcast` asks before it sends. It never types into a terminal that is not a Claude agent. It never sends to an agent on a permission prompt. Run it from a plain terminal, not from inside a Claude session. An agent cannot pause itself while it runs a command.
 
 ## Contributing
 
