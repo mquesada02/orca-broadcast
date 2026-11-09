@@ -24,6 +24,23 @@ describe('roster documents', () => {
   });
 });
 
+describe('recover crash mode documents', () => {
+  it.each(['Crash mode', 'Recovery record', 'Restored agent', 'Restarted agent', 'Held session', 'Missing agent'])('CONTEXT.md defines the term %s', async (term) => {
+    expect(await read('CONTEXT.md')).toMatch(new RegExp(`^\\*\\*${term}\\*\\*:`, 'm'));
+  });
+
+  it('README says that left-to-coordinator means the list was sent, not that the workers were restarted', async () => {
+    expect(await read('README.md')).toMatch(/left-to-coordinator[^\n]*not[^\n]*restarted/);
+  });
+
+  it.each(['--timeout', '--yes', '--json', '--group'])('README Options row of %s names recover', async (flag) => {
+    const options = (await read('README.md')).split('### Options')[1]?.split('\n### ')[0] ?? '';
+    const row = options.split('\n').find((line) => line.startsWith(`| \`${flag}`));
+    expect(row).toBeDefined();
+    expect(row).toContain('`recover`');
+  });
+});
+
 describe('session-ID identity documents', () => {
   it('ADR 0002 records that agents are identified across a restart by session ID', async () => {
     const adrs = await readdir(join(import.meta.dirname, '..', 'docs', 'adr'));

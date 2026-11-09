@@ -36,6 +36,30 @@ _Avoid_: Preset, list, tag
 The saved snapshots of the live Claude agents, one file per runtime key (the pair of boot ID and Orca runtime ID), with the newest 5 kept. An entry holds a session ID, the pane key, the worktree and the role of one agent, and never prompt or reply text. `roster save`, and the start and end of `broadcast`, `pause` and `resume`, write it.
 _Avoid_: Backup, agent list
 
+**Crash mode**:
+`recover` with no open pause run. It reads the roster from before the restart, shows which agents are restored, missing or failed, and after one confirmation restarts the missing agents that are not workers and prompts the agents whose last turn did not finish and the coordinators that have a missing worker.
+_Avoid_: Reboot mode, recovery run
+
+**Recovery record**:
+The durable record of one crash recovery: its token and one row per agent with its status. It is written after the confirmation and before the first start, and it closes by itself when every row is final.
+_Avoid_: Recovery run, recover log
+
+**Restored agent**:
+A live Orca agent row, found in Orca's own listing of live agents, whose Claude session ID is the agent's, for an agent that `recover` did not start. The term says how the agent came back; the `restored` status is a different thing, and a restored agent that was prompted ends `acked`.
+_Avoid_: Recovered agent, surviving agent
+
+**Restarted agent**:
+An agent that `recover` started with `claude --resume` and that then appeared in Orca.
+_Avoid_: Respawned agent, revived agent
+
+**Held session**:
+A Claude session that no live Orca agent row has, but that a live process holds. `recover` never starts it: the row is `failed`, reason `session-held`.
+_Avoid_: Locked session, busy session
+
+**Missing agent**:
+An agent of the roster whose session ID no live Orca agent row has and that no live process holds. An agent whose session may be held by a process of unknown session is not missing: it is `failed`, reason `unverifiable`.
+_Avoid_: Dead agent, lost agent
+
 **Session role**:
 The role of an agent that is neither a coordinator nor a worker of an orchestration run.
 _Avoid_: Standalone, solo, plain agent
