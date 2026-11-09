@@ -1,5 +1,5 @@
 import { clearPid } from './shared.js';
-import type { BroadcastRecord, RecoverReason, RecoverRow, RecoveryRecord, RecoveryRow } from './types.js';
+import type { BroadcastRecord, RecoverReason, RecoverRow, RecoveryRecord, RecoveryRow, RosterEntry } from './types.js';
 
 /**
  * A row is final when no further start, send or wait is planned for it: `acked`, `gone`, `left-to-coordinator`, `no-coordinator`, `failed`
@@ -50,6 +50,12 @@ export function abandonRecovery(record: RecoveryRecord, reason: Extract<RecoverR
   }
   closeIfFinal(record, 'abandoned');
   return chosen.length;
+}
+
+/** The roster entry of a row: the row without its result and its recovery fields. */
+export function entryOf(row: RecoveryRow): RosterEntry {
+  const { status, reason, promptDue, messagePending, baseline, listDue, startedAt, extraWorkers, ...entry } = row;
+  return entry;
 }
 
 /** A recovery record has `rows`; a broadcast record has `targets`. */

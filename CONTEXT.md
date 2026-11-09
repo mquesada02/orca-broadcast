@@ -9,11 +9,11 @@ The durable record of one broadcast: its text, its token, and the state of each 
 _Avoid_: Broadcast run, message log
 
 **Re-run**:
-`broadcast` with no text, or with the open broadcast's own text: it continues that broadcast with the same token and a fresh timeout.
+`broadcast` with no text, or with the open broadcast's own text: it continues that broadcast with the same token and a fresh timeout. `recover` with an open recovery record continues that record with its token in the same way.
 _Avoid_: Resume (that is `resume`), retry
 
 **Scope**:
-The recorded targets that a re-run, or `close` with filters, acts on: those that match the filters and are `pending`, `acked` or `gone`. Abandoned targets are never in scope.
+The recorded targets that a re-run, or `close` with filters, acts on: those that match the filters and are `pending`, `acked` or `gone`. Abandoned targets are never in scope. For `recover`, the scope of a re-run is the stored recovery rows that match the filters; the other rows keep their result.
 _Avoid_: Selection (that is the first choice of targets at the prompt)
 
 **No-ack**:

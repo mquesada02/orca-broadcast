@@ -350,20 +350,8 @@ describe('errors, signals and the lock', () => {
   });
 });
 
-describe('the open recovery guard (temporary)', () => {
+describe('a recovery open beside a broadcast', () => {
   const open = (id: string): RecoveryRecord => ({ id, token: 'tok', createdAt: '2026-01-01T00:00:00.000Z', status: 'open', snapshotKey: GONE, liveRuntime: { bootId: 'boot-1', runtimeId: 'runtime-1' }, snapshots: [], rows: [] });
-
-  it('refuses with exit 2 and the exact message before any listing or scan', async () => {
-    const seed: Seed = async (store, d) => {
-      await seedRosters(rosterSnapshot(GONE, [doneEntry('s-a')]))(store);
-      await store.saveRecovery(open('r1'));
-      expect(d).toBeTruthy();
-    };
-    const { code, err, port } = await recoverRun(['--yes'], [], [], { seed });
-    expect(code).toBe(2);
-    expect(err).toContain('a recovery is open; recover with an open recovery record is not available yet');
-    expect([port.listCalls, port.scanCalls, port.starts]).toEqual([0, 0, []]);
-  });
 
   it('prints only the broken-state message when a broadcast is open beside the recovery, not the broadcast or the open-recovery message', async () => {
     const seed: Seed = async (store) => {
