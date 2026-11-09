@@ -65,6 +65,12 @@ To save a snapshot of the live agents (see "Roster"). It reads Orca and sends no
 orca-broadcast roster save
 ```
 
+To complete commands, flags and flag values with Tab in bash, add this line to `~/.bashrc`. Tab then offers the commands, only the flags the typed command accepts, the values of `--role`, `--state` and `--reason`, and your saved group names after `--group` and `group show|remove`; anything else falls back to file names. It reads only the groups file and never calls Orca:
+
+```sh
+eval "$(orca-broadcast completion bash)"
+```
+
 To give the same instruction to every working or done agent, and prove each one handled it:
 
 ```sh

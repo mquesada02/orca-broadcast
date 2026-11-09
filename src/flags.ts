@@ -132,6 +132,9 @@ const FLAGS: Record<string, FlagSpec> = {
 
 export const GENERIC_FLAGS = ['help', 'json'];
 
+/** The spec of one flag by name, or undefined for an unknown name. */
+export const specOf = (name: string): FlagSpec | undefined => (Object.hasOwn(FLAGS, name) ? FLAGS[name] : undefined);
+
 /** The flags a command accepts, or the flags `group add` accepts: the command's own in table order, then `json` and `help`. */
 export const flagsOf = (target: Command | 'group add'): [string, FlagSpec][] => {
   const own = Object.entries(FLAGS).filter(([name, spec]) => !GENERIC_FLAGS.includes(name) && (target === 'group add' ? spec.groupAdd : spec.commands.includes(target)));

@@ -3,7 +3,7 @@ import { absoluteWorktrees, groupKinds, hasGroupKinds, isGroupName, loadGroups, 
 import { isSendable, listSnapshot, liveSources, locate, resolveFilterSet, subjectOfRow } from './shared.js';
 import type { Clock, OrcaPort } from './types.js';
 
-const GROUP_SUBCOMMANDS = ['add', 'list', 'show', 'remove'] as const;
+export const GROUP_SUBCOMMANDS = ['add', 'list', 'show', 'remove'] as const;
 export type GroupSubcommand = (typeof GROUP_SUBCOMMANDS)[number];
 export const isGroupSubcommand = (value: string | undefined): value is GroupSubcommand => GROUP_SUBCOMMANDS.some((name) => name === value);
 

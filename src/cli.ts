@@ -15,6 +15,7 @@ import { isGroupSubcommand, runGroup, type GroupResult } from './group-cmd.js';
 import { loadGroups, lookupGroup, resolveGroupsPath, toGroupFilter, type GroupSpec } from './groups.js';
 import { checkStates, isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, validateRosterArgs, type Command, type FlagValues } from './flags.js';
 import { isRosterSubcommand, runRosterSave, type RosterResult } from './roster-cmd.js';
+import { BASH_SCRIPT, complete } from './completion.js';
 import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderRecover, renderRecoveryTable, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { helpFor, helpTopicOf, usageLine, type HelpTopic } from './help.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
@@ -166,6 +167,13 @@ function renderRecoveryClose(summary: RunSummary, record: RecoveryRecord): strin
 }
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, deps: CliDeps = {}): Promise<number> {
+  // The shell's Tab completion: the words are what the user typed, not flags of this call, so they skip the parser. It reads only the groups file.
+  if (argv[0] === '__complete') {
+    const groups = await loadGroups(resolveGroupsPath(env)).catch(() => new Map<string, GroupSpec>());
+    const candidates = complete(argv.slice(1), [...groups.keys()]);
+    io.stdout(candidates.map((word) => `${word}\n`).join(''));
+    return 0;
+  }
   // Read from the raw argv so that an argument parse failure still gets a JSON answer.
   const json = argv.includes('--json');
   let command: Command | null = null;
@@ -186,6 +194,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     roster = rosterLabel(positionals);
     if (name === 'group') return await mainGroup(rest, values as FlagValues, json, env, io, deps);
     if (name === 'roster') return await mainRoster(rest, values as FlagValues, json, env, io, deps);
+    if (name === 'completion') {
+      if (rest.length !== 1 || rest[0] !== 'bash' || Object.values(values).some((value) => value !== undefined)) throw new UsageError('usage: orca-broadcast completion bash');
+      io.stdout(BASH_SCRIPT);
+      return 0;
+    }
     if (name === 'broadcast' && rest.length > 1) throw new UsageError('broadcast takes one text: put it in quotes');
     if (!isCommand(name) || (name !== 'broadcast' && rest.length > 0)) {
       throw new UsageError(positionals.length === 0 ? 'missing command' : `unknown command "${positionals.join(' ')}"`);
