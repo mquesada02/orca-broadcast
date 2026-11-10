@@ -21,7 +21,7 @@ const DETAILS: Record<Command, string[]> = {
     'Exit 0 if all agents confirmed, 1 if any is unconfirmed. A second pause widens the open run.',
   ],
   resume: [
-    'Exit 0 if the run closed (or there was nothing to resume), 1 if any agent is pending. Filters only narrow the run; they never add agents.',
+    'Exit 0 if every selected agent is resumed or gone (or there was nothing to resume), 1 if any selected agent is still pending. Filters only narrow the run; they never add agents.',
     'The agent of the session that runs resume (its ORCA_PANE_KEY) is marked resumed with reason self and gets no message; from any other session it gets CONTINUE like the others.',
   ],
   close: [
