@@ -88,6 +88,12 @@ describe('per-command help', () => {
     expect(out).toContain('Exit 0 if every row is restored, restarted, acked, left-to-coordinator or abandoned (or there is nothing to recover), 1 if any row is pending, gone, no-coordinator or failed, 2 on a refusal.');
   });
 
+  it('gives the exit codes of resume from the selected agents, not from the run closing', async () => {
+    const { out } = await runCli(['resume', '--help']);
+    expect(out).not.toContain('Exit 0 if the run closed');
+    expect(out).toContain('Exit 0 if every selected agent is resumed or gone (or there was nothing to resume), 1 if any selected agent is still pending. Filters only narrow the run; they never add agents.');
+  });
+
   it('notes on the recover filter flags that they narrow the agents to recover, with no re-run', async () => {
     const { out } = await runCli(['recover', '--help']);
     expect(out).toContain('Narrows the agents to recover.');
