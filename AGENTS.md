@@ -8,7 +8,7 @@ Behaviour: `README.md` and `docs/guide/`. Terms: `CONTEXT.md`. Decisions: `docs/
 
 Do not run the built CLI (`node dist/bin.js`, `orca-broadcast`) or any command that sends to real Orca terminals — not even with a temporary `XDG_STATE_HOME`. It messages every working Claude session on the machine; this happened once during development. Verify behaviour only through tests. Copy this rule into the prompt of any subagent you start for this repo.
 
-The one exception is help: `orca-broadcast --help` and `orca-broadcast <command> --help`, with no other flag or argument. Help returns before any Orca call (`main()` in `src/cli.ts`) and sends nothing. The `orca-broadcast` skill in `.claude/skills/` reads facts this way.
+The one exception is help: `orca-broadcast --help` and `orca-broadcast <command> --help`, with no other flag or argument.
 
 To capture a real `orca-ide` output shape, send only to a throwaway terminal you create yourself with `orca-ide terminal create`, never through `orca-broadcast`.
 
