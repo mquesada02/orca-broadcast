@@ -1,6 +1,6 @@
 # orca-broadcast
 
-A command-line tool that sends instructions to the Claude Code agents running in Orca on this machine (pause, resume, broadcast), and proves that each agent handled them.
+A command-line tool that sends instructions to the Claude Code agents running in Orca on this machine (pause, resume, broadcast, recover), and proves that each agent handled them.
 
 ## Language
 
