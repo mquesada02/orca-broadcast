@@ -1,6 +1,6 @@
 # orca-broadcast
 
-`orca-broadcast` pauses every working Claude Code agent in the Orca IDE before you leave, and resumes all of them when you are back. It checks that each agent really stopped or continued, so no agent is missed.
+`orca-broadcast` sends one message to every working or done Claude Code agent in the Orca IDE, and proves that each agent handled it. It also pauses every working agent before you leave, and resumes all of them when you are back. After a PC restart or an Orca crash, it restarts the agents that did not come back.
 
 ## Requirements
 

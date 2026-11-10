@@ -1,7 +1,7 @@
 {
   "name": "orca-broadcast",
   "version": "0.1.0",
-  "description": "Pause and resume every working Claude Code agent in Orca",
+  "description": "Broadcast a message to Claude Code agents in Orca, and pause, resume or recover them",
   "license": "MIT",
   "type": "module",
   "bin": {
