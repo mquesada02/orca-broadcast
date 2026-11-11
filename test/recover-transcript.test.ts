@@ -10,6 +10,8 @@ import type { Seed } from './helpers/run-cli.js';
 const TOKEN = 'tok1';
 const ACK = `ORCA-ACK ${TOKEN}`;
 const OLD = 'Earlier reply.';
+/** The file id of a fake transcript that was never replaced. */
+const FIRST_FILE = 'gen-1';
 const SECRET = 'SECRET-TEXT-IN-A-TRANSCRIPT';
 const newToken = () => TOKEN;
 
@@ -136,14 +138,14 @@ const markOf = (port: FakeOrca, sessionId: string, identity: TranscriptIdentity,
 describe('recover: a re-run', () => {
   it('keeps the first identity, offset and file id when it sends again, and a reply after the first mark proves the row', async () => {
     // The stored row holds the mark of the first run (pid 10), taken before the transcript got its replies; the re-run's scan names pid 11.
-    const first: TranscriptMark = { identity: identityOf('s-a', 10), position: 0, fileId: 'gen-1' };
+    const first: TranscriptMark = { identity: identityOf('s-a', 10), position: 0, fileId: FIRST_FILE };
     const { out, dir } = await rerun([row('s-a', { transcript: first })], [live('new:a')], { scan: scanOf(holds('s-a', 'new:a', true, 11)), configure: ackThenWake('s-a') });
     expect(resultsOf(out)).toEqual({ 's-a': 'acked' });
     expect(rowOf(dir, 's-a').transcript).toEqual(first);
   });
 
   it('keeps an acked row acked when its transcript is removed before the re-run', async () => {
-    const acked = row('s-a', { status: 'acked', reason: null, messagePending: false, baseline: OLD, transcript: { identity: identityOf('s-a'), position: 0, fileId: 'gen-1' } });
+    const acked = row('s-a', { status: 'acked', reason: null, messagePending: false, baseline: OLD, transcript: { identity: identityOf('s-a'), position: 0, fileId: FIRST_FILE } });
     const { out, dir } = await rerun([acked, row('s-b')], [live('new:a'), live('new:b', acksByLastReply)], {
       scan: scanOf(holds('s-a', 'new:a'), holds('s-b', 'new:b', false)),
       configure: (port) => void port.transcript('s-a').remove(),
@@ -169,20 +171,20 @@ describe('recover: a re-run', () => {
 
   describe('falls back to the last reply when the transcript is missing', () => {
     const sentRow = (mark: TranscriptMark) => row('s-a', { reason: 'no-ack', messagePending: false, baseline: OLD, transcript: mark });
-    const cases: [string, (port: FakeOrca) => void, number][] = [
-      ['the file is gone', (p) => void p.transcript('s-a').remove(), 0],
-      ['the file shrank', (p) => void p.transcript('s-a').shrink(5), 5],
-      ['the file was replaced', (p) => void p.transcript('s-a').replace(), 0],
-      ['the session has no transcript for the identity', () => {}, 0],
+    const cases: [string, (port: FakeOrca) => void, number, boolean][] = [
+      ['the file is gone', (p) => void p.transcript('s-a').remove(), 0, true],
+      ['the file shrank', (p) => void p.transcript('s-a').shrink(5), 5, true],
+      ['the file was replaced', (p) => void p.transcript('s-a').replace(), 0, true],
+      ['the session has no transcript for the identity', () => {}, 0, false],
     ];
-    it.each(cases)('%s', async (_name, change, position) => {
-      let mark: TranscriptMark = { identity: identityOf('s-a'), position, fileId: 'gen-1' };
+    it.each(cases)('%s', async (_name, change, position, hasTranscript) => {
+      let mark: TranscriptMark = { identity: identityOf('s-a'), position, fileId: FIRST_FILE };
       const seed: Seed = (store, d) => seedRecord([sentRow(mark)])(store, d);
       const { out } = await rerun([], [live('new:a', alwaysWoken)], {
         scan: scanOf(holds('s-a', 'new:a')),
         seed,
         configure: (port) => {
-          if (_name !== 'the session has no transcript for the identity') {
+          if (hasTranscript) {
             ackThenWake('s-a')(port);
             mark = markOf(port, 's-a', identityOf('s-a'), position);
           }
