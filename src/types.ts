@@ -441,6 +441,13 @@ export interface RunRecovery {
 export type BroadcastStatus = 'pending' | 'acked' | 'gone' | 'abandoned';
 export type BroadcastReason = LocateReason | 'waiting-permission' | 'still-working' | 'background' | 'no-ack' | 'send-failed' | 'closed' | 'paused';
 
+// Where to read a session transcript from: the identity, and the size and file id taken just before the send. It holds no transcript text.
+export interface TranscriptMark {
+  identity: TranscriptIdentity;
+  position: number;
+  fileId: string;
+}
+
 export interface BroadcastTarget {
   paneKey: string;
   repoId: string;
@@ -458,6 +465,8 @@ export interface BroadcastTarget {
   messagePending: boolean;
   status: BroadcastStatus;
   reason: BroadcastReason | null;
+  /** Taken just before the first send; absent when the agent has no readable transcript, and in an older record. */
+  transcript?: TranscriptMark;
 }
 
 // The store itself reads only id, createdAt and status.

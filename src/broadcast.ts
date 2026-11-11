@@ -1,9 +1,10 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { isFiltered, matches, NO_FILTERS, type Subject } from './filters.js';
+import { sessionsByPane } from './roster.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
-import { ackLine, BROADCAST_OPEN_MESSAGE, busyReason, cancelled, clearPid, coordinatorsFirst, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, proves, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, sendDue, setPid, subjectOfRow, withWarnings, type RecordedIdentity, type Roles, type Snapshot } from './shared.js';
+import { ackLine, BROADCAST_OPEN_MESSAGE, busyReason, cancelled, clearPid, coordinatorsFirst, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, markTranscript, POLL_INTERVAL_MS, proves, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, sendDue, setPid, subjectOfRow, transcriptProof, withWarnings, type RecordedIdentity, type Roles, type Snapshot, type TranscriptReadState } from './shared.js';
 import type { RecordStore } from './store.js';
-import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, TerminalRow } from './types.js';
+import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, SessionRecord, SessionScan, TerminalRow } from './types.js';
 
 const MAX_TEXT_LENGTH = 4000;
 const NO_BROADCAST_MESSAGE = 'No broadcast is open; give a text.';
@@ -136,10 +137,11 @@ async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDe
   let latest: Snapshot | null = null;
   let record: BroadcastRecord;
   let self: BroadcastSelf | null;
+  let scan: SessionScan | null;
   try {
     throwIfAborted(deps.signal);
     snapshot = latest = await listSnapshot(deps);
-    await roster.start(snapshot);
+    scan = await roster.start(snapshot);
     throwIfAborted(deps.signal);
 
     const set = await resolveScope(deps, snapshot, []);
@@ -175,7 +177,7 @@ async function firstBroadcast(text: string, timeoutMs: number, deps: BroadcastDe
   } catch (error) {
     return { summary: failure(error, null), snapshot: latest };
   }
-  return wait({ record, scope: new Set(record.targets.map((t) => t.paneKey)), snapshot, self }, timeoutMs, deps);
+  return wait({ record, scope: new Set(record.targets.map((t) => t.paneKey)), snapshot, self, scan }, timeoutMs, deps);
 }
 
 // Continues the open broadcast: same token, only the in-scope targets, and a send only to targets that never got the message.
@@ -217,6 +219,8 @@ interface Plan {
   scope: Set<string>;
   snapshot: Snapshot;
   self: BroadcastSelf | null;
+  /** The scan of the start roster save, which names the transcript of each pane; null when it failed. */
+  scan: SessionScan | null;
 }
 
 // What a re-run decides before its first save: the scope, the prompt and the refresh after "yes". Changes only the working copy.
@@ -224,7 +228,7 @@ async function prepareRerun(record: BroadcastRecord, deps: BroadcastDeps, roster
   const selfKey = deps.selfPaneKey || undefined;
   throwIfAborted(deps.signal);
   let snapshot = await listSnapshot(deps);
-  await roster.start(snapshot);
+  const scan = await roster.start(snapshot);
   throwIfAborted(deps.signal);
 
   const set = await resolveScope(deps, snapshot, record.targets);
@@ -243,7 +247,7 @@ async function prepareRerun(record: BroadcastRecord, deps: BroadcastDeps, roster
     snapshot = await listSnapshot(deps);
     markGone(pending.filter((t) => t.status === 'pending'), snapshot.agents, snapshot.terminals);
   }
-  return { plan: { record, scope: new Set(inScope.map((t) => t.paneKey)), snapshot, self } };
+  return { plan: { record, scope: new Set(inScope.map((t) => t.paneKey)), snapshot, self, scan } };
 }
 
 // The values a recorded target is matched on: what the record saved, and its live state when it can be located now.
@@ -253,9 +257,10 @@ function savedSubject(target: BroadcastTarget, { agents, terminals }: Snapshot):
 }
 
 // The wait loop shared by a first broadcast and a re-run: poll, save, sleep, until the targets in scope are settled, none can progress, or the timeout.
-async function wait({ record, scope, snapshot: first, self }: Plan, timeoutMs: number, deps: BroadcastDeps): Promise<Finished> {
+async function wait({ record, scope, snapshot: first, self, scan }: Plan, timeoutMs: number, deps: BroadcastDeps): Promise<Finished> {
   const { clock, store } = deps;
   let snapshot = first;
+  const transcripts: Transcripts = { sessions: scan ? sessionsByPane(scan) : new Map(), state: { positions: new Map(), missing: new Set() } };
   const startedAt = clock.now();
   let summary: RunSummary;
   try {
@@ -263,7 +268,7 @@ async function wait({ record, scope, snapshot: first, self }: Plan, timeoutMs: n
     await store.saveBroadcast(record);
     while (true) {
       throwIfAborted(deps.signal);
-      await poll(record, scope, snapshot, deps);
+      await poll(record, scope, snapshot, deps, transcripts);
       if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
       await store.saveBroadcast(record);
       const scoped = record.targets.filter((t) => scope.has(t.paneKey));
@@ -304,8 +309,14 @@ function markGone(targets: BroadcastTarget[], agents: Map<string, AgentRow>, ter
   return targets.filter((t) => t.status === 'gone').length;
 }
 
+// What a run knows about transcripts: the session of each pane from its start scan, and what it has read so far.
+interface Transcripts {
+  sessions: Map<string, SessionRecord>;
+  state: TranscriptReadState;
+}
+
 // One pass: locate, refresh, check the proof, then send to targets that still need the message. Acked and gone are permanent.
-async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snapshot, deps: BroadcastDeps): Promise<void> {
+async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snapshot, deps: BroadcastDeps, transcripts: Transcripts): Promise<void> {
   const { agents, terminals, roles } = snapshot;
   const live: { target: BroadcastTarget; row: AgentRow }[] = [];
   for (const target of record.targets.filter((t) => t.status === 'pending' && scope.has(t.paneKey))) {
@@ -316,7 +327,10 @@ async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snaps
     }
     target.lastHandle = found.handle;
     Object.assign(target, roleInfoOf(roles, target.paneKey));
-    if (proves(target, found.row, record.token)) {
+    // Either check proves the target: Orca's last reply, or any reply that ended a turn since the send (a later turn may hide the ack line).
+    const { transcript } = target;
+    const proven = proves(target, found.row, record.token) || (transcript !== undefined && (await transcriptProof(deps.port, target.paneKey, transcript, ackLine(record.token), transcripts.state)));
+    if (proven) {
       target.status = 'acked';
       target.reason = null;
       continue;
@@ -342,6 +356,10 @@ async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snaps
       target.reason = 'waiting-permission';
       continue;
     }
+    // The first send takes the offset; a re-run, also when it sends again, keeps it.
+    const identity = target.transcript ? undefined : transcripts.sessions.get(target.paneKey)?.transcript;
+    const taken = identity ? await markTranscript(deps.port, identity) : null;
+    if (taken) target.transcript = taken;
     const result = await deps.port.send(found.handle, message).catch(() => ({ accepted: false as const }));
     if (result.accepted) {
       target.baseline = found.row.lastAssistantMessage;

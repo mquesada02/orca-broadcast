@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Interrupted } from './abort.js';
 import { ALL_AGENTS, combineSets, isFiltered, resolveFilters, type FilterSources, type Subject } from './filters.js';
 import { withRetry } from './retry.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, TranscriptIdentity, TranscriptMark, WorkerRow, WorktreeRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -99,6 +99,30 @@ export const ackLine = (token: string) => `ORCA-ACK ${token}`;
 // The ack proof: the message was sent, the agent is not on a permission prompt, and its new reply ends with the ack line.
 export function proves(target: { messagePending: boolean; baseline: string | null }, row: AgentRow, token: string): boolean {
   return !target.messagePending && !isWaitingLike(row.state) && hasNewReply(target.baseline, row) && endsWithLine(row.lastAssistantMessage, ackLine(token));
+}
+
+// The read positions of one run, and the targets whose transcript counted as missing in it, by pane key.
+export interface TranscriptReadState {
+  positions: Map<string, number>;
+  missing: Set<string>;
+}
+
+// The offset and file id of a transcript just before a send; null when it cannot be read.
+export async function markTranscript(port: OrcaPort, identity: TranscriptIdentity): Promise<TranscriptMark | null> {
+  const read = await port.readTranscript(identity, 0, null, []);
+  return read.kind === 'ok' ? { identity, position: read.position, fileId: read.fileId } : null;
+}
+
+// True when a reply that ended a turn since the mark has `line` as its last line. A missing transcript counts as no proof for the rest of the run.
+export async function transcriptProof(port: OrcaPort, paneKey: string, mark: TranscriptMark, line: string, state: TranscriptReadState): Promise<boolean> {
+  if (state.missing.has(paneKey)) return false;
+  const read = await port.readTranscript(mark.identity, state.positions.get(paneKey) ?? mark.position, mark.fileId, []);
+  if (read.kind === 'missing') {
+    state.missing.add(paneKey);
+    return false;
+  }
+  state.positions.set(paneKey, read.position);
+  return read.replies.some((reply) => endsWithLine(reply, line));
 }
 
 // A target is due a send when its message is still pending, its last send did not fail, and the agent is not on a permission prompt.
