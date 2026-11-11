@@ -114,7 +114,7 @@ async function askYes(ask: NonNullable<CliIo['ask']>, question: string, signal?:
 // The JSON object of `recover`: the rows and the snapshot lines of its summary, or none for an error that has no recover summary.
 function recoverJsonLine(summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'error' | 'warnings' | 'recovery'> & { run?: RunSummary['run'] }): string {
   const { outcome, exitCode, error, warnings, recovery, run } = summary;
-  return `${JSON.stringify({ command: 'recover', outcome, exitCode, run: run ?? null, record: recovery?.record ?? null, error, rows: recovery?.rows ?? [], snapshots: recovery?.snapshots ?? [], warnings: warnings ?? [] })}\n`;
+  return `${JSON.stringify({ command: 'recover', outcome, exitCode, run: run ?? null, record: recovery?.record ?? null, error, rows: recovery?.rows ?? [], snapshots: recovery?.snapshots ?? [], cleared: recovery?.cleared ?? [], warnings: warnings ?? [] })}\n`;
 }
 
 // Lists the targets on stderr and asks once.
@@ -129,12 +129,13 @@ function confirmOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>): Confirm {
 
 // Lists what `recover` will restart, prompt and leave to coordinators, and asks once.
 function confirmRecoverOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>): ConfirmRecover {
-  return async ({ restarts, prompts, leaves }, signal) => {
+  return async ({ restarts, prompts, leaves, clears }, signal) => {
     if (io.isTTY) io.stderr(CLEAR_LINE);
     const lines = [
       ...restarts.map((t) => `  restart ${t.repo}/${t.worktree} (${t.role}) ${t.permission ?? 'no permission flag'}\n`),
       ...prompts.map((t) => `  prompt ${t.repo}/${t.worktree} (${t.role})\n`),
       ...leaves.map((t) => `  leave ${t.repo}/${t.worktree} to ${t.coordinator.repo}/${t.coordinator.worktree}\n`),
+      ...(clears.length > 0 ? ['  Each worktree below is cleared (its restored tabs are closed) only if it still has no live terminal when its first agent starts:\n', ...clears.map((t) => `  clear ${t.repo}/${t.worktree}\n`)] : []),
     ];
     io.stderr(lines.join(''));
     return askYes(ask, `Restart ${restarts.length} agents, prompt ${prompts.length} and leave ${leaves.length} workers to their coordinators? [y/N] `, signal);

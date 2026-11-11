@@ -1,8 +1,8 @@
 import { throwIfAborted } from './abort.js';
-import { classify } from './recover-classify.js';
+import { classify, hasTerminalAt } from './recover-classify.js';
 import { paneOfSession } from './roster.js';
 import { iso, listFresh } from './shared.js';
-import type { Clock, OrcaPort, RecoveryRow, SessionScan } from './types.js';
+import type { Clock, OrcaPort, RecoveryRecord, RecoveryRow, SessionScan } from './types.js';
 
 export interface StartDeps {
   port: OrcaPort;
@@ -24,6 +24,8 @@ export interface Clearing {
   considered: Set<string>;
   /** The worktrees this run cleared, in clear order. */
   cleared: { repo: string; worktree: string }[];
+  /** The recovery record in crash mode: each clear is appended to its `cleared` list at once. */
+  record?: RecoveryRecord;
 }
 
 export interface Started {
@@ -88,10 +90,12 @@ export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise
       // The worktree is marked before the clear, so a failed clear is not tried again in this run (the spec: once per run).
       if (!deps.clearing.keepTabs && !deps.clearing.considered.has(row.worktreePath)) {
         deps.clearing.considered.add(row.worktreePath);
-        if (![...terminals.values()].some((terminal) => terminal.worktreePath === row.worktreePath)) {
+        if (!hasTerminalAt(terminals, row.worktreePath)) {
           const cleared = await port.clearWorktree(row.worktreePath);
-          if (cleared.cleared) deps.clearing.cleared.push({ repo: row.repo, worktree: row.worktree });
-          else deps.warnings.push(cleared.message);
+          if (cleared.cleared) {
+            deps.clearing.cleared.push({ repo: row.repo, worktree: row.worktree });
+            deps.clearing.record?.cleared?.push({ repo: row.repo, worktree: row.worktree });
+          } else deps.warnings.push(cleared.message);
         }
       }
       // A saved title is kept: the tab gets it and Claude Code may not repaint it. With none, the tab gets the label and Claude Code may name it.

@@ -41,6 +41,7 @@ export interface RecoverJson {
   error: string | null;
   rows: RecoverRow[];
   snapshots: SnapshotLine[];
+  cleared: { repo: string; worktree: string }[];
   warnings: string[];
 }
 
