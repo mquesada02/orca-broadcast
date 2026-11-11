@@ -204,6 +204,8 @@ export interface AgentRecord {
   pauseStatus: PauseStatus;
   pauseReason: PauseReason | null;
   pauseBaseline: string | null;
+  /** Taken just before an accepted pause send that has an identity; cleared by a re-open. Absent when the agent has no readable transcript, and in an older run. */
+  pauseTranscript?: TranscriptMark;
   messagePending: boolean;
   confirmedAt: string | null;
   wakeCount: number;
