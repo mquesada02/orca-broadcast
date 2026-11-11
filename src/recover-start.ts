@@ -85,6 +85,7 @@ export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise
       setResult(row, 'pending', 'awaiting-start');
       await deps.save();
       // Before the first start in a worktree: clear it when the fresh listing holds no terminal there (an orphaned one counts as live).
+      // The worktree is marked before the clear, so a failed clear is not tried again in this run (the spec: once per run).
       if (!deps.clearing.keepTabs && !deps.clearing.considered.has(row.worktreePath)) {
         deps.clearing.considered.add(row.worktreePath);
         if (![...terminals.values()].some((terminal) => terminal.worktreePath === row.worktreePath)) {
