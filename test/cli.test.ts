@@ -583,6 +583,8 @@ describe('--reason', () => {
     ['resume', ['resume', '--yes', '--reason', 'away'], '--reason applies only to pause'],
     ['close', ['close', '--reason', 'away'], '--reason applies only to pause'],
     ['resume with an unknown name', ['resume', '--yes', '--reason', 'bogus'], '--reason applies only to pause'],
+    ['--keep-tabs on resume', ['resume', '--yes', '--keep-tabs'], '--keep-tabs applies only to recover'],
+    ['--keep-tabs on pause', ['pause', '--yes', '--keep-tabs'], '--keep-tabs applies only to recover'],
   ];
   for (const [name, argv, message] of bad) {
     it(`exits 2 for ${name}, before calling Orca`, async () => {

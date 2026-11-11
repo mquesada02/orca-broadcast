@@ -63,6 +63,11 @@ const FLAGS: Record<string, FlagSpec> = {
     commands: ['pause', 'resume', 'broadcast', 'recover'],
     help: 'Skip the confirmation before anything is sent; without a terminal (a script, an agent shell) the command refuses to send unless you pass it',
   },
+  'keep-tabs': {
+    type: 'boolean',
+    commands: ['recover'],
+    help: 'Keep the restored tabs: do not clear a worktree before the first start there',
+  },
   repo: {
     type: 'string',
     arg: '<id|path|name>',

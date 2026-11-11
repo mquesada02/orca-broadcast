@@ -59,6 +59,9 @@ export type StartFailure = 'invalid-session-id' | 'flag-not-allowed' | 'no-trans
 // `message` is the error text of a `start-failed`.
 export type StartResult = { started: true; handle: string } | { started: false; reason: StartFailure; message?: string };
 
+// The result of clearing every terminal of a worktree.
+export type ClearResult = { cleared: true } | { cleared: false; message: string };
+
 // Everything needed to find one session's transcript and to check that the session is still the same.
 export interface TranscriptIdentity {
   sessionId: string;
@@ -149,6 +152,8 @@ export interface OrcaPort {
   // Reads the replies and user entries added to a session transcript since `position`. With no file id (the call at the send) it returns the
   // current size and file id and no entry.
   readTranscript(identity: TranscriptIdentity, position: number, fileId: string | null, texts: string[]): Promise<TranscriptRead>;
+  // Closes every terminal of the worktree at this path, restored tabs included.
+  clearWorktree(worktreePath: string): Promise<ClearResult>;
   listTerminals(): Promise<TerminalRow[]>;
   listRuns(): Promise<RunRow[]>;
   listWorkers(): Promise<WorkerRow[]>;
@@ -374,6 +379,8 @@ export interface RecoverySummary {
   self: RecoverSelf | null;
   /** The record this run wrote; null when it wrote none. */
   record: RecoveryRecord | null;
+  /** The worktrees this run cleared before a first start there, once each, in clear order. */
+  cleared: { repo: string; worktree: string }[];
 }
 
 // What the `recover` confirmation lists, one line per item, and counts in its question.

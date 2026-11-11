@@ -88,7 +88,7 @@ async function closeBroadcast(store: RecordStore, record: BroadcastRecord, signa
   return { outcome: 'done', exitCode: 0, run: null, error: null, rows: [], record, abandoned };
 }
 
-const recoverySummaryOf = (record: RecoveryRecord): RecoverySummary => ({ rows: record.rows.map(recoveryRowOf), snapshots: [], self: null, record });
+const recoverySummaryOf = (record: RecoveryRecord): RecoverySummary => ({ rows: record.rows.map(recoveryRowOf), snapshots: [], self: null, record, cleared: [] });
 
 // The same as a broadcast close, for the rows of a recovery: a plain close abandons every row that is not final, and with filters the
 // matching ones. The record closes itself when every row is final afterwards.

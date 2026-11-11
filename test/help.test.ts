@@ -3,7 +3,7 @@ import { COMMANDS, flagsOf } from '../src/flags.js';
 import { runCli } from './helpers/run-cli.js';
 import { working } from './helpers/fake-orca.js';
 
-const flagsListed = (help: string) => [...help.matchAll(/^ {2}--([a-z]+)/gm)].map((m) => m[1]).sort();
+const flagsListed = (help: string) => [...help.matchAll(/^ {2}--([a-z-]+)/gm)].map((m) => m[1]).sort();
 const agents = [{ paneKey: 'a:1', behavior: working }];
 
 describe('top help', () => {
@@ -46,10 +46,10 @@ describe('per-command help', () => {
   });
 
   it('matches what the parser accepts, flag by flag', async () => {
-    const value: Record<string, string[]> = { role: ['worker'], state: ['working'], timeout: ['5s'], reason: ['end-of-day'], yes: [] };
+    const value: Record<string, string[]> = { role: ['worker'], state: ['working'], timeout: ['5s'], reason: ['end-of-day'], yes: [], 'keep-tabs': [] };
     for (const command of COMMANDS) {
       const accepted = flagsOf(command).map(([name]) => name);
-      for (const name of ['file', 'timeout', 'reason', 'yes', 'repo', 'worktree', 'role', 'run', 'state', 'group']) {
+      for (const name of ['file', 'timeout', 'reason', 'yes', 'keep-tabs', 'repo', 'worktree', 'role', 'run', 'state', 'group']) {
         const { err } = await runCli([command, `--${name}`, ...(value[name] ?? ['x'])], agents);
         expect(err.includes('applies only to'), `${command} --${name}`).toBe(!accepted.includes(name));
       }
