@@ -54,7 +54,7 @@ export function abandonRecovery(record: RecoveryRecord, reason: Extract<RecoverR
 
 /** The roster entry of a row: the row without its result and its recovery fields. */
 export function entryOf(row: RecoveryRow): RosterEntry {
-  const { status, reason, promptDue, messagePending, baseline, listDue, startedAt, extraWorkers, ...entry } = row;
+  const { status, reason, promptDue, messagePending, baseline, transcript, listDue, startedAt, extraWorkers, ...entry } = row;
   return entry;
 }
 

@@ -327,6 +327,8 @@ export type RecoveryRow = RosterEntry & {
   messagePending: boolean;
   /** The agent's last reply before the prompt was sent; null before the send. */
   baseline: string | null;
+  /** Taken just before the first prompt send that has an identity; absent when the agent has no readable transcript, and in an older record. */
+  transcript?: TranscriptMark;
   /** A missing worker whose coordinator has not received the worker list yet. */
   listDue?: true;
   /** ISO time of the recorded start, present only after a start was recorded. */
