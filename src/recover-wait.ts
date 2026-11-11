@@ -3,7 +3,7 @@ import { START_WINDOW_MS } from './recover-classify.js';
 import { startAgents, type Started, type StartDeps } from './recover-start.js';
 import { continueText, workerItems } from './recover-prompt.js';
 import { holdersBySession, livePanes, sessionsByPane } from './roster.js';
-import { busyReason, coordinatorsFirst, hasNewReply, isSendable, isWaitingLike, listFresh, locate, POLL_INTERVAL_MS, proves, sendDue } from './shared.js';
+import { ackLine, busyReason, coordinatorsFirst, hasNewReply, isSendable, isWaitingLike, listFresh, locate, markTranscript, POLL_INTERVAL_MS, proves, sendDue, transcriptProof, type TranscriptReadState } from './shared.js';
 import type { AgentRow, RecoveryRow, SessionScan } from './types.js';
 
 export interface SettleDeps extends StartDeps {
@@ -53,6 +53,7 @@ export async function settle(started: Started, deps: SettleDeps): Promise<void> 
   const earlier = new Set(deps.earlier);
   let lastScanFailed = false;
   let unjoined = false;
+  const transcripts: TranscriptReadState = { positions: new Map(), missing: new Set() };
   while (true) {
     throwIfAborted(signal);
     const [agents, terminals] = await listFresh({ port, clock, signal });
@@ -104,7 +105,8 @@ export async function settle(started: Started, deps: SettleDeps): Promise<void> 
         setResult(row, 'gone', found.gone);
         continue;
       }
-      if (proves(row, found.row, token)) {
+      // Either check proves the row: Orca's last reply, or any reply that ended a turn since the send (a later turn may hide the ack line).
+      if (proves(row, found.row, token) || (row.transcript !== undefined && (await transcriptProof(port, row.sessionId, row.transcript, ackLine(token), transcripts)))) {
         setResult(row, 'acked', null);
         continue;
       }
@@ -128,6 +130,10 @@ export async function settle(started: Started, deps: SettleDeps): Promise<void> 
         row.reason = 'waiting-permission';
         continue;
       }
+      // The first send that has an identity takes the offset; a re-send keeps it.
+      const identity = row.transcript ? undefined : holders.get(row.sessionId)?.record.transcript;
+      const taken = identity ? await markTranscript(port, identity) : null;
+      if (taken) row.transcript = taken;
       const listed = rows.filter((worker) => worker.listDue && worker.coordinatorSessionId === row.sessionId);
       const result = await port.send(found.handle, continueText(token, workerItems(listed, row.extraWorkers ?? []))).catch(() => ({ accepted: false as const }));
       if (result.accepted) {
