@@ -94,6 +94,20 @@ describe('broadcast: the transcript proof', () => {
     expect((await only(dir)).status).toBe('pending');
   });
 
+  it('still acks from Orca\'s last reply when the transcript is missing, and keeps the stored mark for a later run', async () => {
+    const acksInOrca: Behavior = () => ({ state: 'done', message: `Done.\n${ACK}` });
+    const missing = await rerun(acksInOrca, { seed: seed(broadcastTarget(PANE, { baseline: 'Earlier.', transcript: MARK })), configure: (port) => port.transcript(SESSION).remove() });
+    expect(missing.code).toBe(0);
+    const stale = await rerun(wokenAfterSend, { seed: seed(broadcastTarget(PANE, { baseline: 'Earlier.', transcript: MARK })), configure: (port) => port.transcript(SESSION).remove() });
+    expect(stale.code).toBe(1);
+    expect((await only(stale.dir)).transcript).toEqual(MARK);
+  });
+
+  it('does not prove from the transcript when the scan has no entry and the target has no stored mark', async () => {
+    const { code } = await send(wokenAfterSend, { configure: (port) => { port.transcript(SESSION).reply(ACK); port.onSend = () => { port.transcript(SESSION).reply(ACK); }; } });
+    expect(code).toBe(1);
+  });
+
   it('falls back when the port reports the session as changed, and then reads no more in the run', async () => {
     const { code, port } = await send(wokenAfterSend, {
       configure: (port) => {
@@ -121,6 +135,16 @@ describe('broadcast: the transcript proof', () => {
       configure: (port) => { session()(port); port.transcript(SESSION).reply('earlier'); },
     });
     expect((await only(dir)).transcript).toEqual(first);
+  });
+
+  it('acks a target whose send looked failed but whose transcript has the token reply', async () => {
+    const { code, port, dir } = await rerun(wokenAfterSend, {
+      seed: seed(broadcastTarget(PANE, { messagePending: true, reason: 'send-failed', transcript: MARK })),
+      configure: (p) => p.transcript(SESSION).reply(`Done.\n${ACK}`),
+    });
+    expect(code).toBe(0);
+    expect(port.sends).toEqual([]);
+    expect((await only(dir)).status).toBe('acked');
   });
 
   it('marks an older record that is sent now, and leaves one that is not sent alone', async () => {

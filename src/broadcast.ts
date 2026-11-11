@@ -329,7 +329,7 @@ async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snaps
     Object.assign(target, roleInfoOf(roles, target.paneKey));
     // Either check proves the target: Orca's last reply, or any reply that ended a turn since the send (a later turn may hide the ack line).
     const { transcript } = target;
-    if (proves(target, found.row, record.token) || (transcript && !target.messagePending && (await transcriptProof(deps.port, target.paneKey, transcript, ackLine(record.token), transcripts.state)))) {
+    if (proves(target, found.row, record.token) || (transcript && (await transcriptProof(deps.port, target.paneKey, transcript, ackLine(record.token), transcripts.state)))) {
       target.status = 'acked';
       target.reason = null;
       continue;
