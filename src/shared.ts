@@ -96,7 +96,7 @@ export function endsWithLine(message: string | null, line: string): boolean {
 // The last line of every broadcast message: the agent proves it handled the message by ending its reply with it.
 export const ackLine = (token: string) => `ORCA-ACK ${token}`;
 
-// The ack proof: the message was sent, the agent is not on a permission prompt, and its new reply ends with the ack line.
+// The last-reply half of the ack proof (transcriptProof is the transcript half): the message was sent, the agent is not on a permission prompt, and its new reply ends with the ack line.
 export function proves(target: { messagePending: boolean; baseline: string | null }, row: AgentRow, token: string): boolean {
   return !target.messagePending && !isWaitingLike(row.state) && hasNewReply(target.baseline, row) && endsWithLine(row.lastAssistantMessage, ackLine(token));
 }
