@@ -131,11 +131,22 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
    If you decline, or an interrupt or an error comes before the commit point, the broadcast stays open. It is stopped and has no pid. `close` abandons it. `broadcast` with no text continues it.
 4. A pause run, a broadcast and a recovery can also be open together after a crash. "One record at a time" has these cases.
 
+## The proof
+
+`broadcast`, `recover` and `pause` prove a target with a token line. A target is proven in either of these cases:
+
+- Orca's last reply for the agent is new since the send, and its last line is the token line.
+- The Claude transcript of the agent shows a reply that ended a turn since the send, with the token line as its last line. This holds also when later turns follow. A wake-up turn after the ack reply does not hide it.
+
+Text that the agent writes between tool calls never counts, because it is not a reply that ended a turn. The proof is permanent: once a command has found it, a later change, clearing or deletion of the transcript does not undo it.
+
+An agent with no readable transcript is proven by Orca's last reply only. This also holds when the agent ran `/clear` or forked after the send, because the transcript file of the old session is then no longer read. `resume` has its own rule: see [How resume works](pause-and-resume.md#how-resume-works). [ADR 0004](../adr/0004-the-proof-reads-the-claude-transcript.md) says why the tool reads the transcript.
+
 ## Background work
 
 Orca keeps an agent in state `working` after its turn ends while background work runs. An example is a background shell. The `worktree ps` row of such an agent has `state: "working"` and `mainAgent.state: "done"`.
 
-`broadcast`, `pause` and `recover` show a pending agent in that state with the reason `background`, not `still-working`. Only the label changes. The status, the exit codes and the proof rules stay the same. The agent counts only from a new reply whose last line is the exact token line.
+`broadcast`, `pause` and `recover` show a pending agent in that state with the reason `background`, not `still-working`. Only the label changes. The status, the exit codes and the proof rules stay the same. The agent counts only from a reply whose last line is the exact token line. See [The proof](#the-proof).
 
 The label says "background work" because `state: "working"` with `mainAgent.state: "done"` may also match work that is not a shell.
 

@@ -16,8 +16,12 @@ _Avoid_: Resume (that is `resume`), retry
 The recorded targets that a re-run, or `close` with filters, acts on: those that match the filters and are `pending`, `acked` or `gone`. Abandoned targets are never in scope. For `recover`, the scope of a re-run is the stored recovery rows that match the filters; the other rows keep their result.
 _Avoid_: Selection (that is the first choice of targets at the prompt)
 
+**Ack**:
+The proof that an agent handled a message. Any reply that ended a turn since the send, with the token line as its last line, is an ack, also when later turns follow. The command reads Orca's last reply and the Claude transcript. An ack is permanent.
+_Avoid_: Receipt (a send receipt is never proof)
+
 **No-ack**:
-The reason on a pending target that replied after the send without the ack line. The target is not sent the message again, and a later ack still counts.
+The reason on a pending target that replied after the send without the ack line. The target is not sent the message again, and a later ack in any end-of-turn reply still counts.
 _Avoid_: Failed ack, nack
 
 **Hand-over**:
