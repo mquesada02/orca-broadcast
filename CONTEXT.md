@@ -37,7 +37,7 @@ A saved, named filter of agents, resolved again each time it is used.
 _Avoid_: Preset, list, tag
 
 **Roster**:
-The saved snapshots of the live Claude agents, one file per runtime key (the pair of boot ID and Orca runtime ID), with the newest 5 kept. An entry holds a session ID, the pane key, the worktree and the role of one agent, and never prompt or reply text. `roster save`, and the start and end of `broadcast`, `pause` and `resume`, write it.
+The saved snapshots of the live Claude agents, one file per runtime key (the pair of boot ID and Orca runtime ID), with the newest 5 kept. An entry holds a session ID, the pane key, the worktree, the role and, when the tab has one, the layout title of the tab of one agent, and never prompt or reply text. `roster save`, and the start and end of `broadcast`, `pause` and `resume`, write it.
 _Avoid_: Backup, agent list
 
 **Crash mode**:
@@ -59,6 +59,10 @@ _Avoid_: Recovered agent, surviving agent
 **Restarted agent**:
 An agent that `recover` started with `claude --resume` and that then appeared in Orca.
 _Avoid_: Respawned agent, revived agent
+
+**Clear**:
+The step in which `recover`, before the first start in a worktree, closes all restored tabs of that worktree with `terminal close --worktree --all`. It happens only when the worktree has no live terminal (a terminal row of the fresh listing, an orphaned one included), at most once per worktree and run. `--keep-tabs` turns it off.
+_Avoid_: Cleanup, reset
 
 **Held session**:
 A Claude session that no live Orca agent row has, but that a live process holds. `recover` never starts it: the row is `failed`, reason `session-held`.

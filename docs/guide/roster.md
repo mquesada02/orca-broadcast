@@ -27,6 +27,11 @@ An entry never holds prompt or reply text. These are its fields:
 | `coordinatorSessionId` | The session ID of the coordinator of a worker. | Worker only, when known |
 | `dispatchId` | The dispatch ID of a worker. | Worker only, when known |
 | `permission` | The permission flag of the Claude process. | When known |
+| `title` | The layout title of the tab of the agent. | When the tab has one |
+
+The `title` is the tab title that Orca's tab layout reports (`terminal list --json --include-visual-layouts`, joined to the agent by tab ID). The roster never stores the title that the running program sets, so it saves no prompt text. A tab with no layout title is saved with no `title`. A roster saved before this field existed has no `title` and stays valid. An entry kept for a pane that the scan missed keeps its saved `title`.
+
+`recover` opens the new tab of a restarted agent with its saved `title`. `recover --keep-tabs` turns off the clear of the restored tabs only. It does not change the title rules. See [Restored tabs and titles](recover.md#restored-tabs-and-titles).
 
 ## When the tool saves it
 
