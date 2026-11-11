@@ -67,7 +67,7 @@ function layoutTitlesByTab(visualLayouts: unknown): Map<string, string> {
   if (!Array.isArray(visualLayouts)) return titles;
   const seen = new Set<string>();
   for (const layout of visualLayouts) {
-    const tabs = layout?.root?.tabs;
+    const tabs = layout?.root?.type === 'group' ? layout.root.tabs : undefined;
     if (!Array.isArray(tabs)) continue;
     for (const tab of tabs) {
       if (typeof tab?.tabId !== 'string' || seen.has(tab.tabId)) continue;
@@ -78,7 +78,7 @@ function layoutTitlesByTab(visualLayouts: unknown): Map<string, string> {
   return titles;
 }
 
-const REQUEST_ID =/"orchestrationRequestId"\s*:\s*"([\w-]+)"|--retry-request\s+([\w-]+)/;
+const REQUEST_ID = /"orchestrationRequestId"\s*:\s*"([\w-]+)"|--retry-request\s+([\w-]+)/;
 
 function findRequestId(output: string): string | null {
   const match = REQUEST_ID.exec(output);

@@ -127,7 +127,9 @@ describe('orca adapter mapping', () => {
 
     it('reads no title from a root that is not a group with tabs', async () => {
       const split = { worktreeId: 'wt', worktreePath: '/x', root: { type: 'split', children: [{ tabs: [{ tabId: first!.tabId, title: 'Nested' }] }] } };
+      const splitWithTabs = { worktreeId: 'wt', worktreePath: '/x', root: { type: 'split', tabs: [{ tabId: first!.tabId, title: 'Direct' }] } };
       expect((await listed(withLayouts([split]))).terminals[0]!.tabTitle).toBeNull();
+      expect((await listed(withLayouts([splitWithTabs]))).terminals[0]!.tabTitle).toBeNull();
     });
   });
 
