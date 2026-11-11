@@ -57,7 +57,7 @@ describe('the record and the starts', () => {
     expect(before.rows[0]?.startedAt).toBeTypeOf('string');
     expect(atStart[0]?.pointer).toEqual({ kind: 'recovery', id: before.id });
 
-    expect(port.starts).toEqual([{ worktreePath: '/work/tree-s-a', sessionId: 's-a', permission: BYPASS, title: 'repo/tree-s-a (recovered)' }]);
+    expect(port.starts).toEqual([{ worktreePath: '/work/tree-s-a', sessionId: 's-a', permission: BYPASS, title: 'repo/tree-s-a (recovered)', disableTitleUpdates: false }]);
     const record = only(dir);
     expect(record).toMatchObject({ id: before.id, status: 'closed', endedBy: 'done', snapshotKey: GONE, liveRuntime: { bootId: 'boot-1', runtimeId: 'runtime-1' } });
     expect(record.pid).toBeUndefined();

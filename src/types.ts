@@ -145,7 +145,7 @@ export interface OrcaPort {
   listAgentsWithRuntime(): Promise<{ rows: AgentRow[]; runtimeId: string | null }>;
   scanSessions(): Promise<SessionScan>;
   bootId(): Promise<string>;
-  startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string): Promise<StartResult>;
+  startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string, disableTitleUpdates?: boolean): Promise<StartResult>;
   // Reads the replies and user entries added to a session transcript since `position`. With no file id (the call at the send) it returns the
   // current size and file id and no entry.
   readTranscript(identity: TranscriptIdentity, position: number, fileId: string | null, texts: string[]): Promise<TranscriptRead>;

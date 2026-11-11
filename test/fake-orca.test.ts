@@ -33,6 +33,8 @@ describe('FakeOrca new port methods', () => {
     expect(await orca.startAgent('/w', 'id', null, 't')).toEqual({ started: false, reason: 'no-transcript' });
     expect(await orca.startAgent('/w', 'id', '--dangerously-skip-permissions', 't2')).toEqual({ started: true, handle: 'term_x' });
     expect(orca.starts.map((s) => s.title)).toEqual(['t', 't2']);
+    await orca.startAgent('/w', 'id', null, 't3', true);
+    expect(orca.starts.map((s) => s.disableTitleUpdates)).toEqual([false, false, true]);
   });
 });
 
