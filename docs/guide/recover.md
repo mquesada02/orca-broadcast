@@ -123,6 +123,8 @@ The proof rule is the token line. An agent counts as acked when its reply ends w
 ORCA-ACK <token>
 ```
 
+Any reply that ended a turn since the send, with the token line as its last line, proves the target, also when later turns follow. `recover` reads Orca's last reply and the Claude transcript of the agent. Text that the agent writes between tool calls never counts. An agent with no readable transcript is proven by Orca's last reply only. See [The proof](how-it-works.md#the-proof).
+
 ## Workers
 
 `recover` never restarts a worker.

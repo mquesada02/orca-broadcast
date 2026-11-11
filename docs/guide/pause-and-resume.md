@@ -63,6 +63,8 @@ orca-broadcast close
    - That reply ends with the exact line `ORCA-PAUSED <token>`.
    - Orca shows its state as `working` or `done`. Any other state, such as a permission prompt, never counts.
 
+   A reply in the Claude transcript of the agent can also prove it, without these conditions. Any reply that ended a turn since the send, with the token line as its last line, proves the target, also when later turns follow. Text that the agent writes between tool calls never counts. An agent with no readable transcript is proven by Orca's last reply only. See [The proof](how-it-works.md#the-proof).
+
    Send receipts are never proof. A background task can keep Orca showing the agent as `working`. That does not matter for the proof. The table then shows the reason `background`, not `still-working`. See [Background work](how-it-works.md#background-work).
 9. `pause` waits up to `--timeout`. The default is `10m`. The wait loop also adds agents that start working later and match any filter set of the run. It sends the message again once to a confirmed agent that wakes up. A second wake-up shows the reason `re-woken`. In that call, `pause` sends nothing more.
 
@@ -98,7 +100,7 @@ When no pause run is open and no working agent matches your filters, `pause` pri
 5. `resume` sends the message. It sends to the workers and sessions first and to the coordinators last. The message is: `[orca-broadcast] CONTINUE. <continue sentence> Continue your task from the note in your last pause reply.` The continue sentence depends on the [reason](#pause-reasons) of the run.
 6. To a coordinator for which `recover` stored missing workers, `resume` ends the message with a sentence that names those workers, each with its dispatch ID, and tells the coordinator to decide whether to retry them with `orca-ide orchestration worker-start --retry-of`. `resume` leaves out a worker that is live again. When none is left, the message is the same as for any agent. If the process scan failed, `resume` lists every stored worker.
 7. `resume` skips an agent in any state other than `working` or `done`, such as a permission prompt. The row stays `pending` with the reason `waiting-permission`.
-8. An agent counts as resumed when its state or its last reply changes after the message. If the agent was still `working`, it counts as resumed once Orca accepts the queued message. The reason is then `queued-while-working`. `resume` waits up to 60 seconds after the message for each agent that is not `working`.
+8. An agent counts as resumed when its Claude transcript shows the CONTINUE message as a user entry since the send, because Claude then took the message into its conversation. A wake-up turn never counts. An agent with no readable transcript counts as resumed when its state or its last reply changes after the message. If the agent was still `working`, it counts as resumed once Orca accepts the queued message. The reason is then `queued-while-working`. `resume` waits up to 60 seconds after the message for each agent that is not `working`.
 9. If `resume` runs in the session of a pending agent, it marks that agent `resumed` at once with the reason `self`. The agent gets no message. This holds when `ORCA_PANE_KEY` equals the pane key of the agent. It holds even if Orca shows no row or a permission prompt for it. The session runs the command, so a CONTINUE would wait behind it. From any other session, or with an empty `ORCA_PANE_KEY`, the same row gets a CONTINUE like any agent.
 10. The run closes when no agent in it is `pending`. If you run `resume` again, it acts only on the agents that are still `pending`. An agent whose CONTINUE already got proof becomes `resumed` without a new message.
 
@@ -159,7 +161,7 @@ Pause reasons:
 | `still-working` | The agent has not answered the message, or `pause` has not sent it yet. Orca shows the agent as `working`. |
 | `background` | The agent has not answered. Its turn ended, and background work keeps Orca showing `working`. See [Background work](how-it-works.md#background-work). |
 | `waiting-permission` | Orca shows a state other than `working` or `done`, such as a permission prompt. While the agent is in that state, `pause` does not send the message. |
-| `done-no-token` | The agent is `done`, but its last reply is not new, or it does not end with the `ORCA-PAUSED <token>` line. |
+| `done-no-token` | The agent is `done`, but no reply since the send ends with the `ORCA-PAUSED <token>` line. Orca's last reply is not new or does not end with it, and the transcript shows no such reply. |
 | `send-failed` | Orca refused the send. `pause` does not retry in that call. A later `pause` on the open run tries again. |
 | `re-woken` | A confirmed agent woke up a second time. `pause` does not send the message again in that call. A later `pause` on the open run does. |
 | `self` | The agent runs `pause`. It is not paused, and its own block shows it. |
@@ -174,7 +176,7 @@ Resume reasons:
 | `agent-exited` | `gone` | The terminal no longer runs Claude. |
 | `waiting-permission` | `pending` | Orca shows a state other than `working` or `done`. `resume` sent no message. |
 | `send-failed` | `pending` | Orca refused the send. |
-| `no-proof` | `pending` | The message was sent, but the state and the last reply did not change within 60 seconds. |
+| `no-proof` | `pending` | The message was sent, but the transcript shows no CONTINUE user entry within 60 seconds. For an agent with no readable transcript: the state and the last reply did not change. |
 | `queued-while-working` | `resumed` | The agent was `working`, so Orca queued the message. |
 | `self` | `resumed` | The session of the agent runs `resume`, so it got no message. |
 

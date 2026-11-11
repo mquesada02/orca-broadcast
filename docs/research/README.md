@@ -12,6 +12,7 @@ The guide pages in `docs/guide/` and the ADRs in `docs/adr/` are the current tru
 | [coordinator-stop.md](coordinator-stop.md) | How an Orca coordinator behaves when its workers stop |
 | [multiline-send.md](multiline-send.md) | Multi-line text in `orca-ide terminal send` |
 | [pre-crash-roster.md](pre-crash-roster.md) | Where to find the agents that were alive before a crash |
+| [reply-source.md](reply-source.md) | Where to read every reply since a send |
 | [restart-identity.md](restart-identity.md) | Which identity links a restored session to its old agent |
 | [terminal-identity.md](terminal-identity.md) | How the CLI identifies one agent's terminal reliably |
 | [tui-send.md](tui-send.md) | `orca-ide terminal send` to a Claude Code TUI that is mid-turn |

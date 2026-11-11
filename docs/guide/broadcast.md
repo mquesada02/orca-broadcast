@@ -81,6 +81,8 @@ An agent counts as acked when all of these are true:
 3. The last line of that reply is exactly `ORCA-ACK <token>`. The command ignores blank lines at the end and spaces around the line. It also accepts the line inside one pair of backticks.
 4. The agent is in state `working` or `done`.
 
+The agent also counts as acked when its transcript shows a reply that ended a turn since the send, with the same last line. Any such reply proves the target, also when later turns follow. Text that the agent writes between tool calls never counts. An agent with no readable transcript is proven as in the list above. See [The proof](how-it-works.md#the-proof).
+
 An ack is permanent. A receipt of a send is never proof.
 
 ## The broadcast record
