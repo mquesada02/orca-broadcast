@@ -13,7 +13,7 @@ const PURPOSE: Record<Command, string> = {
 
 const DETAILS: Record<Command, string[]> = {
   broadcast: [
-    'An agent counts as acked when its new last reply ends with ORCA-ACK <token>. The text has at most 4000 characters; a newline is allowed, any other control character is not.',
+    'An agent counts as acked when ORCA-ACK <token> is the last line of its new last reply, or of any reply in its Claude transcript that ended a turn since the send, also when later turns follow. The text has at most 4000 characters; a newline is allowed, any other control character is not.',
     'Exit 0 if all acked, 1 if any did not, 2 on a refusal.',
     'With no text, or the same text, it continues the open broadcast: same token, a fresh --timeout, and it sends again only to agents that never got the message. Filters then narrow the recorded targets.',
   ],

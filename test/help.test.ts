@@ -83,6 +83,11 @@ describe('per-command help', () => {
     expect(out).toContain('ORCA-ACK');
   });
 
+  it('states in the broadcast help that a transcript reply that ended a turn also proves the ack', async () => {
+    const { out } = await runCli(['broadcast', '--help']);
+    expect(out).toContain('An agent counts as acked when ORCA-ACK <token> is the last line of its new last reply, or of any reply in its Claude transcript that ended a turn since the send, also when later turns follow.');
+  });
+
   it('gives the exit codes of recover: 0 also for acked, left-to-coordinator and abandoned rows', async () => {
     const { out } = await runCli(['recover', '--help']);
     expect(out).toContain('Exit 0 if every row is restored, restarted, acked, left-to-coordinator or abandoned (or there is nothing to recover), 1 if any row is pending, gone, no-coordinator or failed, 2 on a refusal.');
