@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RecordStore } from '../../src/store.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, BroadcastTarget, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, SessionScan, StartResult, TerminalRow, TranscriptIdentity, TranscriptRead, WorkerRow, WorktreeRow } from '../../src/types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, BroadcastTarget, ClearResult, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, SessionScan, StartResult, TerminalRow, TranscriptIdentity, TranscriptRead, WorkerRow, WorktreeRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -245,9 +245,30 @@ export class FakeOrca implements OrcaPort {
   /** The result of each startAgent call, by call number. */
   startResultAt: (startCall: number) => StartResult = (n) => ({ started: true, handle: `term_started_${n}` });
 
+  /** Every startAgent and clearWorktree call in order, as `start:<sessionId>` and `clear:<path>`. */
+  events: string[] = [];
+  /** Terminals that have no agent row (a plain shell, an orphaned terminal). `worktreePath` is the full path, such as `/work/tree-a`. */
+  plainTerminals: { paneKey: string; worktreePath: string; orphaned?: boolean }[] = [];
+  /** Make each started agent open a terminal in its worktree (the new tab of a real start). */
+  startOpensTerminal = false;
+
   async startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string, disableTitleUpdates = false): Promise<StartResult> {
+    this.events.push(`start:${sessionId}`);
     this.starts.push({ worktreePath, sessionId, permission, title, disableTitleUpdates });
-    return this.startResultAt(this.starts.length);
+    const result = this.startResultAt(this.starts.length);
+    if (result.started && this.startOpensTerminal) this.plainTerminals.push({ paneKey: `started:${this.starts.length}`, worktreePath });
+    return result;
+  }
+
+  /** The worktree path of each clearWorktree call. */
+  clears: string[] = [];
+  /** The result of each clearWorktree call, by call number. */
+  clearResultAt: (clearCall: number) => ClearResult = () => ({ cleared: true });
+
+  async clearWorktree(worktreePath: string): Promise<ClearResult> {
+    this.events.push(`clear:${worktreePath}`);
+    this.clears.push(worktreePath);
+    return this.clearResultAt(this.clears.length);
   }
 
   private transcripts = new Map<string, FakeTranscript>();
@@ -271,7 +292,8 @@ export class FakeOrca implements OrcaPort {
 
   async listTerminals(): Promise<TerminalRow[]> {
     this.listTerminalsCalls += 1;
-    return this.agents.flatMap((a) => this.terminalOf(a) ?? []);
+    const plain = this.plainTerminals.map((t): TerminalRow => ({ handle: this.handleOf(t.paneKey), paneKey: t.paneKey, orphaned: t.orphaned ?? false, agentIdentity: null, worktreePath: t.worktreePath, tabTitle: null }));
+    return [...this.agents.flatMap((a) => this.terminalOf(a) ?? []), ...plain];
   }
 
   async listRuns(): Promise<RunRow[]> {

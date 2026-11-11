@@ -516,3 +516,34 @@ describe('startAgent', () => {
     expect(await adapter.startAgent(WORKTREE, CMDLINE_ID, null, 't')).toEqual({ started: false, reason: 'start-failed', message: 'no handle in the receipt' });
   });
 });
+
+describe('clearWorktree', () => {
+  const WORKTREE = '/work/example tree.v2';
+
+  function setup(result: { stdout?: string; stderr?: string; code?: number } | Error) {
+    const m = fakeMachine();
+    const calls: { file: string; args: string[] }[] = [];
+    const exec: Exec = async (file, args) => {
+      calls.push({ file, args });
+      if (result instanceof Error) throw result;
+      return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', code: result.code ?? 0 };
+    };
+    return { calls, adapter: createOrcaAdapter(exec, { procRoot: m.proc, claudeDir: m.claude, uid: UID }) };
+  }
+
+  it('runs terminal close for the worktree path with --all and nothing else, and succeeds on exit code 0', async () => {
+    const { adapter, calls } = setup({});
+    expect(await adapter.clearWorktree(WORKTREE)).toEqual({ cleared: true });
+    expect(calls).toEqual([{ file: ORCA_EXECUTABLE, args: ['terminal', 'close', '--worktree', `path:${WORKTREE}`, '--all'] }]);
+  });
+
+  it('returns the failure with a message for a non-zero exit code', async () => {
+    const { adapter } = setup({ code: 1, stderr: 'no such worktree\n' });
+    expect(await adapter.clearWorktree(WORKTREE)).toEqual({ cleared: false, message: 'orca-ide terminal close exited with code 1: no such worktree' });
+  });
+
+  it('returns the failure with a message when the command cannot run', async () => {
+    const { adapter } = setup(new Error('spawn orca-ide ENOENT'));
+    expect(await adapter.clearWorktree(WORKTREE)).toEqual({ cleared: false, message: 'spawn orca-ide ENOENT' });
+  });
+});

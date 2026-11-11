@@ -13,6 +13,17 @@ export interface StartDeps {
   /** The end of the `--timeout` clock, the confirmation wait included. */
   deadline: number;
   warnings: string[];
+  /** The clear step of the run, shared by every call of `startAgents` in it. */
+  clearing: Clearing;
+}
+
+export interface Clearing {
+  /** `--keep-tabs`: no worktree is counted or cleared. */
+  keepTabs: boolean;
+  /** The worktree paths where a start was already about to be made in this run. */
+  considered: Set<string>;
+  /** The worktrees this run cleared, in clear order. */
+  cleared: { repo: string; worktree: string }[];
 }
 
 export interface Started {
@@ -73,6 +84,15 @@ export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise
       row.startedAt = iso(clock.now());
       setResult(row, 'pending', 'awaiting-start');
       await deps.save();
+      // Before the first start in a worktree: clear it when the fresh listing holds no terminal there (an orphaned one counts as live).
+      if (!deps.clearing.keepTabs && !deps.clearing.considered.has(row.worktreePath)) {
+        deps.clearing.considered.add(row.worktreePath);
+        if (![...terminals.values()].some((terminal) => terminal.worktreePath === row.worktreePath)) {
+          const cleared = await port.clearWorktree(row.worktreePath);
+          if (cleared.cleared) deps.clearing.cleared.push({ repo: row.repo, worktree: row.worktree });
+          else deps.warnings.push(cleared.message);
+        }
+      }
       // A saved title is kept: the tab gets it and Claude Code may not repaint it. With none, the tab gets the label and Claude Code may name it.
       const savedTitle = row.title || null;
       const result = await port.startAgent(row.worktreePath, row.sessionId, row.permission ?? null, savedTitle ?? `${row.repo}/${row.worktree} (recovered)`, savedTitle !== null);

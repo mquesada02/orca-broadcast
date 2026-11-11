@@ -7,7 +7,7 @@ import { planRerun } from './recover-rerun.js';
 import { isSameRestart, leftWorkers, retakeRunSet, retakeSet, sameKey, type RetakeSet } from './recover-retake.js';
 import { preRestartSet, sameRuntime, type PreRestartSet } from './recover-set.js';
 import { workerItem } from './recover-prompt.js';
-import { startAgents, type StartDeps } from './recover-start.js';
+import { startAgents, type Clearing, type StartDeps } from './recover-start.js';
 import { needsWait, resolveWorkers, settle } from './recover-wait.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
 import { paneOfSession, sessionsByPane } from './roster.js';
@@ -34,6 +34,8 @@ export interface RecoverDeps {
   confirm?: ConfirmRecover;
   /** Makes the token of the recovery record; `randomToken` when omitted. */
   newToken?: () => string;
+  /** `--keep-tabs`: the restored tabs of a worktree are not cleared before the first start there. */
+  keepTabs?: boolean;
   signal?: AbortSignal;
 }
 
@@ -70,7 +72,7 @@ function resolveSelf(selfKey: string | undefined, snapshot: Snapshot, scan: Sess
   return { sessionId, display };
 }
 
-const emptyRecovery = (snapshots: SnapshotLine[]): RecoverySummary => ({ rows: [], snapshots, self: null, record: null });
+const emptyRecovery = (snapshots: SnapshotLine[]): RecoverySummary => ({ rows: [], snapshots, self: null, record: null, cleared: [] });
 
 const NOT_DONE = new Set(['pending', 'gone', 'no-coordinator', 'failed']);
 
@@ -160,7 +162,7 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
     const declined = dueOf(plan.classified) && deps.confirm !== undefined && !(await deps.confirm(plan.classified.plan, signal));
     const deadline = startedAt + timeoutMs + (clock.now() - asked);
     throwIfAborted(signal);
-    if (declined) return { outcome: 'done', exitCode: exitCodeOf(plan.declined), run: null, error: null, rows: [], recovery: { rows: plan.declined, snapshots: saved.snapshots, self: selfLine, record: null } };
+    if (declined) return { outcome: 'done', exitCode: exitCodeOf(plan.declined), run: null, error: null, rows: [], recovery: { rows: plan.declined, snapshots: saved.snapshots, self: selfLine, record: null, cleared: [] } };
     return execute({ deps, warnings, mode: crashMode(saved, store, scope), restarts: plan.restarts, earlier: plan.earlier, rows: scope, snapshots: saved.snapshots, selfLine, deadline, roster, scan: plan.scan, panes: plan.panes });
   }
 
@@ -231,10 +233,10 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
     // `finalRows` gives one row per classified row, in the same order, so the pane key of each is at the same index.
     const keyed = rows.map((row, i) => ({ row, paneKey: (classified.rows[i] as Classified['rows'][number]).entry.paneKey }));
     const shown = inTableOrder([...keyed, ...withoutSessionId.map((row) => ({ row: recoveryRowOf(row), paneKey: row.paneKey }))], ({ row, paneKey }) => ({ ...row, paneKey })).map(({ row }) => row);
-    return { outcome: 'done', exitCode: exitCodeOf(shown), run: pauseRun, error: null, rows: [], recovery: { rows: shown, snapshots: read.snapshots, self: selfLine, record: null } };
+    return { outcome: 'done', exitCode: exitCodeOf(shown), run: pauseRun, error: null, rows: [], recovery: { rows: shown, snapshots: read.snapshots, self: selfLine, record: null, cleared: [] } };
   }
   // A start that an earlier run recorded and that is still awaited needs a record and a wait, even when nothing else is due. A pause run stores its outcome whatever is due.
-  if (declined || (!members && !due && !classified.rows.some((row) => row.awaiting))) return { outcome: 'done', exitCode: exitCodeOf(rows), run: null, error: null, rows: [], recovery: { rows, snapshots: read.snapshots, self: selfLine, record: null } };
+  if (declined || (!members && !due && !classified.rows.some((row) => row.awaiting))) return { outcome: 'done', exitCode: exitCodeOf(rows), run: null, error: null, rows: [], recovery: { rows, snapshots: read.snapshots, self: selfLine, record: null, cleared: [] } };
 
   const { rows: recordRowList, restarts } = recordRows(classified);
   const earlier = recordRowList.filter((row) => row.status === 'pending' && row.reason === 'awaiting-start');
@@ -364,7 +366,8 @@ function crashMode(record: RecoveryRecord, store: RecordStore, rows: RecoveryRow
 /** After a yes with something to start, send or wait on (in pause-run mode, always): the first write, the starts, the appearance and prompt loop and the end. */
 async function execute({ deps, warnings, mode, run, restarts, earlier, rows, snapshots, selfLine, deadline, roster, scan, panes }: Execution): Promise<RunSummary> {
   const { port, clock, signal } = deps;
-  const summaryOf = (table: RecoverRow[] = mode.table()): RecoverySummary => ({ rows: table, snapshots, self: selfLine, record: mode.record ?? null });
+  const clearing: Clearing = { keepTabs: deps.keepTabs === true, considered: new Set(), cleared: [] };
+  const summaryOf = (table: RecoverRow[] = mode.table()): RecoverySummary => ({ rows: table, snapshots, self: selfLine, record: mode.record ?? null, cleared: [...clearing.cleared] });
 
   try {
     await mode.begin();
@@ -374,7 +377,7 @@ async function execute({ deps, warnings, mode, run, restarts, earlier, rows, sna
 
   let summary: RunSummary;
   try {
-    const startDeps: StartDeps = { port, clock, signal, save: mode.save, deadline, warnings };
+    const startDeps: StartDeps = { port, clock, signal, save: mode.save, deadline, warnings, clearing };
     const started = await startAgents(restarts, startDeps);
     for (const [sessionId, pane] of started.panes) panes.set(sessionId, pane);
     if (started.count > 0 || rows.some(needsWait)) await settle(started, { ...startDeps, token: mode.token, scan, panes, rows, earlier });

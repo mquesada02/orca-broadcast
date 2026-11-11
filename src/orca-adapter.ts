@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { parseProcStartTime } from './store.js';
 import { readTranscript, transcriptPath } from './transcript.js';
-import type { AgentRow, OrcaPort, RepoRow, RunRow, SendResult, SessionRecord, SessionScan, StartResult, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
+import type { AgentRow, ClearResult, OrcaPort, RepoRow, RunRow, SendResult, SessionRecord, SessionScan, StartResult, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
 
 export const ORCA_EXECUTABLE = 'orca-ide';
 
@@ -313,6 +313,15 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
     }
   }
 
+  async function clearWorktree(worktreePath: string): Promise<ClearResult> {
+    try {
+      const { stdout, stderr, code } = await exec(ORCA_EXECUTABLE, ['terminal', 'close', '--worktree', `path:${worktreePath}`, '--all']);
+      return code === 0 ? { cleared: true } : { cleared: false, message: `orca-ide terminal close exited with code ${code}: ${(stderr || stdout).trim()}` };
+    } catch (error) {
+      return { cleared: false, message: (error as Error).message };
+    }
+  }
+
   function assertComplete(label: string, result: Record<string, any>): void {
     const omitted: unknown[] = result.hostScope?.omittedHostIds ?? [];
     if (result.truncated === true) {
@@ -337,6 +346,8 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
     bootId,
 
     startAgent,
+
+    clearWorktree,
 
     readTranscript,
 
