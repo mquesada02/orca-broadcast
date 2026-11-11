@@ -49,3 +49,5 @@ Read-only captures from a live, resumed Claude Code process (Claude Code 2.1.316
 - `terminal-create.json`: the receipt of `orca-ide terminal create --worktree path:<path> --title <title> --command "echo ..." --json`, from a throwaway terminal that ran a harmless `echo` and was closed again (never `claude`). The handle is at `result.terminal.handle`. Ids, paths and the title are placeholders.
 
 The `.bin` files hold NUL bytes; do not rewrite them with a text editor.
+
+`terminal-list.json` has no `visualLayouts` block (it was captured before `--include-visual-layouts` was used). The adapter tests in `test/adapter.test.ts` add a made-up `visualLayouts` block to it; its shape (`root` is a group with `tabs[]` of `tabId` and `title`) is from a real `terminal list --json --include-visual-layouts` capture of 2026-11-11, and its titles are invented words.

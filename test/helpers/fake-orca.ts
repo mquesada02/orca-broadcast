@@ -26,6 +26,8 @@ export interface FakeAgent {
   hasTerminal?: boolean;
   agentIdentity?: string | null;
   orphaned?: boolean;
+  /** The layout title of the agent's tab; none when unset. */
+  tabTitle?: string;
   hasRow?: boolean;
   /** Terminal shape at a listing number (overrides the static fields); one listing = one worktree ps + terminal list pair, poll or pre-send read. */
   terminalAt?: (listing: number) => 'missing' | 'orphaned' | 'not-claude' | 'ok';
@@ -166,7 +168,14 @@ export class FakeOrca implements OrcaPort {
       paneKey: agent.paneKey,
       orphaned: mode ? mode === 'orphaned' : (agent.orphaned ?? false),
       agentIdentity: mode ? (mode === 'not-claude' ? 'codex' : 'claude') : agent.agentIdentity === undefined ? 'claude' : agent.agentIdentity,
+      worktreePath: this.pathOf(agent),
+      tabTitle: agent.tabTitle ?? null,
     };
+  }
+
+  /** The worktree path of an agent: the `path` of its agent row, the path of its worktree row and the `worktreePath` of its terminal row. */
+  private pathOf(agent: FakeAgent): string {
+    return `/work/${agent.worktree ?? `tree-${agent.paneKey}`}`;
   }
 
   handleOf(paneKey: string): string {
@@ -190,7 +199,7 @@ export class FakeOrca implements OrcaPort {
         worktree: a.worktree ?? `tree-${a.paneKey}`,
         repo: a.repo ?? 'repo',
         repoId: `repo-${a.repo ?? 'repo'}`,
-        path: `/work/${a.worktree ?? `tree-${a.paneKey}`}`,
+        path: this.pathOf(a),
         parentPaneKey: a.parentPaneKey ?? null,
         agentType: a.agentType ?? 'claude',
         state: reply.state,
@@ -299,7 +308,7 @@ export class FakeOrca implements OrcaPort {
 
   /** The worktrees the agents run in, as the worktree list would show them. */
   agentWorktrees(): WorktreeRow[] {
-    return this.agents.map((a) => ({ id: `wt-${a.paneKey}`, repoId: `repo-${a.repo ?? 'repo'}`, path: `/work/${a.worktree ?? `tree-${a.paneKey}`}`, displayName: a.worktree ?? `tree-${a.paneKey}` }));
+    return this.agents.map((a) => ({ id: `wt-${a.paneKey}`, repoId: `repo-${a.repo ?? 'repo'}`, path: this.pathOf(a), displayName: a.worktree ?? `tree-${a.paneKey}` }));
   }
 
   async send(handle: string, text: string): Promise<SendResult> {

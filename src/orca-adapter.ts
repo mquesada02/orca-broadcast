@@ -60,7 +60,25 @@ function parseEnvelope(stdout: string): Envelope {
   return parsed as Envelope;
 }
 
-const REQUEST_ID = /"orchestrationRequestId"\s*:\s*"([\w-]+)"|--retry-request\s+([\w-]+)/;
+// The layout title of each tab, by tab ID, from `visualLayouts[].root.tabs[]`. A title that is not a non-empty string is no title; of two tabs with one ID the first wins.
+// The program's own terminal title (`terminals[].title`) is never read.
+function layoutTitlesByTab(visualLayouts: unknown): Map<string, string> {
+  const titles = new Map<string, string>();
+  if (!Array.isArray(visualLayouts)) return titles;
+  const seen = new Set<string>();
+  for (const layout of visualLayouts) {
+    const tabs = layout?.root?.tabs;
+    if (!Array.isArray(tabs)) continue;
+    for (const tab of tabs) {
+      if (typeof tab?.tabId !== 'string' || seen.has(tab.tabId)) continue;
+      seen.add(tab.tabId);
+      if (typeof tab.title === 'string' && tab.title !== '') titles.set(tab.tabId, tab.title);
+    }
+  }
+  return titles;
+}
+
+const REQUEST_ID =/"orchestrationRequestId"\s*:\s*"([\w-]+)"|--retry-request\s+([\w-]+)/;
 
 function findRequestId(output: string): string | null {
   const match = REQUEST_ID.exec(output);
@@ -324,14 +342,17 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
     readTranscript,
 
     async listTerminals() {
-      const result = await call(['terminal', 'list', '--json']);
+      const result = await call(['terminal', 'list', '--json', '--include-visual-layouts']);
       assertComplete('terminal list', result);
+      const layoutTitles = layoutTitlesByTab(result.visualLayouts);
       return (result.terminals ?? []).map(
         (t: Record<string, any>): TerminalRow => ({
           handle: t.handle,
           paneKey: `${t.tabId}:${t.leafId}`,
           orphaned: t.orphaned === true,
           agentIdentity: t.agentIdentity ?? null,
+          worktreePath: t.worktreePath,
+          tabTitle: layoutTitles.get(t.tabId) ?? null,
         }),
       );
     },

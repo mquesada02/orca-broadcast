@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { listSnapshot } from '../src/shared.js';
 import type { RosterEntry } from '../src/types.js';
 import { fakeClock, FakeOrca, tempStateDir } from './helpers/fake-orca.js';
-import { agent, readRoster, readRosterText, rosterFolder, rosterNames, rosterRun, scanOf, T0 } from './helpers/roster.js';
+import { agent, readRoster, readRosterText, rosterEntry, rosterFolder, rosterNames, rosterRun, scanOf, T0 } from './helpers/roster.js';
 
 const BYPASS = '--permission-mode bypassPermissions';
 
@@ -179,6 +179,34 @@ describe('roster files', () => {
       ['s1', '2026-03-01T00:00:00.000Z'],
     ]);
     expect(entries[1]).toMatchObject({ permission: BYPASS });
+  });
+
+  it('stores the layout title of the tab, only when there is one', async () => {
+    const dir = await tempStateDir();
+    const both = (p: FakeOrca) => (p.scanAt = () => scanOf({ sessionId: 's1', paneKey: 'a:1' }, { sessionId: 's2', paneKey: 'b:2' }));
+    await rosterRun(dir, [agent('a:1', { tabTitle: 'My Tab' }), agent('b:2')], { configure: both });
+    const { entries } = await readRoster(dir, 'boot-1-runtime-1.json');
+    expect(entries[0]).toMatchObject({ sessionId: 's1', title: 'My Tab' });
+    expect(entries[1]).not.toHaveProperty('title');
+  });
+
+  it('keeps the title of a carried-over entry', async () => {
+    const dir = await tempStateDir();
+    await rosterRun(dir, [agent('a:1', { tabTitle: 'Kept Title' })], { configure: (p) => (p.scanAt = () => scanOf({ sessionId: 's1', paneKey: 'a:1' })) });
+    await rosterRun(dir, [agent('a:1')], { configure: (p) => (p.scanAt = () => scanOf()), now: T0 + 60_000 });
+    expect((await readRoster(dir, 'boot-1-runtime-1.json')).entries).toMatchObject([{ sessionId: 's1', title: 'Kept Title', savedAt: '2026-03-01T00:00:00.000Z' }]);
+  });
+
+  it('loads and carries over a roster written without titles', async () => {
+    const dir = await tempStateDir();
+    const key = { bootId: 'boot-1', runtimeId: 'runtime-1' };
+    await mkdir(rosterFolder(dir), { recursive: true });
+    await writeFile(join(rosterFolder(dir), 'boot-1-runtime-1.json'), JSON.stringify({ ...key, firstSavedAt: new Date(T0).toISOString(), lastSavedAt: new Date(T0).toISOString(), entries: [{ ...rosterEntry('s1', { paneKey: 'a:1' }) }] }));
+    const { code } = await rosterRun(dir, [agent('a:1')], { configure: (p) => (p.scanAt = () => scanOf()), now: T0 + 60_000 });
+    expect(code).toBe(0);
+    const { entries } = await readRoster(dir, 'boot-1-runtime-1.json');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).not.toHaveProperty('title');
   });
 
   it('drops a carried entry whose session ID a new entry has', async () => {

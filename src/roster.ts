@@ -99,6 +99,8 @@ export function buildRoster(snapshot: Snapshot, scan: SessionScan, previous: Ros
       if (dispatchId !== undefined) entry.dispatchId = dispatchId;
     }
     if (record.permission !== null) entry.permission = record.permission;
+    const tabTitle = snapshot.terminals.get(row.paneKey)?.tabTitle;
+    if (tabTitle != null) entry.title = tabTitle;
     entries.push(entry);
   }
 

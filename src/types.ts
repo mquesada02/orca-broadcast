@@ -21,6 +21,10 @@ export interface TerminalRow {
   paneKey: string;
   orphaned: boolean;
   agentIdentity: string | null;
+  /** The `worktreePath` of the terminal row. */
+  worktreePath: string;
+  /** The layout title of the tab of the row (never the program's own title); null when there is none. */
+  tabTitle: string | null;
 }
 
 export interface RunRow {
@@ -122,6 +126,8 @@ export interface RosterEntry {
   dispatchId?: string;
   /** The permission flag of the process, when known. */
   permission?: string;
+  /** The layout title of the agent's tab, when it has one. */
+  title?: string;
 }
 
 // The roster of one runtime: the pair (boot ID, Orca runtime ID). Times are ISO text.
