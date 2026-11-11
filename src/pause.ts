@@ -6,7 +6,7 @@ import { ALL_AGENTS, isFiltered, matches, NO_FILTERS } from './filters.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
 import { sessionsByPane } from './roster.js';
 import { applySessionMatches, matchSessions, type SessionMatches } from './session-match.js';
-import { assertCurrentFormat, busyReason, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, keepRecordedRole, listFresh, listSnapshot, liveSources, locate, POLL_INTERVAL_MS, randomToken, recordedRoleInfo, recordId, resolveFilterSet, roleInfoOf, subjectOfRow, withWarnings, type RoleInfo, type Roles, type Snapshot } from './shared.js';
+import { assertCurrentFormat, busyReason, cancelled, coordinatorsFirst, endsWithLine, failure, hasNewReply, identityOf, isWaitingLike, iso, keepRecordedRole, listFresh, listSnapshot, liveSources, locate, markTranscript, POLL_INTERVAL_MS, randomToken, recordedRoleInfo, recordId, resolveFilterSet, roleInfoOf, subjectOfRow, transcriptProof, withWarnings, type RoleInfo, type Roles, type Snapshot, type TranscriptReadState } from './shared.js';
 import type { AgentRecord, AgentRow, BroadcastRecord, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, OrcaPort, PauseReason, Progress, RecoveryRecord, Role, Run, RunSummary, SessionRecord, TerminalRow } from './types.js';
 
 type Found = { row: AgentRow; handle: string };
@@ -46,6 +46,12 @@ function provesPause(agent: AgentRecord, row: AgentRow, token: string): boolean 
   return !agent.messagePending && !isWaitingLike(row.state) && hasNewReply(agent.pauseBaseline, row) && endsWithLine(row.lastAssistantMessage, pausedLine(token));
 }
 
+// Today's check, or any reply that ended a turn since the pause offset with the pause line as its last line. A re-open has cleared the offset, so an earlier pause reply never counts again.
+async function provesPauseFromAnySource(agent: AgentRecord, row: AgentRow, token: string, scope: Scope, port: OrcaPort | undefined): Promise<boolean> {
+  if (provesPause(agent, row, token)) return true;
+  return port !== undefined && agent.pauseTranscript !== undefined && (await transcriptProof(port, agent.paneKey, agent.pauseTranscript, pausedLine(token), scope.transcripts));
+}
+
 // A confirmed agent is woken only by a newer reply that does not end with the token line; state alone never wakes it.
 function isWoken(agent: AgentRecord, row: AgentRow, token: string): boolean {
   return hasNewReply(agent.pauseBaseline, row) && !endsWithLine(row.lastAssistantMessage, pausedLine(token));
@@ -67,6 +73,7 @@ function clearContinueProof(agent: AgentRecord): void {
 function reopen(agent: AgentRecord, row: AgentRow): void {
   agent.pauseStatus = 'unconfirmed';
   agent.pauseBaseline = row.lastAssistantMessage;
+  delete agent.pauseTranscript;
   agent.confirmedAt = null;
   clearContinueProof(agent);
 }
@@ -90,6 +97,8 @@ interface Scope {
   // From the start save's scan: the scan record of each pane (for new records) and the records that moved panes.
   sessions: Map<string, SessionRecord>;
   matches: SessionMatches;
+  // What the transcript reads of this invocation have read so far.
+  transcripts: TranscriptReadState;
 }
 
 // The agents a new pause run is built from: the one selection, used by `pause` and by the check that runs before a broadcast is stopped.
@@ -250,7 +259,7 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
   let roles: Roles;
   let prepared: Prepared;
   let confirmed = false;
-  const scope: Scope = { set: ALL_AGENTS, selected: new Set(), swept: new Set(), sessions: new Map(), matches: new Map() };
+  const scope: Scope = { set: ALL_AGENTS, selected: new Set(), swept: new Set(), sessions: new Map(), matches: new Map(), transcripts: { positions: new Map(), missing: new Set() } };
   // A broadcast that is open when this pause starts (no pause run is open then): the first "yes" is the commit point that abandons it.
   let broadcastRecord: BroadcastRecord | null = null;
   // A recovery that is open when this pause starts: treated like the broadcast above, and abandoned at the same commit point.
@@ -289,7 +298,7 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
     scope.set = set;
     prepared = prepare(loaded, startedAt, newToken, deps.reason, agents, terminals, roles, selfKey, scope);
     if (deps.confirm && 'run' in prepared) {
-      const targets = planSends(prepared.run, agents, terminals, roles, deps, selfKey, scope);
+      const targets = await planSends(prepared.run, agents, terminals, roles, deps, selfKey, scope);
       // With an open broadcast or recovery the first prompt always runs, so the commit point below is always a "yes".
       if (targets.length > 0 || broadcastRecord || recoveryRecord) {
         if (!(await deps.confirm(targets, deps.signal))) return withSelf(cancelled(), selfKey);
@@ -328,7 +337,7 @@ async function pauseSteps(timeoutMs: number, deps: PauseDeps, warnings: string[]
   // Before the first send pass that was not confirmed at the start: a "no" or a failure leaves the records as they were before this invocation.
   const confirmLate = async (confirm: Confirm): Promise<RunSummary | null> => {
     try {
-      const targets = planSends(run, agents, terminals, roles, deps, selfKey, scope);
+      const targets = await planSends(run, agents, terminals, roles, deps, selfKey, scope);
       if (targets.length === 0) return null;
       const yes = await confirm(targets, deps.signal);
       throwIfAborted(deps.signal);
@@ -424,8 +433,9 @@ function markLocated(agent: AgentRecord, agents: Map<string, AgentRow>, terminal
   return found;
 }
 
-// The in-memory part of a poll: sweep newcomers, locate, check wake-ups and proofs. It sends nothing and saves nothing.
-function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined, scope: Scope): { agent: AgentRecord; row: AgentRow }[] {
+// The part of a poll before the sends: sweep newcomers, locate, check wake-ups and proofs. It sends nothing and saves nothing.
+// It reads transcripts only when it gets the port: a plan needs to know who is messaged, which no proof changes.
+async function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined, scope: Scope, port?: OrcaPort): Promise<{ agent: AgentRecord; row: AgentRow }[]> {
   // The sweep adds the working agents that have no record and match any filter set of the run.
   for (const row of agents.values()) {
     if (!isSweepable(row) || row.paneKey === selfKey || run.agents.some((a) => a.paneKey === row.paneKey)) continue;
@@ -458,7 +468,7 @@ function refresh(run: Run, agents: Map<string, AgentRow>, terminals: Map<string,
   }
 
   for (const { agent, row } of live.filter(({ agent }) => agent.pauseStatus === 'unconfirmed')) {
-    if (provesPause(agent, row, run.token)) {
+    if (await provesPauseFromAnySource(agent, row, run.token, scope, port)) {
       agent.pauseStatus = 'confirmed';
       agent.pauseBaseline = row.lastAssistantMessage;
       agent.confirmedAt = iso(deps.clock.now());
@@ -477,13 +487,13 @@ function sendQueue(live: { agent: AgentRecord; row: AgentRow }[], scope: Scope):
 }
 
 // Who the next poll would message, found by running its in-memory part on a copy of the run.
-function planSends(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined, scope: Scope): ConfirmTarget[] {
-  const copy: Scope = { set: scope.set, selected: new Set(scope.selected), swept: new Set(scope.swept), sessions: scope.sessions, matches: scope.matches };
-  return sendQueue(refresh(structuredClone(run), agents, terminals, roles, deps, selfKey, copy), copy).map(({ agent }) => ({ repo: agent.repo, worktree: agent.worktree, role: agent.role }));
+async function planSends(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined, scope: Scope): Promise<ConfirmTarget[]> {
+  const copy: Scope = { ...scope, selected: new Set(scope.selected), swept: new Set(scope.swept) };
+  return sendQueue(await refresh(structuredClone(run), agents, terminals, roles, deps, selfKey, copy), copy).map(({ agent }) => ({ repo: agent.repo, worktree: agent.worktree, role: agent.role }));
 }
 
 async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: PauseDeps, selfKey: string | undefined, scope: Scope): Promise<void> {
-  const live = refresh(run, agents, terminals, roles, deps, selfKey, scope);
+  const live = await refresh(run, agents, terminals, roles, deps, selfKey, scope, deps.port);
 
   for (const { agent, row } of sendQueue(live, scope)) {
     throwIfAborted(deps.signal);
@@ -495,8 +505,16 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
       agent.pauseReason = 'waiting-permission';
       continue;
     }
+    // The offset is taken just before the send, from the start scan; a new one starts a new read, so the read state of the old one goes.
+    const identity = scope.sessions.get(agent.paneKey)?.transcript;
+    const taken = identity ? await markTranscript(deps.port, identity) : null;
+    scope.transcripts.positions.delete(agent.paneKey);
+    scope.transcripts.missing.delete(agent.paneKey);
+    delete agent.pauseTranscript;
     const result = await deps.port.send(fresh.handle, pauseMessage(run.token, agent.role, run.reason));
     if (result.accepted) {
+      // The offset is kept only after an accepted send: a refused or thrown send leaves none.
+      if (taken) agent.pauseTranscript = taken;
       agent.pauseBaseline = fresh.row.lastAssistantMessage;
       agent.messagePending = false;
     } else {
