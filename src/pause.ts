@@ -488,7 +488,7 @@ function sendQueue(live: { agent: AgentRecord; row: AgentRow }[], scope: Scope):
 
 // Who the next poll would message, found by running its in-memory part on a copy of the run.
 async function planSends(run: Run, agents: Map<string, AgentRow>, terminals: Map<string, TerminalRow>, roles: Roles, deps: Pick<PauseDeps, 'clock'>, selfKey: string | undefined, scope: Scope): Promise<ConfirmTarget[]> {
-  const copy: Scope = { set: scope.set, selected: new Set(scope.selected), swept: new Set(scope.swept), sessions: scope.sessions, matches: scope.matches, transcripts: scope.transcripts };
+  const copy: Scope = { ...scope, selected: new Set(scope.selected), swept: new Set(scope.swept) };
   return sendQueue(await refresh(structuredClone(run), agents, terminals, roles, deps, selfKey, copy), copy).map(({ agent }) => ({ repo: agent.repo, worktree: agent.worktree, role: agent.role }));
 }
 
@@ -510,20 +510,14 @@ async function poll(run: Run, agents: Map<string, AgentRow>, terminals: Map<stri
     const taken = identity ? await markTranscript(deps.port, identity) : null;
     scope.transcripts.positions.delete(agent.paneKey);
     scope.transcripts.missing.delete(agent.paneKey);
-    if (taken) agent.pauseTranscript = taken;
-    else delete agent.pauseTranscript;
-    let result;
-    try {
-      result = await deps.port.send(fresh.handle, pauseMessage(run.token, agent.role, run.reason));
-    } catch (error) {
-      delete agent.pauseTranscript;
-      throw error;
-    }
+    delete agent.pauseTranscript;
+    const result = await deps.port.send(fresh.handle, pauseMessage(run.token, agent.role, run.reason));
     if (result.accepted) {
+      // The offset is kept only after an accepted send: a refused or thrown send leaves none.
+      if (taken) agent.pauseTranscript = taken;
       agent.pauseBaseline = fresh.row.lastAssistantMessage;
       agent.messagePending = false;
     } else {
-      delete agent.pauseTranscript;
       agent.pauseReason = 'send-failed';
     }
   }
