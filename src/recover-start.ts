@@ -1,5 +1,5 @@
 import { throwIfAborted } from './abort.js';
-import { classify } from './recover-classify.js';
+import { classify, hasTerminalAt } from './recover-classify.js';
 import { paneOfSession } from './roster.js';
 import { iso, listFresh } from './shared.js';
 import type { Clock, OrcaPort, RecoveryRecord, RecoveryRow, SessionScan } from './types.js';
@@ -90,7 +90,7 @@ export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise
       // The worktree is marked before the clear, so a failed clear is not tried again in this run (the spec: once per run).
       if (!deps.clearing.keepTabs && !deps.clearing.considered.has(row.worktreePath)) {
         deps.clearing.considered.add(row.worktreePath);
-        if (![...terminals.values()].some((terminal) => terminal.worktreePath === row.worktreePath)) {
+        if (!hasTerminalAt(terminals, row.worktreePath)) {
           const cleared = await port.clearWorktree(row.worktreePath);
           if (cleared.cleared) {
             deps.clearing.cleared.push({ repo: row.repo, worktree: row.worktree });

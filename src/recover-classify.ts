@@ -120,6 +120,9 @@ interface Row {
   extraWorkers?: NonNullable<RecoveryRow['extraWorkers']>;
 }
 
+/** True when any terminal row (an orphaned one included) is in the worktree at this path: such a worktree is never cleared. */
+export const hasTerminalAt = (terminals: Map<string, TerminalRow>, worktreePath: string): boolean => [...terminals.values()].some((terminal) => terminal.worktreePath === worktreePath);
+
 export interface Classified {
   /** In table order. */
   rows: Row[];
@@ -196,10 +199,9 @@ export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed, 
   const all = ordered.map(({ entry }) => rows.get(entry.sessionId) as Row).filter((row) => !(row.bringIn && (pauseRun || !row.prompt)));
   const target = (row: Row) => ({ repo: row.entry.repo, worktree: row.entry.worktree, role: row.entry.role });
   // The distinct worktrees (by path) of the restarts with no terminal row of any kind in the listing; the first restart names each.
-  const occupied = new Set([...terminals.values()].map((terminal) => terminal.worktreePath));
   const clears = new Map<string, { repo: string; worktree: string }>();
   for (const row of all) {
-    if (keepTabs || !row.restart || occupied.has(row.entry.worktreePath) || clears.has(row.entry.worktreePath)) continue;
+    if (keepTabs || !row.restart || hasTerminalAt(terminals, row.entry.worktreePath) || clears.has(row.entry.worktreePath)) continue;
     clears.set(row.entry.worktreePath, { repo: row.entry.repo, worktree: row.entry.worktree });
   }
   const plan: RecoverPlan = {
