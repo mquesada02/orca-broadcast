@@ -55,6 +55,33 @@ export type StartFailure = 'invalid-session-id' | 'flag-not-allowed' | 'no-trans
 // `message` is the error text of a `start-failed`.
 export type StartResult = { started: true; handle: string } | { started: false; reason: StartFailure; message?: string };
 
+// Everything needed to find one session's transcript and to check that the session is still the same.
+export interface TranscriptIdentity {
+  sessionId: string;
+  /** The `cwd` key of `sessions/<pid>.json` (the folder Claude names the transcript folder after), not the process cwd. */
+  cwd: string;
+  configDir: string;
+  /** The pid of the process folder that the scan read, which names the session file. */
+  pid: number;
+  /** Same unit as `SessionRecord.startTime`. */
+  startTime: number;
+}
+
+// What one read of a session transcript returns. `missing` means the transcript cannot be trusted any more.
+export type TranscriptRead =
+  | { kind: 'missing' }
+  | {
+      kind: 'ok';
+      /** `<dev>:<ino>` of the transcript file. */
+      fileId: string;
+      /** The new read position in bytes. */
+      position: number;
+      /** The last non-blank line of each reply entry, in file order. */
+      replies: string[];
+      /** Each given text that a user entry contains, once per entry, in file order. */
+      userMatches: string[];
+    };
+
 // A live `claude` process of the current user whose session ID is known. `startTime` is field 22 of the process's `stat` file (clock ticks since boot).
 export interface SessionRecord {
   sessionId: string;
@@ -62,6 +89,8 @@ export interface SessionRecord {
   cwd: string | null;
   permission: string | null;
   startTime: number;
+  /** Present only when the session ID came from the session file and that file names a cwd. */
+  transcript?: TranscriptIdentity;
 }
 
 export interface SessionScan {
@@ -111,6 +140,9 @@ export interface OrcaPort {
   scanSessions(): Promise<SessionScan>;
   bootId(): Promise<string>;
   startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string): Promise<StartResult>;
+  // Reads the replies and user entries added to a session transcript since `position`. With no file id (the call at the send) it returns the
+  // current size and file id and no entry.
+  readTranscript(identity: TranscriptIdentity, position: number, fileId: string | null, texts: string[]): Promise<TranscriptRead>;
   listTerminals(): Promise<TerminalRow[]>;
   listRuns(): Promise<RunRow[]>;
   listWorkers(): Promise<WorkerRow[]>;

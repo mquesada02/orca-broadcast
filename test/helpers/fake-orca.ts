@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { RecordStore } from '../../src/store.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, BroadcastTarget, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, SessionScan, StartResult, TerminalRow, WorkerRow, WorktreeRow } from '../../src/types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, BroadcastTarget, Clock, OrcaPort, RepoRow, Run, RunRow, SendResult, SessionScan, StartResult, TerminalRow, TranscriptIdentity, TranscriptRead, WorkerRow, WorktreeRow } from '../../src/types.js';
 
 export interface Reply {
   state: string;
@@ -32,6 +32,89 @@ export interface FakeAgent {
   /** Whether the worktree ps row exists at a listing number (also needs hasRow). */
   rowAt?: (listing: number) => boolean;
   behavior: Behavior;
+}
+
+export type FakeEntryKind = 'reply' | 'user' | 'ignored';
+interface FakeEntry {
+  kind: FakeEntryKind;
+  /** The last line of a reply or ignored entry; the text of a user entry. */
+  text: string;
+}
+
+/** One session transcript. `position` counts complete entries; the file id is the generation. */
+export class FakeTranscript {
+  private entries: FakeEntry[] = [];
+  private pending: FakeEntry | null = null;
+  private generation = 1;
+  private exists = true;
+
+  private add(kind: FakeEntryKind, text: string): this {
+    this.exists = true;
+    this.entries.push({ kind, text });
+    return this;
+  }
+
+  /** A reply that ended a turn, with this last line. */
+  reply(lastLine: string): this {
+    return this.add('reply', lastLine);
+  }
+
+  user(text: string): this {
+    return this.add('user', text);
+  }
+
+  /** An entry that is never a reply (mid-turn, side chain, API error or synthetic). */
+  ignored(lastLine: string): this {
+    return this.add('ignored', lastLine);
+  }
+
+  /** An entry that no read returns until `complete()`. */
+  partial(kind: FakeEntryKind, text: string): this {
+    this.pending = { kind, text };
+    return this;
+  }
+
+  complete(): this {
+    if (this.pending) this.entries.push(this.pending);
+    this.pending = null;
+    return this;
+  }
+
+  remove(): this {
+    this.exists = false;
+    return this;
+  }
+
+  /** A new file: another file id and no entries. */
+  replace(): this {
+    this.generation += 1;
+    this.entries = [];
+    this.pending = null;
+    this.exists = true;
+    return this;
+  }
+
+  /** Drops the last `n` entries (and a pending partial entry), so the file is smaller than an earlier position. */
+  shrink(n: number): this {
+    this.entries = this.entries.slice(0, Math.max(0, this.entries.length - n));
+    this.pending = null;
+    return this;
+  }
+
+  read(position: number, fileId: string | null, texts: string[]): TranscriptRead {
+    if (!this.exists) return { kind: 'missing' };
+    const id = `gen-${this.generation}`;
+    if (fileId === null) return { kind: 'ok', fileId: id, position: this.entries.length, replies: [], userMatches: [] };
+    if (id !== fileId || this.entries.length < position) return { kind: 'missing' };
+    const added = this.entries.slice(position);
+    return {
+      kind: 'ok',
+      fileId: id,
+      position: this.entries.length,
+      replies: added.flatMap((e) => (e.kind === 'reply' ? [e.text] : [])),
+      userMatches: added.flatMap((e) => (e.kind === 'user' ? texts.filter((t) => e.text.includes(t)) : [])),
+    };
+  }
 }
 
 export class FakeOrca implements OrcaPort {
@@ -149,6 +232,25 @@ export class FakeOrca implements OrcaPort {
   async startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string): Promise<StartResult> {
     this.starts.push({ worktreePath, sessionId, permission, title });
     return this.startResultAt(this.starts.length);
+  }
+
+  private transcripts = new Map<string, FakeTranscript>();
+  /** Every readTranscript call, in order. */
+  transcriptReads: { identity: TranscriptIdentity; position: number; fileId: string | null; texts: string[] }[] = [];
+
+  /** The transcript of a session, created (empty) on first use. A session that a test never names has no transcript: its reads are "missing". */
+  transcript(sessionId: string): FakeTranscript {
+    let transcript = this.transcripts.get(sessionId);
+    if (!transcript) {
+      transcript = new FakeTranscript();
+      this.transcripts.set(sessionId, transcript);
+    }
+    return transcript;
+  }
+
+  async readTranscript(identity: TranscriptIdentity, position: number, fileId: string | null, texts: string[]): Promise<TranscriptRead> {
+    this.transcriptReads.push({ identity, position, fileId, texts });
+    return this.transcripts.get(identity.sessionId)?.read(position, fileId, texts) ?? { kind: 'missing' };
   }
 
   async listTerminals(): Promise<TerminalRow[]> {

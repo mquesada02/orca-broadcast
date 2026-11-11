@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import { access, readdir, readFile, readlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { parseProcStartTime } from './store.js';
+import { readTranscript } from './transcript.js';
 import type { AgentRow, OrcaPort, RepoRow, RunRow, SendResult, SessionRecord, SessionScan, StartResult, TerminalRow, WorkerRow, WorktreeRow } from './types.js';
 
 export const ORCA_EXECUTABLE = 'orca-ide';
@@ -137,17 +138,29 @@ function paneKeyOf(environ: string): string | null {
 }
 
 // Claude Code's own record of the session of one process; trusted only when its start time is the live process's (the file can outlive a crash and the pid can be reused).
-async function sessionIdFromFile(claudeDir: string, pid: string, liveStartTime: string): Promise<string | null> {
-  const file = await readText(join(claudeDir, 'sessions', `${pid}.json`));
+async function sessionFromFile(configDir: string, pid: string, liveStartTime: string): Promise<{ sessionId: string; cwd: string | null } | null> {
+  const file = await readText(join(configDir, 'sessions', `${pid}.json`));
   if (file.kind !== 'ok') return null;
   try {
     const parsed: unknown = JSON.parse(file.data);
     if (typeof parsed !== 'object' || parsed === null) return null;
-    const { sessionId, procStart } = parsed as { sessionId?: unknown; procStart?: unknown };
-    return typeof sessionId === 'string' && sessionId !== '' && String(procStart) === liveStartTime ? sessionId : null;
+    const { sessionId, procStart, cwd } = parsed as { sessionId?: unknown; procStart?: unknown; cwd?: unknown };
+    if (typeof sessionId !== 'string' || sessionId === '' || String(procStart) !== liveStartTime) return null;
+    return { sessionId, cwd: typeof cwd === 'string' && cwd !== '' ? cwd : null };
   } catch {
     return null;
   }
+}
+
+// The config dir of one process: its `CLAUDE_CONFIG_DIR` when that is an absolute path, else the adapter's option.
+function configDirOf(environ: string | null, fallback: string): string {
+  for (const entry of environ?.split('\0') ?? []) {
+    if (entry.startsWith('CLAUDE_CONFIG_DIR=')) {
+      const value = entry.slice('CLAUDE_CONFIG_DIR='.length);
+      return isAbsolute(value) ? value : fallback;
+    }
+  }
+  return fallback;
 }
 
 export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions = {}): OrcaPort {
@@ -230,10 +243,14 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
       if (stat.kind === 'gone') continue;
       const startToken = stat.kind === 'ok' ? parseProcStartTime(stat.data) : undefined;
       let paneKey: string | null = null;
+      let configDir = claudeDir;
       if (startToken !== undefined) {
         const environ = await readText(join(dir, 'environ'));
         if (environ.kind === 'gone') continue;
-        if (environ.kind === 'ok') paneKey = paneKeyOf(environ.data);
+        if (environ.kind === 'ok') {
+          paneKey = paneKeyOf(environ.data);
+          configDir = configDirOf(environ.data, claudeDir);
+        }
       }
       let cwd: string | null;
       try {
@@ -243,12 +260,15 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
         cwd = null;
       }
 
-      const sessionId = startToken === undefined ? null : ((await sessionIdFromFile(claudeDir, pid, startToken)) ?? resumeIds(args)[0] ?? null);
+      const fromFile = startToken === undefined ? null : await sessionFromFile(configDir, pid, startToken);
+      const sessionId = startToken === undefined ? null : (fromFile?.sessionId ?? resumeIds(args)[0] ?? null);
       if (startToken === undefined || sessionId === null) {
         unknown.push({ cwd });
         continue;
       }
-      sessions.push({ sessionId, paneKey, cwd, permission: permissionOf(args), startTime: Number(startToken) });
+      const startTime = Number(startToken);
+      const transcript = fromFile?.cwd ? { transcript: { sessionId, cwd: fromFile.cwd, configDir, pid: Number(pid), startTime } } : {};
+      sessions.push({ sessionId, paneKey, cwd, permission: permissionOf(args), startTime, ...transcript });
     }
     return { sessions, unknown, heldByOthers: [...held] };
   }
@@ -301,6 +321,8 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
     bootId,
 
     startAgent,
+
+    readTranscript,
 
     async listTerminals() {
       const result = await call(['terminal', 'list', '--json']);

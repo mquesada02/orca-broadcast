@@ -79,9 +79,84 @@ describe('scanSessions', () => {
     m.addProc(100);
     const scan = await m.adapter().scanSessions();
     expect(scan).toEqual({
-      sessions: [{ sessionId: FILE_ID, paneKey: 'tab-0001:leaf-0001', cwd: m.work, permission: null, startTime: Number(START_TICKS) }],
+      sessions: [
+        {
+          sessionId: FILE_ID,
+          paneKey: 'tab-0001:leaf-0001',
+          cwd: m.work,
+          permission: null,
+          startTime: Number(START_TICKS),
+          transcript: { sessionId: FILE_ID, cwd: '/work/example-worktree', configDir: m.claude, pid: 100, startTime: Number(START_TICKS) },
+        },
+      ],
       unknown: [],
       heldByOthers: [],
+    });
+  });
+
+  describe('transcript identity', () => {
+    // A process with CLAUDE_CONFIG_DIR set to `value`, and a session file written only where the test says.
+    const withConfigDir = (m: ReturnType<typeof fakeMachine>, pid: number, value: string, spec: ProcSpec = {}) => {
+      const environ = readFileSync(fixturePath('claude-environ.bin'), 'utf8') + `CLAUDE_CONFIG_DIR=${value}\0`;
+      m.addProc(pid, { session: 'none', environ, ...spec });
+    };
+    const writeSession = (dir: string, pid: number, body: Record<string, unknown> = {}) => {
+      mkdirSync(join(dir, 'sessions'), { recursive: true });
+      writeFileSync(join(dir, 'sessions', `${pid}.json`), JSON.stringify({ ...json('claude-session.json'), pid, sessionId: OTHER_ID, procStart: START_TICKS, ...body }));
+    };
+
+    it('uses the session file of CLAUDE_CONFIG_DIR, and names that dir in the identity', async () => {
+      const m = fakeMachine();
+      const dir = join(m.root, 'account');
+      withConfigDir(m, 100, dir);
+      writeSession(dir, 100);
+      const scan = await m.adapter().scanSessions();
+      expect(scan.unknown).toEqual([]);
+      expect(scan.sessions[0]?.sessionId).toBe(OTHER_ID);
+      expect(scan.sessions[0]?.transcript).toEqual({ sessionId: OTHER_ID, cwd: '/work/example-worktree', configDir: dir, pid: 100, startTime: Number(START_TICKS) });
+    });
+
+    it('uses the claudeDir option when the variable is unset', async () => {
+      const m = fakeMachine();
+      m.addProc(100);
+      expect((await m.adapter().scanSessions()).sessions[0]?.transcript?.configDir).toBe(m.claude);
+    });
+
+    it('lets the variable win over the claudeDir option: a session file only in the option dir is not used', async () => {
+      const m = fakeMachine();
+      withConfigDir(m, 100, join(m.root, 'account'));
+      writeSession(m.claude, 100);
+      const scan = await m.adapter().scanSessions();
+      expect(scan.sessions.map((s) => s.sessionId)).toEqual([CMDLINE_ID]);
+      expect(scan.sessions[0]?.transcript).toBeUndefined();
+    });
+
+    it('counts a relative or empty value as unset', async () => {
+      const m = fakeMachine();
+      withConfigDir(m, 100, 'relative/dir');
+      withConfigDir(m, 101, '');
+      writeSession(m.claude, 100);
+      writeSession(m.claude, 101);
+      const scan = await m.adapter().scanSessions();
+      expect(scan.sessions.map((s) => s.transcript?.configDir)).toEqual([m.claude, m.claude]);
+    });
+
+    it('gives no transcript for a session file with no cwd, a non-string cwd or an empty cwd, and keeps the session ID', async () => {
+      const m = fakeMachine();
+      for (const [pid, cwd] of [[100, undefined], [101, 5], [102, '']] as const) {
+        m.addProc(pid, { session: 'none' });
+        writeSession(m.claude, pid, { cwd });
+      }
+      const scan = await m.adapter().scanSessions();
+      expect(scan.sessions.map((s) => [s.sessionId, s.transcript])).toEqual([[OTHER_ID, undefined], [OTHER_ID, undefined], [OTHER_ID, undefined]]);
+    });
+
+    it('gives no transcript when the session ID came from --resume', async () => {
+      const m = fakeMachine();
+      m.addProc(100, { session: 'none' });
+      const scan = await m.adapter().scanSessions();
+      expect(scan.sessions[0]).toMatchObject({ sessionId: CMDLINE_ID });
+      expect(scan.sessions[0]?.transcript).toBeUndefined();
     });
   });
 
