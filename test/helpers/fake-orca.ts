@@ -47,6 +47,7 @@ export class FakeTranscript {
   private pending: FakeEntry | null = null;
   private generation = 1;
   private exists = true;
+  private lost = false;
 
   private add(kind: FakeEntryKind, text: string): this {
     this.exists = true;
@@ -85,6 +86,12 @@ export class FakeTranscript {
     return this;
   }
 
+  /** The session no longer matches its identity (session file absent or invalid, start time changed, new session ID): every read is "missing". */
+  lose(): this {
+    this.lost = true;
+    return this;
+  }
+
   /** A new file: another file id and no entries. */
   replace(): this {
     this.generation += 1;
@@ -102,7 +109,7 @@ export class FakeTranscript {
   }
 
   read(position: number, fileId: string | null, texts: string[]): TranscriptRead {
-    if (!this.exists) return { kind: 'missing' };
+    if (!this.exists || this.lost) return { kind: 'missing' };
     const id = `gen-${this.generation}`;
     if (fileId === null) return { kind: 'ok', fileId: id, position: this.entries.length, replies: [], userMatches: [] };
     if (id !== fileId || this.entries.length < position) return { kind: 'missing' };

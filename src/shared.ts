@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { Interrupted } from './abort.js';
 import { ALL_AGENTS, combineSets, isFiltered, resolveFilters, type FilterSources, type Subject } from './filters.js';
 import { withRetry } from './retry.js';
-import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, TranscriptIdentity, TranscriptMark, WorkerRow, WorktreeRow } from './types.js';
+import type { AgentRecord, AgentRow, BroadcastRecord, Clock, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RepoRow, Role, Run, RunRow, RunSummary, TerminalRow, TranscriptIdentity, TranscriptMark, TranscriptRead, WorkerRow, WorktreeRow } from './types.js';
 
 export const POLL_INTERVAL_MS = 2000;
 
@@ -113,16 +113,28 @@ export async function markTranscript(port: OrcaPort, identity: TranscriptIdentit
   return read.kind === 'ok' ? { identity, position: read.position, fileId: read.fileId } : null;
 }
 
-// True when a reply that ended a turn since the mark has `line` as its last line. A missing transcript counts as no proof for the rest of the run.
-export async function transcriptProof(port: OrcaPort, paneKey: string, mark: TranscriptMark, line: string, state: TranscriptReadState): Promise<boolean> {
-  if (state.missing.has(paneKey)) return false;
-  const read = await port.readTranscript(mark.identity, state.positions.get(paneKey) ?? mark.position, mark.fileId, []);
+// Reads the transcript since the read position of this run. A missing transcript counts as no proof for the rest of the run.
+async function readSince(port: OrcaPort, paneKey: string, mark: TranscriptMark, texts: string[], state: TranscriptReadState): Promise<Extract<TranscriptRead, { kind: 'ok' }> | null> {
+  if (state.missing.has(paneKey)) return null;
+  const read = await port.readTranscript(mark.identity, state.positions.get(paneKey) ?? mark.position, mark.fileId, texts);
   if (read.kind === 'missing') {
     state.missing.add(paneKey);
-    return false;
+    return null;
   }
   state.positions.set(paneKey, read.position);
-  return read.replies.some((reply) => endsWithLine(reply, line));
+  return read;
+}
+
+// True when a reply that ended a turn since the mark has `line` as its last line. A missing transcript counts as no proof for the rest of the run.
+export async function transcriptProof(port: OrcaPort, paneKey: string, mark: TranscriptMark, line: string, state: TranscriptReadState): Promise<boolean> {
+  const read = await readSince(port, paneKey, mark, [], state);
+  return read !== null && read.replies.some((reply) => endsWithLine(reply, line));
+}
+
+// True when a user entry since the mark contains one of `texts`; false when the transcript is readable and has none; null when it is missing.
+export async function userEntryProof(port: OrcaPort, paneKey: string, mark: TranscriptMark, texts: string[], state: TranscriptReadState): Promise<boolean | null> {
+  const read = await readSince(port, paneKey, mark, texts, state);
+  return read === null ? null : read.userMatches.length > 0;
 }
 
 // A target is due a send when its message is still pending, its last send did not fail, and the agent is not on a permission prompt.
