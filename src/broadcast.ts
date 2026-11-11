@@ -329,7 +329,8 @@ async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snaps
     Object.assign(target, roleInfoOf(roles, target.paneKey));
     // Either check proves the target: Orca's last reply, or any reply that ended a turn since the send (a later turn may hide the ack line).
     const { transcript } = target;
-    if (proves(target, found.row, record.token) || (transcript && (await transcriptProof(deps.port, target.paneKey, transcript, ackLine(record.token), transcripts.state)))) {
+    const proven = proves(target, found.row, record.token) || (transcript !== undefined && (await transcriptProof(deps.port, target.paneKey, transcript, ackLine(record.token), transcripts.state)));
+    if (proven) {
       target.status = 'acked';
       target.reason = null;
       continue;
@@ -357,8 +358,8 @@ async function poll(record: BroadcastRecord, scope: Set<string>, snapshot: Snaps
     }
     // The first send takes the offset; a re-run, also when it sends again, keeps it.
     const identity = target.transcript ? undefined : transcripts.sessions.get(target.paneKey)?.transcript;
-    const mark = identity && (await markTranscript(deps.port, identity));
-    if (mark) target.transcript = mark;
+    const taken = identity ? await markTranscript(deps.port, identity) : null;
+    if (taken) target.transcript = taken;
     const result = await deps.port.send(found.handle, message).catch(() => ({ accepted: false as const }));
     if (result.accepted) {
       target.baseline = found.row.lastAssistantMessage;

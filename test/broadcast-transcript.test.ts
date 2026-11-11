@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { RecordStore } from '../src/store.js';
 import type { BroadcastRecord, TranscriptIdentity, TranscriptMark } from '../src/types.js';
 import { broadcastTarget, openBroadcastRecord, type Behavior, type FakeOrca } from './helpers/fake-orca.js';
+import { scanOf } from './helpers/roster.js';
 import { runCli, type RunCliOptions } from './helpers/run-cli.js';
 
 const TOKEN = 'abcd1234';
@@ -19,11 +20,11 @@ const MARK: TranscriptMark = { identity, position: 0, fileId: 'gen-1' };
 const wokenAfterSend: Behavior = ({ received }) => (received.length === 0 ? { state: 'working', message: null } : { state: 'done', message: 'Back at work.' });
 const waitingAfterSend: Behavior = ({ received }) => (received.length === 0 ? { state: 'working', message: null } : { state: 'waiting', message: null });
 
-const scanOf = (withIdentity: boolean) => ({ sessions: [{ sessionId: SESSION, paneKey: PANE, cwd: identity.cwd, permission: null, startTime: 5, ...(withIdentity ? { transcript: identity } : {}) }], unknown: [], heldByOthers: [] });
+const sessionScan = (withIdentity: boolean) => scanOf({ sessionId: SESSION, paneKey: PANE, cwd: identity.cwd, startTime: 5, ...(withIdentity ? { transcript: identity } : {}) });
 
 /** The agent has a session in the scan; `onSend` edits its transcript right after the offset was taken (the fake takes the offset before `send`). */
 const session = (onSend: (port: FakeOrca) => void = () => {}, withIdentity = true) => (port: FakeOrca): void => {
-  port.scanAt = () => scanOf(withIdentity);
+  port.scanAt = () => sessionScan(withIdentity);
   port.transcript(SESSION);
   port.onSend = () => onSend(port);
 };
@@ -49,7 +50,7 @@ describe('broadcast: the transcript proof', () => {
     const { code, port, dir } = await send(wokenAfterSend, { configure: session((p) => p.transcript(SESSION).reply(`Done.\n${ACK}`).reply('Back at work.')) });
     expect(code).toBe(0);
     expect((await only(dir)).status).toBe('acked');
-    expect(port.scanCalls).toBe((await send(wokenAfterSend)).port.scanCalls);
+    expect(port.scanCalls).toBe(2); // the start and the end roster save, as without a transcript
   });
 
   it('does not ack an agent whose token line is only in a mid-turn entry', async () => {
@@ -74,7 +75,7 @@ describe('broadcast: the transcript proof', () => {
 
   it('keeps today\'s check when the agent has no transcript, or no identity in the scan', async () => {
     const acksInOrca: Behavior = ({ received }) => (received.length === 0 ? { state: 'working', message: null } : { state: 'done', message: `Done.\n${ACK}` });
-    for (const configure of [undefined, session(() => {}, false), (port: FakeOrca) => { port.scanAt = () => ({ sessions: [], unknown: [], heldByOthers: [] }); }]) {
+    for (const configure of [undefined, session(() => {}, false), (port: FakeOrca) => { port.scanAt = () => scanOf(); }]) {
       const { code, dir } = await send(acksInOrca, { configure });
       expect(code).toBe(0);
       expect((await only(dir)).transcript).toBeUndefined();
@@ -101,6 +102,8 @@ describe('broadcast: the transcript proof', () => {
     const stale = await rerun(wokenAfterSend, { seed: seed(broadcastTarget(PANE, { baseline: 'Earlier.', transcript: MARK })), configure: (port) => port.transcript(SESSION).remove() });
     expect(stale.code).toBe(1);
     expect((await only(stale.dir)).transcript).toEqual(MARK);
+    const readable = await rerun(wokenAfterSend, { seed: seed(broadcastTarget(PANE, { baseline: 'Earlier.', transcript: MARK })), configure: (port) => port.transcript(SESSION).reply(ACK) });
+    expect(readable.code).toBe(0);
   });
 
   it('does not prove from the transcript when the scan has no entry and the target has no stored mark', async () => {
@@ -129,7 +132,7 @@ describe('broadcast: the transcript proof', () => {
   });
 
   it('keeps the first offset when a re-run sends again', async () => {
-    const first: TranscriptMark = { ...MARK, position: 0 };
+    const first: TranscriptMark = { identity: { ...identity, pid: 99, startTime: 1 }, position: 7, fileId: 'gen-0' }; // differs from every fresh mark
     const { dir } = await rerun(wokenAfterSend, {
       seed: seed(broadcastTarget(PANE, { messagePending: true, reason: 'send-failed', transcript: first })),
       configure: (port) => { session()(port); port.transcript(SESSION).reply('earlier'); },
