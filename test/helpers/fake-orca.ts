@@ -241,12 +241,12 @@ export class FakeOrca implements OrcaPort {
     return this.boot;
   }
 
-  starts: { worktreePath: string; sessionId: string; permission: string | null; title: string }[] = [];
+  starts: { worktreePath: string; sessionId: string; permission: string | null; title: string; disableTitleUpdates: boolean }[] = [];
   /** The result of each startAgent call, by call number. */
   startResultAt: (startCall: number) => StartResult = (n) => ({ started: true, handle: `term_started_${n}` });
 
-  async startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string): Promise<StartResult> {
-    this.starts.push({ worktreePath, sessionId, permission, title });
+  async startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string, disableTitleUpdates = false): Promise<StartResult> {
+    this.starts.push({ worktreePath, sessionId, permission, title, disableTitleUpdates });
     return this.startResultAt(this.starts.length);
   }
 

@@ -288,7 +288,7 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
     return { sessions, unknown, heldByOthers: [...held] };
   }
 
-  async function startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string): Promise<StartResult> {
+  async function startAgent(worktreePath: string, sessionId: string, permission: string | null, title: string, disableTitleUpdates = false): Promise<StartResult> {
     if (!UUID.test(sessionId)) return { started: false, reason: 'invalid-session-id' };
     if (permission !== null && !PERMISSION_FLAGS.includes(permission)) return { started: false, reason: 'flag-not-allowed' };
     // Only a transcript that is shown to exist passes: `claude --resume` in a folder with no transcript starts nothing useful.
@@ -298,7 +298,8 @@ export function createOrcaAdapter(exec: Exec = execOrca, options: AdapterOptions
       return { started: false, reason: 'no-transcript' };
     }
     // Typed into a shell by Orca: safe because the session ID is a checked UUID and the flag is one of the two allowed strings.
-    const command = `env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN claude --resume ${sessionId}${permission === null ? '' : ` ${permission}`}`;
+    const titleVariable = disableTitleUpdates ? ' CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1' : '';
+    const command = `env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN${titleVariable} claude --resume ${sessionId}${permission === null ? '' : ` ${permission}`}`;
     const failed = (message: string): StartResult => ({ started: false, reason: 'start-failed', message });
     try {
       const { stdout, stderr, code } = await exec(ORCA_EXECUTABLE, ['terminal', 'create', '--worktree', `path:${worktreePath}`, '--title', title, '--command', command, '--json']);

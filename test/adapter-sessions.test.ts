@@ -412,6 +412,40 @@ describe('startAgent', () => {
     ]);
   });
 
+  it('with title updates off, sets CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 beside the unset, and passes the title', async () => {
+    const { adapter, calls, withTranscript } = setup();
+    withTranscript();
+    expect((await adapter.startAgent(WORKTREE, CMDLINE_ID, null, 'My tab', true)).started).toBe(true);
+    expect(calls).toEqual([
+      {
+        file: ORCA_EXECUTABLE,
+        args: ['terminal', 'create', '--worktree', `path:${WORKTREE}`, '--title', 'My tab', '--command', `env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 claude --resume ${CMDLINE_ID}`, '--json'],
+      },
+    ]);
+  });
+
+  it('with title updates off and a permission flag, the variable comes before claude and the flag after the session ID', async () => {
+    const { adapter, calls, withTranscript } = setup();
+    withTranscript();
+    await adapter.startAgent(WORKTREE, CMDLINE_ID, '--dangerously-skip-permissions', 't', true);
+    expect(calls[0]?.args[calls[0].args.indexOf('--command') + 1]).toBe(`env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 claude --resume ${CMDLINE_ID} --dangerously-skip-permissions`);
+  });
+
+  it('an explicit false leaves the command as it is', async () => {
+    const { adapter, calls, withTranscript } = setup();
+    withTranscript();
+    await adapter.startAgent(WORKTREE, CMDLINE_ID, null, 't', false);
+    expect(calls[0]?.args[calls[0].args.indexOf('--command') + 1]).toBe(`env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN claude --resume ${CMDLINE_ID}`);
+  });
+
+  it('with title updates off, the same checks refuse as with them on', async () => {
+    const { adapter, calls } = setup();
+    expect(await adapter.startAgent(WORKTREE, 'not-a-uuid', null, 't', true)).toEqual({ started: false, reason: 'invalid-session-id' });
+    expect(await adapter.startAgent(WORKTREE, CMDLINE_ID, '--permission-mode auto', 't', true)).toEqual({ started: false, reason: 'flag-not-allowed' });
+    expect(await adapter.startAgent(WORKTREE, CMDLINE_ID, null, 't', true)).toEqual({ started: false, reason: 'no-transcript' });
+    expect(calls).toEqual([]);
+  });
+
   it.each(['--permission-mode bypassPermissions', '--dangerously-skip-permissions'])('appends the allowed flag %s to the command', async (flag) => {
     const { adapter, calls, withTranscript } = setup();
     withTranscript();

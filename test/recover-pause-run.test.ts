@@ -42,7 +42,7 @@ describe('recover with an open pause run', () => {
       scan: joined(3, ['s-a', 'new:a']),
     });
     expect(code).toBe(0);
-    expect(port.starts).toEqual([{ worktreePath: '/work/tree-s-a', sessionId: 's-a', permission: BYPASS, title: 'repo/tree-s-a (recovered)' }]);
+    expect(port.starts).toEqual([{ worktreePath: '/work/tree-s-a', sessionId: 's-a', permission: BYPASS, title: 'repo/tree-s-a (recovered)', disableTitleUpdates: false }]);
     expect(port.sends).toEqual([]);
     expect(readRecoveries(dir)).toEqual([]);
     const run = readRun(dir);

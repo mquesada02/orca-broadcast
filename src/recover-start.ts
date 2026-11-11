@@ -73,7 +73,9 @@ export async function startAgents(rows: RecoveryRow[], deps: StartDeps): Promise
       row.startedAt = iso(clock.now());
       setResult(row, 'pending', 'awaiting-start');
       await deps.save();
-      const result = await port.startAgent(row.worktreePath, row.sessionId, row.permission ?? null, `${row.repo}/${row.worktree} (recovered)`);
+      // A saved title is kept: the tab gets it and Claude Code may not repaint it. With none, the tab gets the label and Claude Code may name it.
+      const savedTitle = row.title || null;
+      const result = await port.startAgent(row.worktreePath, row.sessionId, row.permission ?? null, savedTitle ?? `${row.repo}/${row.worktree} (recovered)`, savedTitle !== null);
       if (result.started) {
         started.count += 1;
         started.awaiting.push(row);

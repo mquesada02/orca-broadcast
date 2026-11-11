@@ -25,7 +25,7 @@ describe('classification', () => {
     const { code, out, port } = await recoverRun(['--yes', '--json'], [], [doneEntry('s-a')]);
     expect(code).toBe(1);
     expect(resultsOf(out)).toEqual({ 's-a': 'failed/did-not-appear' });
-    expect(port.starts).toEqual([{ worktreePath: '/work/tree-s-a', sessionId: 's-a', permission: null, title: 'repo/tree-s-a (recovered)' }]);
+    expect(port.starts).toEqual([{ worktreePath: '/work/tree-s-a', sessionId: 's-a', permission: null, title: 'repo/tree-s-a (recovered)', disableTitleUpdates: false }]);
     expect(port.sends).toEqual([]);
     // The first scan, the scan before the start, and the end roster save.
     expect(port.scanCalls).toBe(3);
