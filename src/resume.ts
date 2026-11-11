@@ -38,22 +38,22 @@ function movedSince(row: AgentRow, baseline: ContinueBaseline): boolean {
   return row.stateStartedAt !== baseline.stateStartedAt || row.lastAssistantMessage !== baseline.lastAssistantMessage;
 }
 
-// What one invocation knows about the transcripts: the scan records of the start scan, the read state, and the panes whose CONTINUE entry was found.
+// What one invocation knows about the transcripts: the scan records of the start scan, the read state, and the panes whose CONTINUE entry was found (`resumedByEntry`).
 interface TranscriptProof {
   sessions: Map<string, SessionRecord>;
   reads: TranscriptReadState;
-  found: Set<string>;
+  resumedByEntry: Set<string>;
 }
 
 const changeCheck = (agent: AgentRecord, row: AgentRow): boolean => Boolean(agent.continueSentAt && agent.continueBaseline && movedSince(row, agent.continueBaseline));
 
 // With a CONTINUE mark: resumed when a user entry since it holds a sent CONTINUE text; today's change check only when the transcript is missing. Without a mark: today's change check.
 async function isProven(agent: AgentRecord, row: AgentRow, port: OrcaPort, proof: TranscriptProof): Promise<boolean> {
-  if (proof.found.has(agent.paneKey)) return true;
+  if (proof.resumedByEntry.has(agent.paneKey)) return true;
   if (agent.continueTranscript && agent.continueTexts?.length) {
     const found = await userEntryProof(port, agent.paneKey, agent.continueTranscript, agent.continueTexts, proof.reads);
     if (found !== null) {
-      if (found) proof.found.add(agent.paneKey);
+      if (found) proof.resumedByEntry.add(agent.paneKey);
       return found;
     }
   }
@@ -110,7 +110,7 @@ async function resumeSteps(deps: ResumeDeps, warnings: string[], roster: AutoRos
   let selected: AgentRecord[];
   // The sessions that are live at the start of the run, when the scan of the start save worked: a stored missing worker among them is not listed.
   let liveSessions: Set<string> | null = null;
-  const proof: TranscriptProof = { sessions: new Map(), reads: { positions: new Map(), missing: new Set() }, found: new Set() };
+  const proof: TranscriptProof = { sessions: new Map(), reads: { positions: new Map(), missing: new Set() }, resumedByEntry: new Set() };
   try {
     const snapshot = await listSnapshot(deps);
     seen.newest = snapshot;
@@ -204,11 +204,12 @@ async function sendAll(run: Run, selected: AgentRecord[], rows: Map<string, Agen
     // Kept only after an accepted send. A new mark starts a new read.
     if (taken) {
       agent.continueTranscript = taken;
-      agent.continueTexts = [];
+      agent.continueTexts = [text];
       proof.reads.positions.delete(agent.paneKey);
       proof.reads.missing.delete(agent.paneKey);
+    } else if (agent.continueTranscript && !agent.continueTexts?.includes(text)) {
+      agent.continueTexts = [...(agent.continueTexts ?? []), text];
     }
-    if (agent.continueTranscript && !agent.continueTexts?.includes(text)) agent.continueTexts = [...(agent.continueTexts ?? []), text];
     const sentAt = deps.clock.now();
     agent.continueSentAt = iso(sentAt);
     if (row.state === 'working') {

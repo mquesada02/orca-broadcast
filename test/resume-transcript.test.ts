@@ -117,6 +117,12 @@ describe('resume: the CONTINUE transcript proof', () => {
     expect(agent.continueTranscript).toBeUndefined();
   });
 
+  it('falls back to today\'s check when the start scan fails', async () => {
+    const { summary, agent } = await run(woken, { configure: (p) => { p.failScansFrom = 1; } });
+    expect(summary.exitCode).toBe(0);
+    expect(agent.continueTranscript).toBeUndefined();
+  });
+
   it('proves a re-run from the first text although the second send has another text', async () => {
     const first = continueMessage(undefined, [{ sessionId: 'w1', name: 'w' } as never]);
     const { port, summary, agent } = await run(idle, {
