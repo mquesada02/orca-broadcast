@@ -69,6 +69,70 @@ describe('orca adapter mapping', () => {
     expect(terminals.some((t) => t.agentIdentity === null)).toBe(true);
   });
 
+  describe('terminal list layout titles', () => {
+    // The `visualLayouts` block is not in the fixture; its shape is from a real 2026-11-11 capture (see test/fixtures/README.md).
+    const layout = (tabs: Record<string, unknown>[]) => ({ worktreeId: 'wt', worktreePath: '/home/user/work/dir-3', root: { type: 'group', groupId: 'g1', activeTabId: 't', tabs } });
+    const withLayouts = (visualLayouts: unknown, edit: (rows: Record<string, any>[]) => void = () => {}) => {
+      const source = json('terminal-list');
+      edit(source.result.terminals);
+      if (visualLayouts !== undefined) source.result.visualLayouts = visualLayouts;
+      return JSON.stringify(source);
+    };
+    const listed = async (body: string) => {
+      const { exec, calls } = fakeExec({ 'terminal list': body });
+      const terminals = await createOrcaAdapter(exec).listTerminals();
+      return { terminals, calls };
+    };
+    const source = json('terminal-list').result.terminals as Record<string, any>[];
+    const [first, second] = source;
+
+    it('lists with the visual layouts', async () => {
+      const { calls } = await listed(withLayouts([]));
+      expect(calls.map((c) => c.args)).toEqual([['terminal', 'list', '--json', '--include-visual-layouts']]);
+    });
+
+    it('joins the layout title by tabId and copies the worktree path', async () => {
+      const { terminals } = await listed(withLayouts([layout([{ tabId: first!.tabId, title: 'Title One' }]), layout([{ tabId: second!.tabId, title: 'Title Two' }])]));
+      expect(terminals[0]).toMatchObject({ paneKey: `${first!.tabId}:${first!.leafId}`, tabTitle: 'Title One', worktreePath: first!.worktreePath });
+      expect(terminals[1]).toMatchObject({ paneKey: `${second!.tabId}:${second!.leafId}`, tabTitle: 'Title Two', worktreePath: second!.worktreePath });
+      expect(terminals.slice(2).every((t) => t.tabTitle === null)).toBe(true);
+    });
+
+    it('never reads the program title and gives no tabId field', async () => {
+      const { terminals } = await listed(withLayouts([layout([{ tabId: first!.tabId, title: 'Layout Title' }])], (rows) => rows.forEach((r) => (r.title = 'PROGRAM TITLE'))));
+      expect(terminals[0]!.tabTitle).toBe('Layout Title');
+      expect(terminals[1]!.tabTitle).toBeNull();
+      expect(JSON.stringify(terminals)).not.toContain('PROGRAM TITLE');
+      expect(terminals[0]).not.toHaveProperty('tabId');
+    });
+
+    it('gives no title for an empty, a non-string or an absent layout title', async () => {
+      const tabs = [{ tabId: first!.tabId, title: '' }, { tabId: second!.tabId, title: 42 }];
+      expect((await listed(withLayouts([layout(tabs)]))).terminals.every((t) => t.tabTitle === null)).toBe(true);
+      expect((await listed(withLayouts(undefined))).terminals.every((t) => t.tabTitle === null)).toBe(true);
+    });
+
+    it('gives no title to a row with no tabId, and the first of two tabs with one tabId wins', async () => {
+      const dropTabId = (rows: Record<string, any>[]) => delete rows[1]!.tabId;
+      const tabs = [{ tabId: first!.tabId, title: 'First' }, { tabId: first!.tabId, title: 'Second' }, { title: 'No ID' }];
+      const { terminals } = await listed(withLayouts([layout(tabs)], dropTabId));
+      expect(terminals[0]!.tabTitle).toBe('First');
+      expect(terminals[1]!.tabTitle).toBeNull();
+    });
+
+    it('keeps the title of the first tab even when it is empty', async () => {
+      const { terminals } = await listed(withLayouts([layout([{ tabId: first!.tabId, title: '' }, { tabId: first!.tabId, title: 'Later' }])]));
+      expect(terminals[0]!.tabTitle).toBeNull();
+    });
+
+    it('reads no title from a root that is not a group with tabs', async () => {
+      const split = { worktreeId: 'wt', worktreePath: '/x', root: { type: 'split', children: [{ tabs: [{ tabId: first!.tabId, title: 'Nested' }] }] } };
+      const splitWithTabs = { worktreeId: 'wt', worktreePath: '/x', root: { type: 'split', tabs: [{ tabId: first!.tabId, title: 'Direct' }] } };
+      expect((await listed(withLayouts([split]))).terminals[0]!.tabTitle).toBeNull();
+      expect((await listed(withLayouts([splitWithTabs]))).terminals[0]!.tabTitle).toBeNull();
+    });
+  });
+
   it('maps run-list and follows nextCursor until it is null', async () => {
     const page1 = json('run-list');
     page1.result.nextCursor = 'cursor-2';

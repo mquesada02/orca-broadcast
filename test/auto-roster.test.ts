@@ -44,6 +44,16 @@ describe('automatic roster saves', () => {
     expect(await rosterNames(resumed.dir)).toHaveLength(1);
   });
 
+  it('the roster saves of broadcast, pause and resume store the layout title of the tab', async () => {
+    const saved = async (dir: string) => (await readRoster(dir, (await rosterNames(dir))[0] as string)).entries.map((e) => e.title);
+    const broadcast = await cli(broadcastArgs, [{ ...agentA, tabTitle: 'Tab One' }]);
+    expect(await saved(broadcast.dir)).toEqual(['Tab One']);
+    const paused = await cli(['pause', '--yes'], [pausedRun({ tabTitle: 'Tab Two' })]);
+    expect(await saved(paused.dir)).toEqual(['Tab Two']);
+    const resumed = await cli(['resume', '--yes'], [{ ...resumeAgent, tabTitle: 'Tab Three' }], { seed: (store) => seedPending(store) });
+    expect(await saved(resumed.dir)).toEqual(['Tab Three']);
+  });
+
   it('resume --yes takes one snapshot and scans once; a confirmed resume scans twice; a declined one scans once', async () => {
     const yes = await cli(['resume', '--yes'], [resumeAgent], { seed: (store) => seedPending(store) });
     expect(yes.port.scanCalls).toBe(1);
