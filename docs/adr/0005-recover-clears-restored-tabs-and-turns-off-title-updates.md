@@ -4,7 +4,7 @@ After a PC restart, Orca restores the tabs of each worktree, but no agent runs i
 
 **Clear by `close --all`.** Restored tabs keep their IDs, but the Orca CLI cannot see them. Every command that acts on one tab needs a runtime handle, and a restored tab has none. `terminal create` and `agent launch` always make a new tab. The only command that reaches a restored tab is `terminal close --worktree path:<path> --all`, which removes every tab, layout and resume record of the worktree. So `recover` runs it right before the first start in a worktree. It runs it only when a fresh listing shows no terminal row in that worktree (an orphaned row counts as a live terminal), and at most once per worktree and run. A worktree with a live terminal is never cleared. The confirmation lists the worktrees that may be cleared, and `--keep-tabs` turns the clear off.
 
-**Title updates off.** The roster saves the layout title of each agent's tab. When `recover` restarts an agent that has a saved title, it opens the tab with that title and types `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` before `claude --resume`. This is the way that Claude Code documents to stop its title updates. An agent with no saved title gets the label `<repo>/<worktree> (recovered)` and keeps the title updates on.
+**Title updates off.** The roster saves the layout title of each agent's tab. When `recover` restarts an agent that has a saved title, it opens the tab with that title and sets `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` in the command that runs `claude --resume`. This is the way that Claude Code documents to stop its title updates. An agent with no saved title gets the label `<repo>/<worktree> (recovered)` and keeps the title updates on.
 
 ## Considered options
 

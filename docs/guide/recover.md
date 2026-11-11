@@ -154,7 +154,7 @@ The roster saves the title of the tab of each agent. See [What the roster holds]
 - An agent with no saved title gets a tab with the label `<repo>/<worktree> (recovered)`. Claude Code's title updates stay on, so Claude Code may name the tab.
 - `--keep-tabs` does not change the title rules.
 
-The variable has a cost. See [ADR 0005](../adr/0005-recover-clears-restored-tabs-and-turns-off-title-updates.md).
+The variable has a cost: Claude Code writes no generated session title and sends no status reports to the terminal for that agent. See [ADR 0005](../adr/0005-recover-clears-restored-tabs-and-turns-off-title-updates.md).
 
 ## Who gets the continue prompt
 
