@@ -126,7 +126,7 @@ export interface RosterEntry {
   dispatchId?: string;
   /** The permission flag of the process, when known. */
   permission?: string;
-  /** The layout title of the agent's tab, when it has one. */
+  /** The layout title of the agent's tab, when it has one. A roster saved before this field existed lacks it. */
   title?: string;
 }
 

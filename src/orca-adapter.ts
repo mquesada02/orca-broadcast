@@ -62,17 +62,15 @@ function parseEnvelope(stdout: string): Envelope {
 
 // The layout title of each tab, by tab ID, from `visualLayouts[].root.tabs[]`. A title that is not a non-empty string is no title; of two tabs with one ID the first wins.
 // The program's own terminal title (`terminals[].title`) is never read.
-function layoutTitlesByTab(visualLayouts: unknown): Map<string, string> {
-  const titles = new Map<string, string>();
+function layoutTitlesByTab(visualLayouts: unknown): Map<string, string | null> {
+  const titles = new Map<string, string | null>();
   if (!Array.isArray(visualLayouts)) return titles;
-  const seen = new Set<string>();
   for (const layout of visualLayouts) {
     const tabs = layout?.root?.type === 'group' ? layout.root.tabs : undefined;
     if (!Array.isArray(tabs)) continue;
     for (const tab of tabs) {
-      if (typeof tab?.tabId !== 'string' || seen.has(tab.tabId)) continue;
-      seen.add(tab.tabId);
-      if (typeof tab.title === 'string' && tab.title !== '') titles.set(tab.tabId, tab.title);
+      if (typeof tab?.tabId !== 'string' || titles.has(tab.tabId)) continue;
+      titles.set(tab.tabId, typeof tab.title === 'string' && tab.title !== '' ? tab.title : null);
     }
   }
   return titles;
