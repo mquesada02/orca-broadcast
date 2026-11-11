@@ -142,6 +142,16 @@ describe('recover: a re-run', () => {
     expect(rowOf(dir, 's-a').transcript).toEqual(first);
   });
 
+  it('keeps an acked row acked when its transcript is removed before the re-run', async () => {
+    const acked = row('s-a', { status: 'acked', reason: null, messagePending: false, baseline: OLD, transcript: { identity: identityOf('s-a'), position: 0, fileId: 'gen-1' } });
+    const { out, dir } = await rerun([acked, row('s-b')], [live('new:a'), live('new:b', acksByLastReply)], {
+      scan: scanOf(holds('s-a', 'new:a'), holds('s-b', 'new:b', false)),
+      configure: (port) => void port.transcript('s-a').remove(),
+    });
+    expect(resultsOf(out)['s-a']).toBe('acked');
+    expect(rowOf(dir, 's-a')).toMatchObject({ status: 'acked', reason: null });
+  });
+
   it('takes the mark at the first send that has an identity, and a reply to the earlier prompt is not proven by the transcript', async () => {
     const { out, dir } = await rerun([row('s-a')], [live('new:a')], { scan: scanOf(holds('s-a', 'new:a')), configure: ackThenWake('s-a') });
     expect(resultsOf(out)).toEqual({ 's-a': 'pending/no-ack' });
