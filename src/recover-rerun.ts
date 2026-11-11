@@ -12,6 +12,8 @@ export interface RerunContext extends RecheckDeps {
   /** Every stored row of the record, and the rows that the filters and the self rule leave in scope. */
   rows: RecoveryRow[];
   scope: RecoveryRow[];
+  /** `--keep-tabs`: the plan lists no worktree to clear. */
+  keepTabs: boolean;
 }
 
 export interface RerunPlan {
@@ -87,7 +89,7 @@ export async function planRerun(ctx: RerunContext, build: (classified: Classifie
 
   // A worker whose coordinator is in scope but final (or not in the pass) has no coordinator to get its list.
   const everyone = [...items.map((item) => item.entry), ...rows.filter((row) => !inScope.has(row.sessionId)).map(entryOf)];
-  const classified = buildRows(items, { selfSessionId: ctx.selfSessionId, everyone, scanFailed });
+  const classified = buildRows(items, { selfSessionId: ctx.selfSessionId, everyone, scanFailed, terminals: snapshot.terminals, keepTabs: ctx.keepTabs });
 
   const built = build(classified);
   const restarts: RecoveryRow[] = [];

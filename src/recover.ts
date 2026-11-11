@@ -156,7 +156,7 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
     const scope = saved.rows.filter((row) => row.sessionId !== self?.sessionId && matches(set, row));
     if (scope.length === 0) return { outcome: 'nothing-to-do', exitCode: 0, run: null, error: null, rows: [], recovery: emptyRecovery(read.snapshots) };
 
-    const plan = await planRerun({ port, clock, signal, deadline: startedAt + timeoutMs, snapshot, scan, selfSessionId: self?.sessionId ?? null, rows: saved.rows, scope }, (classified) => recordRows(classified).rows);
+    const plan = await planRerun({ port, clock, signal, deadline: startedAt + timeoutMs, snapshot, scan, selfSessionId: self?.sessionId ?? null, rows: saved.rows, scope, keepTabs: deps.keepTabs === true }, (classified) => recordRows(classified).rows);
     const selfLine = selfLineOf(self, scope);
     const asked = clock.now();
     const declined = dueOf(plan.classified) && deps.confirm !== undefined && !(await deps.confirm(plan.classified.plan, signal));
@@ -214,7 +214,7 @@ async function run(timeoutMs: number, deps: RecoverDeps, warnings: string[], rea
     if (pane !== undefined) panes.set(entry.sessionId, pane);
   }
   const dropped = new Set(found.filter((item) => item.bringIn && item.standing !== 'restored').map((item) => item.entry.sessionId));
-  const classified = buildRows(items, { selfSessionId: self?.sessionId ?? null, everyone: pool.filter((entry) => !dropped.has(entry.sessionId)), scanFailed, ...(members ? { pauseRun: { runSessionIds: members.sessionIds } } : {}) });
+  const classified = buildRows(items, { selfSessionId: self?.sessionId ?? null, everyone: pool.filter((entry) => !dropped.has(entry.sessionId)), scanFailed, terminals: snapshot.terminals, keepTabs: deps.keepTabs === true, ...(members ? { pauseRun: { runSessionIds: members.sessionIds } } : {}) });
   if (retake) addExtraWorkers(classified, retake, snapshot, rechecked ?? scan);
 
   const { plan } = classified;
@@ -367,6 +367,11 @@ function crashMode(record: RecoveryRecord, store: RecordStore, rows: RecoveryRow
 async function execute({ deps, warnings, mode, run, restarts, earlier, rows, snapshots, selfLine, deadline, roster, scan, panes }: Execution): Promise<RunSummary> {
   const { port, clock, signal } = deps;
   const clearing: Clearing = { keepTabs: deps.keepTabs === true, considered: new Set(), cleared: [] };
+  // Crash mode: the record holds every clear of the recovery, so it carries the list before its first save.
+  if (mode.record) {
+    mode.record.cleared ??= [];
+    clearing.record = mode.record;
+  }
   const summaryOf = (table: RecoverRow[] = mode.table()): RecoverySummary => ({ rows: table, snapshots, self: selfLine, record: mode.record ?? null, cleared: [...clearing.cleared] });
 
   try {

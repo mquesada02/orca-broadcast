@@ -83,7 +83,7 @@ describe('refusals', () => {
     const { code, out } = await recoverRun(['--json'], [], [doneEntry('s-a')]);
     expect(code).toBe(2);
     expect(out).toBe(
-      '{"command":"recover","outcome":"error","exitCode":2,"run":null,"record":null,"error":"refusing to send without an interactive terminal: pass --yes to confirm","rows":[],"snapshots":[],"warnings":[]}\n',
+      '{"command":"recover","outcome":"error","exitCode":2,"run":null,"record":null,"error":"refusing to send without an interactive terminal: pass --yes to confirm","rows":[],"snapshots":[],"cleared":[],"warnings":[]}\n',
     );
   });
 
@@ -215,7 +215,7 @@ describe('output', () => {
   it('prints the exact --json keys, in order, for the line and for each row', async () => {
     const { out } = await recoverRun(['--yes', '--json'], [], [rosterEntry('s-w', { role: 'worker', dispatchId: 'd-9' })]);
     const line = parseJson(out);
-    expect(Object.keys(line)).toEqual(['command', 'outcome', 'exitCode', 'run', 'record', 'error', 'rows', 'snapshots', 'warnings']);
+    expect(Object.keys(line)).toEqual(['command', 'outcome', 'exitCode', 'run', 'record', 'error', 'rows', 'snapshots', 'cleared', 'warnings']);
     expect(Object.keys(line.rows[0] as object)).toEqual(['sessionId', 'repo', 'worktree', 'worktreePath', 'role', 'status', 'reason', 'dispatchId']);
     expect(line.rows[0]).toEqual({ sessionId: 's-w', repo: 'repo', worktree: 'tree-s-w', worktreePath: '/work/tree-s-w', role: 'worker', status: 'no-coordinator', reason: 'coordinator-missing', dispatchId: 'd-9' });
     expect([line.command, line.outcome, line.exitCode, line.run, line.record, line.error]).toEqual(['recover', 'done', 1, null, null, null]);

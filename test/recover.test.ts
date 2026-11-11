@@ -235,6 +235,9 @@ describe('confirmation', () => {
         '  prompt repo/tree-s-a (session)',
         '  prompt repo/tree-s-live (session)',
         '  leave repo/tree-s-w to repo/tree-s-coord',
+        '  Each worktree below is cleared (its restored tabs are closed) only if it still has no live terminal when its first agent starts:',
+        '  clear repo/tree-s-a',
+        '  clear repo/tree-s-b',
         '',
       ].join('\n'),
     );

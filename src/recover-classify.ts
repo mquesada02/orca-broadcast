@@ -1,7 +1,7 @@
 import { sleepOrAbort } from './abort.js';
 import { holdersBySession, livePanes, sessionsByPane } from './roster.js';
 import { listFresh, POLL_INTERVAL_MS, type Snapshot } from './shared.js';
-import type { Clock, OrcaPort, RecoverPlan, RecoverReason, RecoverRow, RecoverStatus, RecoveryRow, RosterEntry, SessionScan } from './types.js';
+import type { Clock, OrcaPort, RecoverPlan, RecoverReason, RecoverRow, RecoverStatus, RecoveryRow, RosterEntry, SessionScan, TerminalRow } from './types.js';
 
 // How an agent of the recovery set stands against the live fleet and the scan.
 // `restored`: a live row has its session ID. Else its session is `held` by a live process, `unverifiable` (a process of unknown session may hold it), or `free` (the agent is missing).
@@ -135,6 +135,10 @@ export interface ClassifyContext {
   scanFailed: boolean;
   /** Pause-run mode: the session IDs of the agents of the run. No row is due a prompt, and a coordinator outside the run gets no list. */
   pauseRun?: { runSessionIds: Set<string> };
+  /** The terminal rows of the listing that `recover` holds before the confirmation (not the listing of the held re-check). */
+  terminals: Map<string, TerminalRow>;
+  /** `--keep-tabs`: the plan lists no worktree to clear. */
+  keepTabs: boolean;
 }
 
 const isWorker = (entry: RosterEntry): boolean => entry.role === 'worker';
@@ -144,7 +148,7 @@ const isWorker = (entry: RosterEntry): boolean => entry.role === 'worker';
  * A missing non-worker is due a restart; a restored or restarted agent whose last state was `working` or `waiting`, and every
  * coordinator with a linkable missing worker, is due a prompt. A missing worker is never restarted.
  */
-export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed, pauseRun }: ClassifyContext): Classified {
+export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed, pauseRun, terminals, keepTabs }: ClassifyContext): Classified {
   const ordered = tableOrder(items);
   const inSet = new Set(ordered.map(({ entry }) => entry.sessionId));
   const everyoneIds = new Set(everyone.map((entry) => entry.sessionId));
@@ -191,8 +195,16 @@ export function buildRows(items: Item[], { selfSessionId, everyone, scanFailed, 
   // A brought-in coordinator with no list to receive is not part of the recovery; in a pause run none is (it is no row of this `recover`).
   const all = ordered.map(({ entry }) => rows.get(entry.sessionId) as Row).filter((row) => !(row.bringIn && (pauseRun || !row.prompt)));
   const target = (row: Row) => ({ repo: row.entry.repo, worktree: row.entry.worktree, role: row.entry.role });
+  // The distinct worktrees (by path) of the restarts with no terminal row of any kind in the listing; the first restart names each.
+  const occupied = new Set([...terminals.values()].map((terminal) => terminal.worktreePath));
+  const clears = new Map<string, { repo: string; worktree: string }>();
+  for (const row of all) {
+    if (keepTabs || !row.restart || occupied.has(row.entry.worktreePath) || clears.has(row.entry.worktreePath)) continue;
+    clears.set(row.entry.worktreePath, { repo: row.entry.repo, worktree: row.entry.worktree });
+  }
   const plan: RecoverPlan = {
     restarts: all.filter((row) => row.restart).map((row) => ({ ...target(row), permission: row.entry.permission ?? null })),
+    clears: [...clears.values()],
     prompts: all.filter((row) => row.prompt).map(target),
     leaves: all.filter((row) => row.leave).map((row) => ({ repo: row.entry.repo, worktree: row.entry.worktree, coordinator: { repo: (row.coordinator as RosterEntry).repo, worktree: (row.coordinator as RosterEntry).worktree } })),
   };

@@ -371,6 +371,8 @@ export interface RecoveryRecord {
   liveRuntime: RuntimeKey;
   snapshots: SnapshotLine[];
   rows: RecoveryRow[];
+  /** Every worktree that a run of this recovery cleared, in clear order. Absent in an older record. */
+  cleared?: { repo: string; worktree: string }[];
 }
 
 export interface RecoverySummary {
@@ -388,6 +390,8 @@ export interface RecoverPlan {
   restarts: (ConfirmTarget & { permission: string | null })[];
   prompts: ConfirmTarget[];
   leaves: { repo: string; worktree: string; coordinator: { repo: string; worktree: string } }[];
+  /** The worktrees of the restarts that have no terminal row in the listing taken before the confirmation; empty with `--keep-tabs`. */
+  clears: { repo: string; worktree: string }[];
 }
 
 // Asked once, before anything is started or sent: false means the user said no.

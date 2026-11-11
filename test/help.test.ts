@@ -38,6 +38,12 @@ describe('per-command help', () => {
     expect(out).not.toContain('one line');
   });
 
+  it('recover help describes the clear and the title restore and lists --keep-tabs', async () => {
+    const { out, port } = await runCli(['recover', '--help'], agents);
+    for (const text of ['terminal close --worktree --all', 'live terminal', 'title updates', '(recovered)', '--keep-tabs']) expect(out).toContain(text);
+    expect(port.listCalls).toBe(0);
+  });
+
   it.each(COMMANDS)('%s lists the flags it accepts and no other, and calls no Orca', async (command) => {
     const { code, out, port } = await runCli([command, '--help'], agents);
     expect(code).toBe(0);
