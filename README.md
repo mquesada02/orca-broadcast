@@ -58,7 +58,9 @@ More: [Broadcast](docs/guide/broadcast.md).
 After a PC restart or an Orca crash, find the agents that did not come back and restart them:
 ```sh
 orca-broadcast recover --repo alpha --role coordinator   # only part of the fleet
+orca-broadcast recover --keep-tabs                       # keep the restored tabs
 ```
+Before it restarts an agent, `recover` clears the restored tabs of that worktree, unless the worktree has a live terminal. It restarts the agent in a tab with the title it had before the restart.
 More: [Recover](docs/guide/recover.md).
 
 Save a snapshot of the live agents. This reads Orca and sends nothing:

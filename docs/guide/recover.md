@@ -23,6 +23,7 @@ Most of this page describes crash mode.
 ```sh
 orca-broadcast recover            # shows the report, asks once if anything is due, then restarts and prompts
 orca-broadcast recover --timeout 5m
+orca-broadcast recover --keep-tabs   # do not clear the restored tabs
 orca-broadcast recover --yes      # no question; needed without a terminal
 orca-broadcast recover --repo alpha --role coordinator   # only part of the fleet
 ```
@@ -34,6 +35,7 @@ orca-broadcast recover --repo alpha --role coordinator   # only part of the flee
 | `--timeout <n>s\|m\|h` | Limits the whole command. Default `10m`. See [Time](#time). |
 | `--yes` | Skips the question. Without a terminal, `recover` refuses to run unless you pass it. |
 | `--json` | Prints one JSON object. It never asks, so it needs `--yes`. See [Output](#output). |
+| `--keep-tabs` | Turns off the clear of restored tabs. `recover` then clears no worktree, and the confirmation lists none. See [Restored tabs and titles](#restored-tabs-and-titles). |
 | `--group <name>` | Selects the part of the fleet to recover. Repeat it for a union of groups. |
 | `--repo`, `--worktree`, `--role`, `--run` | Select the part of the fleet to recover. |
 
@@ -74,6 +76,8 @@ The report has one row for each agent. The columns are `repo`, `worktree`, `role
 
 The session that runs `recover` is never a row. It has its own block. When that session is a coordinator, the block lists its missing workers.
 
+After the table, `recover` prints one line `cleared <repo>/<worktree>` for each worktree that it cleared. See [Output](#output).
+
 ## The confirmation
 
 If a restart, a prompt or a worker list is due, `recover` lists what it will `restart`, `prompt` and `leave` to coordinators. Then it asks once:
@@ -83,6 +87,14 @@ Restart N agents, prompt N and leave N workers to their coordinators? [y/N]
 ```
 
 For each restart, the list shows the saved permission flag of the agent, or `no permission flag`. `--yes` skips the question. If nothing is due, `recover` asks nothing.
+
+After the restart, prompt and leave lines, and before the question line, the list names the worktrees that `recover` may clear. It starts with this line:
+
+```
+Each worktree below is cleared (its restored tabs are closed) only if it still has no live terminal when its first agent starts:
+```
+
+Then it prints one line `clear <repo>/<worktree>` for each worktree. The names are those of the first restart in that worktree. A worktree is listed when a planned restart is in it and the listing taken before the question has no terminal row there. The list is not a promise: `recover` checks again at the start. With `--keep-tabs` the list is empty, and the line is not printed. See [Restored tabs and titles](#restored-tabs-and-titles).
 
 If you answer no, `recover` does these things:
 
@@ -100,13 +112,49 @@ If you answer no, `recover` does these things:
 4. In the same checks, `recover` sends the continue prompt to each agent that is due one, as soon as that agent is live. An agent that came back by itself gets it at once. Coordinators go first within each check.
 5. `recover` keeps checking until each prompted agent has acked or has another result, or until the time limit ends.
 
-A restart opens a new terminal in the worktree of the agent. The terminal runs this command:
+A restart opens a new terminal in the worktree of the agent. If the worktree has no terminal, `recover` first clears it. See [Restored tabs and titles](#restored-tabs-and-titles). The terminal runs this command when the agent has no saved tab title:
 
 ```sh
 env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN claude --resume <session id>
 ```
 
-The command also gets the saved permission flag of the agent, if it has one. `recover` starts a session only when no live process holds it.
+It runs this command when the agent has a saved tab title:
+
+```sh
+env -u CLAUDE_CODE_RESUME_INTERRUPTED_TURN CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 claude --resume <session id>
+```
+
+Both commands also get the saved permission flag of the agent, if it has one. `recover` starts a session only when no live process holds it.
+
+## Restored tabs and titles
+
+After a PC restart, Orca restores the tabs of each worktree, but no agent runs in them. The Orca CLI cannot see these tabs and cannot close one of them alone. Without a clear, the user would see the dead tab beside the new one. [ADR 0005](../adr/0005-recover-clears-restored-tabs-and-turns-off-title-updates.md) records the choice.
+
+### The clear
+
+Before the first start in a worktree, `recover` takes a fresh listing of the terminals. A live terminal is any terminal row of the listing in that worktree, an orphaned row included. A worktree is identified by its path, compared as an exact string.
+
+1. If the worktree has no live terminal, `recover` clears it with Orca's `terminal close --worktree path:<path> --all`. Then it starts the agent.
+2. If the worktree has a live terminal, `recover` does not clear it. It starts the agent.
+3. `recover` considers a worktree at most once per run. A second agent in the same worktree never causes a clear, so the first new tab stays.
+4. A failed clear adds a warning, and the start goes on. `recover` does not try that worktree again in the run.
+
+Other rules:
+
+- `recover` clears only a worktree where it starts an agent. Restored tabs in other worktrees stay.
+- A re-run clears only a worktree that still has no live terminal. A worktree where an earlier run started an agent has one, so it is not cleared again.
+- Pause-run mode clears in the same way.
+- A clear removes the tabs of the worktree, their scrollback and their Orca resume records. Use `--keep-tabs` to keep them. Then `recover` clears nothing and the confirmation lists no worktree.
+
+### The tab title
+
+The roster saves the title of the tab of each agent. See [What the roster holds](roster.md#what-the-roster-holds).
+
+- An agent with a saved title gets a new tab with that title. `recover` starts it with `CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`, so Claude Code does not change the title.
+- An agent with no saved title gets a tab with the label `<repo>/<worktree> (recovered)`. Claude Code's title updates stay on, so Claude Code may name the tab.
+- `--keep-tabs` does not change the title rules.
+
+The variable has a cost. See [ADR 0005](../adr/0005-recover-clears-restored-tabs-and-turns-off-title-updates.md).
 
 ## Who gets the continue prompt
 
@@ -202,13 +250,19 @@ A `pending` row is never final.
 
 ## Output
 
-`recover` prints the table of rows. With `--json`, it prints one object with the fields `rows`, `snapshots` and `record`, and the usual `warnings`. The field `record` holds the recovery record, or `null`. See [JSON output](reference.md#json-output).
+`recover` prints the table of rows. With `--json`, it prints one object with the fields `rows`, `snapshots`, `cleared` and `record`, and the usual `warnings`. The field `record` holds the recovery record, or `null`. See [JSON output](reference.md#json-output).
+
+The text report prints one line `cleared <repo>/<worktree>` for each worktree that this run cleared. The lines come after the table and before the block of the session that runs `recover`. A worktree whose clear failed is not listed. Its failure is a warning.
+
+The JSON key `cleared` is a list of `{ "repo", "worktree" }`. It is `[]` when nothing was cleared, when you answered no, and when there is nothing to recover. It is also in the error object of a `recover` run. A call that fails before the command name is set prints the other shape, which has no `cleared`. See [JSON output](reference.md#json-output).
+
+In crash mode, the recovery record has a field `cleared` with every clear of its recovery. A re-run appends its own clears to the same record. The report and the top-level `cleared` hold only the clears of that run. Pause-run mode writes no record, so only the report and the top-level `cleared` hold the list.
 
 Exit codes: `0` when no row is `pending`, `gone`, `no-coordinator` or `failed`. `1` when a row is one of these, or when you answer no. `2` on a refusal. See [Exit codes](reference.md#exit-codes) for all cases, including `130` for an interrupt.
 
 ## Safety
 
-`recover` restarts a session only after your yes, or `--yes`. It never restarts a session that a live process holds. It never restarts a worker. It never sends to an agent on a permission prompt.
+`recover` restarts a session only after your yes, or `--yes`. It never restarts a session that a live process holds. It never restarts a worker. It never sends to an agent on a permission prompt. It never clears a worktree that has a live terminal.
 
 `recover` holds the lock while it waits. See [The lock](how-it-works.md#the-lock).
 

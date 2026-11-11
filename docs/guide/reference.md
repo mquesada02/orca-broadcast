@@ -19,6 +19,7 @@ Each row names the commands that accept the option. A command that gets an optio
 | `--worktree <path\|id\|name>` | Select the agents of a worktree. Repeat the option for several worktrees. | `broadcast`, `pause`, `resume`, `close`, `recover`, `group add` |
 | `--role <coordinator\|worker\|session>` | Select the agents with a role. Repeat the option for several roles. | `broadcast`, `pause`, `resume`, `close`, `recover`, `group add` |
 | `--run <id>` | Select the agents of an orchestration run. Use an exact run ID. Repeat the option for several runs. | `broadcast`, `pause`, `resume`, `close`, `recover`, `group add` |
+| `--keep-tabs` | Do not clear a worktree before the first start there. The confirmation lists no worktree to clear. See [Restored tabs and titles](recover.md#restored-tabs-and-titles). | `recover` |
 | `--help` | Show the help text and exit `0`. | `broadcast`, `pause`, `resume`, `close`, `recover`, `group`, `roster`, `completion` |
 
 ## Exit codes
@@ -89,7 +90,7 @@ Every object has a `warnings` array. It holds the warning lines that text mode p
 | Command | Fields |
 |---|---|
 | `broadcast`, `pause`, `resume`, `close` | `command`, `outcome`, `exitCode`, `run`, `record`, `error`, `warnings` |
-| `recover` | `command`, `outcome`, `exitCode`, `run`, `record`, `error`, `rows`, `snapshots`, `warnings` |
+| `recover` | `command`, `outcome`, `exitCode`, `run`, `record`, `error`, `rows`, `snapshots`, `cleared`, `warnings` |
 | `group add`, `group list`, `group show`, `group remove` | `command`, `outcome`, `exitCode`, `error`, `groups`, `warnings` |
 | `roster save` | `command`, `outcome`, `agents`, `warnings` |
 
@@ -105,6 +106,7 @@ The fields mean:
 | `error` | The error message, or `null`. |
 | `rows` | `recover` only. One object per agent. |
 | `snapshots` | `recover` only. The roster snapshot lines that `recover` used. |
+| `cleared` | `recover` only. The worktrees that this run cleared, as `{ "repo", "worktree" }`. `[]` when none. In crash mode the `record` also holds `cleared`, with every clear of the recovery. |
 | `groups` | `group` only. The groups that the call touched, or `null` for an error. |
 | `agents` | `roster save` only. The number of saved agents, or `null`. |
 | `warnings` | The warning lines. For `group`, always `[]`. For `roster save`, `[]` when saved, and the reason when skipped. |
