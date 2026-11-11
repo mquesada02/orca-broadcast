@@ -68,6 +68,8 @@ function isSettled(agent: AgentRecord): boolean {
 function clearContinueProof(agent: AgentRecord): void {
   delete agent.continueBaseline;
   delete agent.continueSentAt;
+  delete agent.continueTranscript;
+  delete agent.continueTexts;
 }
 
 function reopen(agent: AgentRecord, row: AgentRow): void {

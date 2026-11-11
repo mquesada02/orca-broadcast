@@ -213,6 +213,10 @@ export interface AgentRecord {
   resumeReason?: ResumeReason;
   continueBaseline?: ContinueBaseline;
   continueSentAt?: string;
+  /** Taken just before the first accepted CONTINUE send that has an identity; kept by a re-send; cleared by a re-pause. Absent when the agent has no readable transcript, and in an older run. */
+  continueTranscript?: TranscriptMark;
+  /** The CONTINUE texts sent since `continueTranscript` was taken. The tool's own text, never transcript text. */
+  continueTexts?: string[];
   /** The Claude session ID of the agent, from the scan when the record was created. A run from before it has none. */
   sessionId?: string;
   /** The permission flag of the agent's process, when the scan knew it. */
