@@ -19,6 +19,10 @@ describe('module boundaries', () => {
     expect(filesNaming('/proc')).toEqual(['orca-adapter.ts', 'store.ts']);
   });
 
+  it('only the port, its adapter and the transcript reader name readTranscript', () => {
+    expect(filesNaming('readTranscript').filter((file) => !['orca-adapter.ts', 'transcript.ts', 'types.ts'].includes(file))).toEqual([]);
+  });
+
   it('no src file names profile-state.db or backup', () => {
     expect(filesNaming('profile-state.db')).toEqual([]);
     expect(filesNaming('backup')).toEqual([]);
