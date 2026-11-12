@@ -251,6 +251,14 @@ export interface Progress {
   remainingMs: number;
 }
 
+/** One row of the redrawn block: a target that is not done yet. */
+export interface PendingRow {
+  repo: string;
+  worktree: string;
+  role: Role;
+  reason: string | null;
+}
+
 export interface ResumeProgress {
   resumed: number;
   total: number;
