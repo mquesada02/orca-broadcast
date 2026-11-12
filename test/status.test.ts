@@ -341,7 +341,7 @@ describe('status refusals', () => {
     expect(err).toContain('Usage: orca-broadcast status');
   });
 
-  it.each([[['now']], [['--yes']], [['--repo', 'x']]])('refuses %j with the error object in --json', async (argv) => {
+  it.each([[['now']], [['--yes']], [['--timeout', '5s']], [['--repo', 'x']], [['--group', 'g']]])('refuses %j with the error object in --json', async (argv) => {
     const { code, out, err } = await status([...argv, '--json']);
     expect(code).toBe(2);
     expect(err).toBe('');

@@ -63,8 +63,9 @@ export function formatAge(savedAt: string, nowMs: number): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-function rowsOf(winner: Exclude<OpenWinner, { kind: "pause" }>): { rows: { row: StatusRow; pending: boolean }[]; doneWord: string } {
-  const pick = (r: Omit<StatusRow, 'reason'> & { reason: string | null }): StatusRow => ({ repo: r.repo, worktree: r.worktree, role: r.role, status: r.status, reason: r.reason });
+function rowsOf(winner: Exclude<OpenWinner, { kind: 'pause' }>): { rows: { row: StatusRow; pending: boolean }[]; doneWord: string } {
+  // Copies only these five fields, so the JSON never holds another field of a target or a row.
+  const pick = (r: StatusRow): StatusRow => ({ repo: r.repo, worktree: r.worktree, role: r.role, status: r.status, reason: r.reason });
   if (winner.kind === 'broadcast') return { doneWord: 'acked', rows: winner.record.targets.map((t) => ({ row: pick(t), pending: t.status === 'pending' })) };
   const { rows } = winner.record;
   return { doneWord: 'final', rows: rows.map((r) => ({ row: pick(r), pending: !isFinalRow(r, rows) })) };
