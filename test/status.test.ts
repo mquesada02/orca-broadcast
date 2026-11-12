@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { complete } from '../src/completion.js';
 import { createRecordStore, type RecordStore, type StoreOptions } from '../src/store.js';
 import type { BroadcastRecord, BroadcastTarget, RecoveryRecord, RecoveryRow } from '../src/types.js';
-import { agentRecord, broadcastTarget, fakeClock, openBroadcastRecord, seedOpenRun, type FakeOrca } from './helpers/fake-orca.js';
+import { agentRecord, broadcastTarget, fakeClock, openBroadcastRecord, pausedDone, seedOpenRun, type FakeOrca } from './helpers/fake-orca.js';
+import { recoverRun } from './helpers/recover.js';
 import { runCli, type RunCliOptions } from './helpers/run-cli.js';
 
 const NOW = Date.parse('2026-05-01T10:00:00.000Z');
@@ -383,6 +384,18 @@ describe('the other commands do not print the save stamp on their records', () =
   it('close --json of a stamped pause run', async () => {
     const { out } = await runCli(['close', '--json'], [], { seed: async (store) => void (await seedOpenRun(store, [agentRecord('a:1')])) });
     expect(JSON.parse(out).run).not.toHaveProperty('savedAt');
+  });
+
+  it('pause --yes --json that widens a stamped pause run', async () => {
+    const seed: Seed = async (store) => void (await seedOpenRun(store, [agentRecord('a:1')]));
+    const { out } = await runCli(['pause', '--yes', '--json', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: pausedDone() }], { seed });
+    expect(JSON.parse(out).run).not.toHaveProperty('savedAt');
+  });
+
+  it('recover --yes --json that continues a stamped recovery', async () => {
+    const final = recoveryRecord([row('s1', 'repo', 'w1', { status: 'acked' })]);
+    const { out } = await recoverRun(['--yes', '--json'], [], [], { seed: seedRecovery(final) });
+    expect(JSON.parse(out).record).not.toHaveProperty('savedAt');
   });
 
   it('resume --yes --json of a stamped pause run', async () => {
