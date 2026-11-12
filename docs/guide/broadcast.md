@@ -109,9 +109,9 @@ The exit codes are `0` when every target in scope acked, `1` when not, `2` on a 
 
 ## The live block
 
-On a terminal, and without `--json`, the wait shows a block that the command redraws at each poll. Line 1 is the count line `broadcasting… n/m acked`. After it comes one row per target in scope that is still `pending`, with `<repo>/<worktree>`, the role and the [reason](#reasons). A target leaves the block when it acks. A target outside the scope, and the running session, never appear.
+The wait shows the block of [the shared rules](how-it-works.md#the-live-block). The count line is `broadcasting… n/m acked`. The rows are the targets in scope that are still `pending`, each with its [reason](#reasons). A target leaves the block when it acks. A target outside the scope, and the running session, never appear.
 
-The shared rules are in [The live block](how-it-works.md#the-live-block). To see the same data from another terminal, run [status](status.md).
+To see the same data from another terminal, run [status](status.md).
 
 ## Reasons
 

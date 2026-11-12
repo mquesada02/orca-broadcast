@@ -76,11 +76,11 @@ If you run `pause` again before `resume`, it extends the same run. See [Records 
 
 ### The live block of pause
 
-On a terminal, and without `--json`, the wait shows a block that `pause` redraws at each poll. Line 1 is the count line `pausing… n/m confirmed · … · m:ss left`. The middle parts count the reasons of the agents, and the last part is the time left. After it comes one row per pending agent, with `<repo>/<worktree>`, the role and the [reason](#reason-codes).
+The wait shows the block of [the shared rules](how-it-works.md#the-live-block). The count line is `pausing… n/m confirmed · … · m:ss left`. The middle parts count the reasons of the agents, and the last part is the time left. The rows are the pending agents, each with its [reason](#reason-codes).
 
 The agents counted are the selected agents that are not gone and not the running session. A row is pending when the pause status is `unconfirmed`. An agent whose send failed (reason `send-failed`) stays a row.
 
-The shared rules are in [The live block](how-it-works.md#the-live-block). To see the run from another terminal, run [status](status.md).
+To see the run from another terminal, run [status](status.md).
 
 ### Pause output
 
@@ -114,11 +114,11 @@ When no pause run is open and no working agent matches your filters, `pause` pri
 
 ### The live block of resume
 
-On a terminal, and without `--json`, the wait shows a block that `resume` redraws at each poll. Line 1 is the count line `resuming… n/m resumed`. After it comes one row per pending agent, with `<repo>/<worktree>`, the role and the [reason](#reason-codes).
+The wait shows the block of [the shared rules](how-it-works.md#the-live-block). The count line is `resuming… n/m resumed`. The rows are the pending agents, each with its [reason](#reason-codes).
 
 The agents counted are the selected agents that are not gone. A row is pending when the resume status is `pending`. An agent leaves the block when it is resumed.
 
-The shared rules are in [The live block](how-it-works.md#the-live-block). To see the run from another terminal, run [status](status.md).
+To see the run from another terminal, run [status](status.md).
 
 ### Resume output
 

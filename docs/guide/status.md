@@ -91,15 +91,14 @@ The count line is `<done>/<total> <word>, <pending> pending`. The `total` is eve
 
 A pause run is in the resume phase once any agent has a CONTINUE send time in the record. Before that, it is in the pause phase. The status column shows the pause status and reason in the pause phase. It shows the resume status and reason in the resume phase.
 
-The agents are always the main rows of a pause run. When the run also holds the rows of its latest `recover` (pause-run mode), `status` prints them after the agents, in a second section. The section starts with the heading `latest recover` and ends with its own count line, with the word `final`. It never replaces the agents.
-
+The agents are always the main rows of a pause run. When the run also holds the rows of its latest `recover` (pause-run mode), `status` prints them after the agents, in a second section. The section starts with the heading `latest recover` and ends with its own count line, with the word `final`.
 ## The save stamp
 
-Every save of a pause run, a broadcast record and a recovery record adds a `savedAt` time to the file. The header shows its age: `<n>s` under one minute (for example `saved 12s ago`), else `m:ss` (for example `saved 1:05 ago`).
+Every save of a record adds a [`savedAt` time](how-it-works.md#the-save-stamp) to its file. The header shows its age: `<n>s` under one minute (for example `saved 12s ago`), else `m:ss` (for example `saved 1:05 ago`).
 
 The age tells fresh data from stale data. `resume` saves nothing at its confirm prompt, and nothing while no agent is sendable. During its proof wait, it saves at each poll, so the age stays small. For up to one poll after `resume` sends CONTINUE, the record can still show the pause phase.
 
-An older record has no stamp. Then the header shows no age and `savedAt` is `null` in `--json`. See [The save stamp](how-it-works.md#the-save-stamp).
+An older record has no stamp. Then the header shows no age and `savedAt` is `null` in `--json`.
 
 ## JSON output
 

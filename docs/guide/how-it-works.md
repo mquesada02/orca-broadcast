@@ -141,8 +141,7 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
 
 ## The live block
 
-While `broadcast`, `pause`, `resume` or `recover` waits, it shows a block on stderr. The block lists the targets that are still pending. It replaces the single count line of the older versions. `recover` showed no progress before.
-
+While `broadcast`, `pause`, `resume` or `recover` waits, it shows a block on stderr. The block lists the targets that are still pending.
 The block follows these rules:
 
 - It draws only on a terminal (stderr is a TTY) and without `--json`. Without a terminal, or with `--json`, nothing changes. A `!` command in Claude Code has no terminal, so use [status](status.md) there.
