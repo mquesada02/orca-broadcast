@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import type { TerminalSize } from '../src/block.js';
-import type { AgentRecord, RecoveryRecord, RecoveryRow, RosterEntry, Run } from '../src/types.js';
+import type { AgentRecord, RecoveryRecord, RecoveryRow, RosterEntry } from '../src/types.js';
 import { agentRecord, fakeClock, seedOpenRun, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
 import { doneEntry, GONE, recoverRun, type RecoverOptions } from './helpers/recover.js';
 import { agent, rosterEntry, rosterSnapshot, scanOf, seedRosters } from './helpers/roster.js';
@@ -141,9 +141,7 @@ const seedRecord =
 describe('recover on a terminal: the block, re-run', () => {
   it('counts and shows only the rows of the filtered scope', async () => {
     const rec = record([row('s-a'), row('s-b', { repo: 'other', repoId: 'repo-other' })]);
-    const { err } = await recoverRun(['--yes', '--timeout', '10s', '--repo', 'repo'], [live('new:a', silent), live('new:b', silent)], [], {
-      isTTY: true,
-      size: roomy,
+    const { err } = await recover([live('new:a', silent), live('new:b', silent)], [], {
       seed: seedRecord(rec),
       scan: scanOf(holds('s-a', 'new:a'), holds('s-b', 'new:b')),
       configure: (port) => {
@@ -152,7 +150,7 @@ describe('recover on a terminal: the block, re-run', () => {
           { id: 'repo-other', path: '/r/other', displayName: 'other' },
         ];
       },
-    });
+    }, ['--repo', 'repo']);
     const first = chunks(err)[0] as string;
     expect(first).toContain('recovering… 0/1 final');
     expect(first).toContain('repo/tree-s-a');
@@ -165,15 +163,13 @@ const seedRun =
   (entries: RosterEntry[], agents: AgentRecord[]): Seed =>
   async (store) => {
     await seedRosters(rosterSnapshot(GONE, entries))(store);
-    await seedOpenRun(store, agents, {} as Partial<Run>);
+    await seedOpenRun(store, agents);
   };
 const runAgent = (sessionId: string): AgentRecord => agentRecord(`old:${sessionId}`, { role: 'session', sessionId });
 
 describe('recover on a terminal: the block, pause-run mode', () => {
   it('shows the rows that wait for their restart with reason awaiting-start, and drops them when they are final', async () => {
-    const { err } = await recoverRun(['--yes', '--timeout', '10s'], [appears('new:a', 6), appears('new:b', 9)], [], {
-      isTTY: true,
-      size: roomy,
+    const { err } = await recover([appears('new:a', 6), appears('new:b', 9)], [], {
       seed: seedRun([rosterEntry('s-a'), rosterEntry('s-b')], [runAgent('s-a'), runAgent('s-b')]),
       scan: (n) => scanOf(...(n >= 6 ? [holds('s-a', 'new:a')] : []), ...(n >= 9 ? [holds('s-b', 'new:b')] : [])),
     });
