@@ -2,14 +2,9 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import type { TerminalSize } from '../src/block.js';
 import type { AgentRecord } from '../src/types.js';
+import { chunks, CLEAR, roomy } from './helpers/block.js';
 import { agentRecord, fakeClock, pausedDone, repliesWithToken, seedOpenRun, startsNewTurnAfterContinue, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
 import { runCli, type RunCliOptions } from './helpers/run-cli.js';
-
-const CLEAR = '\r\x1b[J';
-const roomy: TerminalSize = { rows: 30, columns: 100 };
-
-/** The blocks that were drawn: every chunk of stderr that starts a redraw. */
-const chunks = (err: string): string[] => err.split(/(?=\r(?:\x1b\[\d+A)?\x1b\[J)/).filter((c) => c !== '');
 
 /** Working until it has the message and `polls` more listings passed, then done with the token line. */
 const confirmsAfter = (polls: number): Behavior => {
