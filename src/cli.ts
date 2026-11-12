@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Interrupted, throwIfAborted } from './abort.js';
 import { PromptInterrupted } from './ask.js';
+import { createBlockDrawer, type TerminalSize } from './block.js';
 import { broadcast, normaliseText } from './broadcast.js';
 import { withLockAndSignals, type GuardOptions, type SignalSource } from './guard.js';
 import { createOrcaAdapter } from './orca-adapter.js';
@@ -35,6 +36,8 @@ export interface CliIo {
   stdout: (text: string) => void;
   stderr: (text: string) => void;
   isTTY: boolean;
+  /** The current terminal size, read at each draw of a block. Absent: the size is unknown and a block is its count line alone. */
+  size?: () => TerminalSize;
   /** Present only when stdin and stderr are both a terminal: the one way the shell can ask the user. */
   ask?: (question: string, signal?: AbortSignal) => Promise<string>;
 }
@@ -119,9 +122,9 @@ function recoverJsonLine(summary: Pick<RunSummary, 'outcome' | 'exitCode' | 'err
 }
 
 // Lists the targets on stderr and asks once.
-function confirmOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>): Confirm {
+function confirmOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>, clearBlock: () => void): Confirm {
   return async (targets, signal, details) => {
-    if (io.isTTY) io.stderr(CLEAR_LINE);
+    if (io.isTTY) clearBlock();
     io.stderr(targets.map((t) => `  ${t.repo}/${t.worktree} (${t.role})\n`).join(''));
     if (details) io.stderr(`\nMessage:\n  ${escapeFormatChars(details.message)}\n${details.self ? `\nNot sent to this session: ${details.self.repo}/${details.self.worktree} (${details.self.role})\n` : ''}\n`);
     return askYes(ask, `Send to ${targets.length} ${targets.length === 1 ? 'agent' : 'agents'}? [y/N] `, signal);
@@ -217,7 +220,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     // The safety switch: nothing is sent without a yes from the user, or --yes. This runs before anything is read, locked or listed.
     const needsConfirm = command !== 'close' && !values.yes;
     if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
-    const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask) : undefined;
+    const block = createBlockDrawer((text) => io.stderr(text), io.size);
+    const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask, block.clear) : undefined;
     const confirmRecover = command === 'recover' && needsConfirm && io.ask ? confirmRecoverOnTerminal(io, io.ask) : undefined;
     const groupFilters = await loadGroupFilters(values.group as string[] | undefined, command, env, io);
     const filtered = isFiltered(filterSpec, groupFilters);
@@ -244,7 +248,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
       if (!port || command === 'close') return close(store, signal, port && filtered ? { filters: filterSpec, groups: groupFilters, port, clock, cwd } : undefined);
       if (command === 'recover') return recover(timeoutMs, { port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, confirm: confirmRecover, keepTabs: values['keep-tabs'] === true, newToken: deps.newToken, signal });
-      if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderBroadcastProgress), confirm, signal, filters, groups: groupFilters, cwd });
+      if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: io.isTTY && !json ? (progress) => block.draw(renderBroadcastProgress(progress), progress.pending) : undefined, confirm, signal, filters, groups: groupFilters, cwd });
       return command === 'pause'
         ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, groups: groupFilters, cwd, onProgress: progressLine(renderProgress), confirm, signal })
         : resume({ port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderResumeProgress), confirm, signal });
@@ -255,7 +259,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       io.stdout(command === 'recover' ? recoverJsonLine(summary) : jsonLine(command, withClosed));
       return summary.exitCode;
     }
-    if (io.isTTY && command !== 'close') io.stderr(CLEAR_LINE);
+    if (io.isTTY && command !== 'close') block.clear();
 
     const filterLine = filtered ? `filters: ${[...groupFilters.map((group) => `--group ${group.name}`), filters && describeFilters(filters)].filter(Boolean).join(' ')}\n` : '';
     // The agents of this output: the rows, and self where the output has a self block.

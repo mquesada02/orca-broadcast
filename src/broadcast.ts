@@ -1,10 +1,11 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
+import { sortPendingRows } from './block.js';
 import { isFiltered, matches, NO_FILTERS, type Subject } from './filters.js';
 import { sessionsByPane } from './roster.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
 import { ackLine, BROADCAST_OPEN_MESSAGE, busyReason, cancelled, clearPid, coordinatorsFirst, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, markTranscript, POLL_INTERVAL_MS, proves, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, sendDue, setPid, subjectOfRow, transcriptProof, withWarnings, type RecordedIdentity, type Roles, type Snapshot, type TranscriptReadState } from './shared.js';
 import type { RecordStore } from './store.js';
-import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, SessionRecord, SessionScan, TerminalRow } from './types.js';
+import type { AgentRow, BroadcastRecord, BroadcastSelf, PendingRow, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, SessionRecord, SessionScan, TerminalRow } from './types.js';
 
 const MAX_TEXT_LENGTH = 4000;
 const NO_BROADCAST_MESSAGE = 'No broadcast is open; give a text.';
@@ -14,6 +15,8 @@ const RECOVERY_OPEN_MESSAGE = 'a recovery is open; re-run recover or close it';
 export interface BroadcastProgress {
   acked: number;
   total: number;
+  /** The targets in scope that are still pending: the rows of the redrawn block. */
+  pending: PendingRow[];
 }
 
 interface BroadcastDeps {
@@ -272,9 +275,10 @@ async function wait({ record, scope, snapshot: first, self, scan }: Plan, timeou
       if (record.targets.every((t) => t.status !== 'pending')) record.status = 'closed';
       await store.saveBroadcast(record);
       const scoped = record.targets.filter((t) => scope.has(t.paneKey));
-      deps.onProgress?.({ acked: scoped.filter((t) => t.status === 'acked').length, total: scoped.length });
+      const stillPending = scoped.filter((t) => t.status === 'pending');
+      deps.onProgress?.({ acked: scoped.filter((t) => t.status === 'acked').length, total: scoped.length, pending: sortPendingRows(stillPending.map(({ repo, worktree, role, reason }) => ({ repo, worktree, role, reason }))) });
       // Ends when nothing in scope is pending, or every pending target in scope is send-failed (no target can progress).
-      if (record.status === 'closed' || scoped.filter((t) => t.status === 'pending').every((t) => t.reason === 'send-failed')) break;
+      if (record.status === 'closed' || stillPending.every((t) => t.reason === 'send-failed')) break;
       await sleepOrAbort(clock, POLL_INTERVAL_MS, deps.signal);
       if (clock.now() - startedAt >= timeoutMs) break;
       snapshot = await listSnapshot(deps);

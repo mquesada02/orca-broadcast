@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Interrupted } from '../../src/abort.js';
 import { PromptInterrupted } from '../../src/ask.js';
+import type { TerminalSize } from '../../src/block.js';
 import { main } from '../../src/cli.js';
 import { createRecordStore, type RecordStore, type StoreOptions } from '../../src/store.js';
 import type { Clock } from '../../src/types.js';
@@ -34,6 +35,8 @@ export interface RunCliOptions {
   /** Makes the run interactive: the shell can ask, and gets these answers in order (an empty answer when they run out). */
   ask?: Answer[];
   isTTY?: boolean;
+  /** The fake terminal size: fixed, or a function of the read number (from 0) so it can change between polls. Absent: the size is unknown. */
+  size?: TerminalSize | ((read: number) => TerminalSize);
   seed?: Seed;
   configure?: (port: FakeOrca) => void;
   env?: NodeJS.ProcessEnv;
@@ -51,6 +54,14 @@ export interface RunCliOptions {
 export const noKill = (pid: number): void => {
   throw new Error(`test gave no kill, but the CLI tried to signal ${pid}`);
 };
+
+/** The size function of the fake terminal: none when the test gives no size, so a test never depends on the real terminal. */
+function sizeReader(size: RunCliOptions['size']): (() => TerminalSize) | undefined {
+  if (size === undefined) return undefined;
+  if (typeof size !== 'function') return () => size;
+  let reads = 0;
+  return () => size(reads++);
+}
 
 /** Runs the CLI shell once with a fake Orca port, a fake clock and a fresh state directory. */
 export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: RunCliOptions = {}) {
@@ -77,6 +88,6 @@ export async function runCli(argv: string[], agents: FakeAgent[] = [], opts: Run
         return Promise.resolve(typeof answer === 'function' ? answer(signal) : answer);
       }
     : undefined;
-  const code = await main(argv, { XDG_STATE_HOME: dir, XDG_CONFIG_HOME: configDirOf(dir), ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken, kill: opts.kill ?? noKill, storeOptions: opts.storeOptions, cwd: opts.cwd });
+  const code = await main(argv, { XDG_STATE_HOME: dir, XDG_CONFIG_HOME: configDirOf(dir), ...opts.env }, { stdout: (t) => out.push(t), stderr: (t) => err.push(t), isTTY: opts.isTTY ?? false, size: sizeReader(opts.size), ask }, { port, clock: opts.clock ?? fakeClock(), signals: opts.signals, newToken: opts.newToken, kill: opts.kill ?? noKill, storeOptions: opts.storeOptions, cwd: opts.cwd });
   return { code, out: out.join(''), err: err.join(''), port, questions, dir };
 }
