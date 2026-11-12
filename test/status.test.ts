@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { complete } from '../src/completion.js';
 import { createRecordStore, type RecordStore, type StoreOptions } from '../src/store.js';
 import type { BroadcastRecord, BroadcastTarget, RecoveryRecord, RecoveryRow } from '../src/types.js';
-import { agentRecord, broadcastTarget, fakeClock, openBroadcastRecord, pausedDone, seedOpenRun, type FakeOrca } from './helpers/fake-orca.js';
+import { agentRecord, broadcastTarget, fakeClock, openBroadcastRecord, FakeOrca, pausedDone, seedOpenRun } from './helpers/fake-orca.js';
 import { recoverRun } from './helpers/recover.js';
 import { runCli, type RunCliOptions } from './helpers/run-cli.js';
 
@@ -299,7 +299,17 @@ describe('status reads only', () => {
         await seed(s, dir);
         for (const name of await readdir(join(stateOf(dir), 'broadcasts'))) before.set(name, await readFile(join(stateOf(dir), 'broadcasts', name), 'utf8'));
       },
-      configure: (p) => { port = p; },
+      configure: (p) => {
+        port = p;
+        // Every Orca method fails the test at the call site, so a call that the counters miss still shows.
+        for (const name of Object.getOwnPropertyNames(FakeOrca.prototype)) {
+          if (name !== 'constructor' && typeof Reflect.get(p, name) === 'function') {
+            Reflect.set(p, name, () => {
+              throw new Error(`status called FakeOrca.${name}`);
+            });
+          }
+        }
+      },
     });
     expect(result.code).toBe(0);
     expect(port).toBeDefined();
