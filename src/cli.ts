@@ -22,6 +22,7 @@ import { isPreset, PRESET_NAMES } from './reasons.js';
 import { recover } from './recover.js';
 import { isRecoveryRecord } from './recover-record.js';
 import { resume } from './resume.js';
+import { buildStatus, renderStatus, statusJson } from './status.js';
 import { createRecordStore, type StoreOptions } from './store.js';
 import type { AgentState, Clock, Confirm, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoveryRecord, RecoverySummary, Role, RunSummary } from './types.js';
 
@@ -206,6 +207,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     }
     command = name;
     validateFlags(command, values as FlagValues);
+    if (command === 'status') return await mainStatus(json, env, io, deps);
     if (rest.length > 0 && values.file !== undefined) throw new UsageError('give the text or --file, not both');
     const reason = values.reason as string | undefined;
     if (reason !== undefined && !isPreset(reason)) throw new UsageError(`invalid --reason "${reason}": use one of ${PRESET_NAMES.join(', ')}`);
@@ -297,6 +299,15 @@ async function loadGroupFilters(names: string[] | undefined, command: Command, e
   if (used.length === 0) throw new Error(`Group ${unique.join(', ')} only filter${unique.length === 1 ? 's' : ''} by state, which ${command} does not use.`);
   for (const { name, spec } of specs) if (spec.state.length > 0) io.stderr(`orca-broadcast: group ${name}: state filter skipped (${command} does not use it)\n`);
   return used;
+}
+
+// `status`: runs before the safety switch, the Orca port and the lock, because it only reads the records and the lock file.
+async function mainStatus(json: boolean, env: NodeJS.ProcessEnv, io: CliIo, deps: CliDeps): Promise<number> {
+  const store = createRecordStore(resolveStateDir(env), deps.storeOptions);
+  const [winner, running] = await Promise.all([store.peekWinner(), store.isRunning()]);
+  const view = winner ? buildStatus(winner, running, (deps.clock ?? systemClock).now()) : null;
+  io.stdout(json ? statusJson(view) : renderStatus(view));
+  return 0;
 }
 
 // `roster save`: runs before the safety switch and the lock, because it never sends and never touches a run. A save that fails is reported, not thrown.

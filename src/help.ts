@@ -9,6 +9,7 @@ const PURPOSE: Record<Command, string> = {
   resume: 'Tell every paused agent to continue and prove it did',
   close: 'Abandon the open run, broadcast or recovery without resuming it; nothing is sent',
   recover: 'Show which agents were alive before a restart or a crash, and which came back',
+  status: 'Show the one open broadcast or recovery: whether a process runs it, how old the data is, and every target with the pending ones first',
 };
 
 const DETAILS: Record<Command, string[]> = {
@@ -32,6 +33,10 @@ const DETAILS: Record<Command, string[]> = {
     'After a yes it restarts every missing agent that is not a worker with claude --resume, coordinators first, and waits for each one to appear in Orca; it never starts a session that a live process holds. It then sends the continue prompt to each live agent whose last state was working or waiting and to each coordinator that has a missing worker, and waits for the ORCA-ACK proof, as broadcast does. Answering no prints the report, writes no record and exits 1. With an open pause run it sends no prompt and writes no recovery record: it stores the outcome and each coordinator\'s missing workers in the run, and resume adds those workers to the CONTINUE message.',
     'Before the first start in a worktree that has no terminal, recover clears the restored tabs of that worktree with Orca\'s terminal close --worktree --all, so no dead tab stays beside the new one; it never clears a worktree that has a live terminal, and it lists the worktrees it cleared in the report and in the JSON key cleared. --keep-tabs turns the clear off. An agent with a saved tab title is restarted in a tab with that title, with Claude Code\'s title updates turned off; an agent with no saved title gets the label <repo>/<worktree> (recovered).',
     'Exit 0 if every row is restored, restarted, acked, left-to-coordinator or abandoned (or there is nothing to recover), 1 if any row is pending, gone, no-coordinator or failed, 2 on a refusal.',
+  ],
+  status: [
+    'It only reads the state folder: it sends nothing, takes no lock and never calls Orca, so it is safe to run while another command waits, also from a ! command in Claude Code. It takes no argument and no filter.',
+    'Exit 0 whenever it could read the state (also when no run is open, or when no process runs the open run), 2 on a refusal or when the state cannot be read.',
   ],
 };
 

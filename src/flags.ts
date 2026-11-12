@@ -2,7 +2,7 @@ import { isRole, ROLES } from './filters.js';
 import { GROUP_STATES, isGroupState } from './groups.js';
 import { PRESET_NAMES } from './reasons.js';
 
-export const COMMANDS = ['broadcast', 'pause', 'resume', 'close', 'recover'] as const;
+export const COMMANDS = ['broadcast', 'pause', 'resume', 'close', 'recover', 'status'] as const;
 // The commands that take the filters.
 const FILTERED = ['broadcast', 'pause', 'resume', 'close', 'recover'] as const;
 export type Command = (typeof COMMANDS)[number];
