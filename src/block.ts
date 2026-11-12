@@ -14,7 +14,7 @@ export const sortPendingRows = (rows: PendingRow[]): PendingRow[] =>
 
 // One line per row: two-space indent, columns aligned to the widest cell, two spaces between columns, trailing spaces trimmed.
 function rowLines(rows: PendingRow[]): string[] {
-  const cells = rows.map((r) => [`${r.repo}/${r.worktree}`, r.role, r.reason ?? '']);
+  const cells = rows.map((r): [string, string, string] => [`${r.repo}/${r.worktree}`, r.role, r.reason ?? '']);
   const widths = [0, 1, 2].map((i) => Math.max(...cells.map((c) => (c[i] as string).length)));
   return cells.map((c) => `  ${c.map((cell, i) => cell.padEnd(widths[i] as number)).join('  ').trimEnd()}`);
 }
@@ -25,7 +25,7 @@ function rowLines(rows: PendingRow[]): string[] {
  * When the rows do not fit, `rows - 3` rows show, then `… and N more`. Every line is cut to `columns - 1` characters.
  */
 export function fitBlock(count: string, pending: PendingRow[], size: TerminalSize | undefined): string[] {
-  if (!size || size.rows <= 0 || size.columns <= 0 || size.rows - 1 < 3) return [count];
+  if (!size || size.columns <= 0 || size.rows - 1 < 3) return [count];
   const maxLines = size.rows - 1;
   const fits = 1 + pending.length <= maxLines;
   const shown = fits ? pending : pending.slice(0, maxLines - 2);

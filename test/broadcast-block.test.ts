@@ -127,6 +127,11 @@ describe('broadcast on a terminal: the block', () => {
     expect(chunks(err)[0]).toBe(`${CLEAR}broadcasting… 0/1 acked\n  repo/alpha  session  still-working`);
   });
 
+  it('shows no row for the running session', async () => {
+    const { err } = await send([agent('a:1', 'alpha'), agent('a:2', 'beta')], { size: roomy, env: { ORCA_PANE_KEY: 'a:2' } });
+    expect(chunks(err)[0]).toBe(`${CLEAR}broadcasting… 0/1 acked\n  repo/alpha  session  still-working`);
+  });
+
   it('shows the pending targets of a re-run of an open broadcast', async () => {
     const targets = [broadcastTarget('a:1', { worktree: 'alpha' }), broadcastTarget('a:2', { worktree: 'beta', status: 'acked', reason: null })];
     const { err } = await runCli(['broadcast', '--yes', '--timeout', '10s'], [agent('a:1', 'alpha'), agent('a:2', 'beta')], { newToken: () => TOKEN, isTTY: true, size: roomy, seed: seedBroadcast(targets) });

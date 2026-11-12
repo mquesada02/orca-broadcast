@@ -5,7 +5,7 @@ import { sessionsByPane } from './roster.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
 import { ackLine, BROADCAST_OPEN_MESSAGE, busyReason, cancelled, clearPid, coordinatorsFirst, failure, hasNewReply, isSendable, isWaitingLike, iso, listFresh, listSnapshot, liveSources, locate, markTranscript, POLL_INTERVAL_MS, proves, randomToken, recordId, releaseBroadcast, resolveFilterSet, roleInfoOf, sendDue, setPid, subjectOfRow, transcriptProof, withWarnings, type RecordedIdentity, type Roles, type Snapshot, type TranscriptReadState } from './shared.js';
 import type { RecordStore } from './store.js';
-import type { AgentRow, BroadcastRecord, BroadcastSelf, PendingRow, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, RunSummary, SessionRecord, SessionScan, TerminalRow } from './types.js';
+import type { AgentRow, BroadcastRecord, BroadcastSelf, BroadcastTarget, Clock, Confirm, ConfirmTarget, FilterSet, FilterSpec, GroupFilter, LocateReason, OrcaPort, PendingRow, RunSummary, SessionRecord, SessionScan, TerminalRow } from './types.js';
 
 const MAX_TEXT_LENGTH = 4000;
 const NO_BROADCAST_MESSAGE = 'No broadcast is open; give a text.';
