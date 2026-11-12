@@ -99,7 +99,6 @@ describe('pause on a terminal: the block', () => {
   });
 });
 
-
 const rec = (paneKey: string, worktree: string, extra: Partial<AgentRecord> = {}): AgentRecord => agentRecord(paneKey, { worktree, role: 'session', ...extra });
 
 const resume = (agents: FakeAgent[], records: AgentRecord[], opts: RunCliOptions = {}, argv: string[] = []) =>
@@ -135,13 +134,22 @@ describe('resume on a terminal: the block', () => {
     };
     const { err } = await resume([agent('a:1', 'alpha', pausedDone())], [rec('a:1', 'alpha')], { size: roomy, signals, clock });
     expect(err).toContain('0/1 resumed');
-    expect(chunks(err).at(-1)).toMatch(/^\r(?:\x1b\[\d+A)?\x1b\[J(?:orca-broadcast: .*\n)?$/);
+    expect(chunks(err).at(-1)).toMatch(/^\r\x1b\[1A\x1b\[J(?:orca-broadcast: .*\n)?$/);
   });
 
-  it('draws the count line alone with no size', async () => {
-    const { err } = await resume([agent('a:1', 'alpha', startsNewTurnAfterContinue)], [rec('a:1', 'alpha')]);
+  it.each<[string, TerminalSize | undefined]>([
+    ['no size', undefined],
+    ['a size of 0', { rows: 0, columns: 0 }],
+  ])('draws the count line alone with %s', async (_name, size) => {
+    const { err } = await resume([agent('a:1', 'alpha', startsNewTurnAfterContinue)], [rec('a:1', 'alpha')], { size });
     expect(err).toContain(`${CLEAR}resuming… 0/1 resumed`);
     expect(err).not.toContain('repo/alpha');
+  });
+
+  it('shows the reason of a pending agent', async () => {
+    const waiting: Behavior = () => ({ state: 'waiting', message: null });
+    const { err } = await resume([agent('a:1', 'alpha', waiting)], [rec('a:1', 'alpha')], { size: roomy });
+    expect(chunks(err)[0]).toMatch(/^\r\x1b\[Jresuming… 0\/1 resumed\n  repo\/alpha  session  waiting-permission$/);
   });
 
   it('draws no block without a terminal, and none with --json', async () => {

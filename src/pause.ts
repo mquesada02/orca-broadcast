@@ -1,5 +1,5 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { sortPendingRows } from './block.js';
+import { pendingRows } from './block.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import { abandonRecovery } from './recover-record.js';
 import { abandonPending, type RecordStore } from './store.js';
@@ -538,6 +538,6 @@ function reportProgress(run: Run, remainingMs: number, deps: PauseDeps, selfKey:
     total: live.length,
     reasons,
     remainingMs: Math.max(0, remainingMs),
-    pending: sortPendingRows(live.filter((a) => a.pauseStatus === 'unconfirmed').map(({ repo, worktree, role, pauseReason }) => ({ repo, worktree, role, reason: pauseReason }))),
+    pending: pendingRows(live.filter((a) => a.pauseStatus === 'unconfirmed'), (a) => a.pauseReason),
   });
 }

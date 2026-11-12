@@ -12,6 +12,10 @@ const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 export const sortPendingRows = (rows: PendingRow[]): PendingRow[] =>
   [...rows].sort((a, b) => compare(a.repo, b.repo) || compare(a.worktree, b.worktree) || compare(a.role, b.role));
 
+/** The rows of a block for these records: each record's repo, worktree and role with its reason, in the fixed order. */
+export const pendingRows = <T extends Omit<PendingRow, 'reason'>>(records: T[], reasonOf: (record: T) => string | null): PendingRow[] =>
+  sortPendingRows(records.map((r) => ({ repo: r.repo, worktree: r.worktree, role: r.role, reason: reasonOf(r) })));
+
 // One line per row: two-space indent, columns aligned to the widest cell, two spaces between columns, trailing spaces trimmed.
 function rowLines(rows: PendingRow[]): string[] {
   const cells = rows.map((r): [string, string, string] => [`${r.repo}/${r.worktree}`, r.role, r.reason ?? '']);
