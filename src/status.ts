@@ -75,7 +75,7 @@ export function buildStatus(winner: OpenWinner, running: boolean, nowMs: number)
   const savedAt = validStamp(winner.savedAt);
   const common = { running, savedAt, age: savedAt === null ? null : formatAge(savedAt, nowMs), latestRecover: null } as const;
   if (winner.kind === 'pause') {
-    // A pause run: the header only, until the pause-run view exists.
+    // TEMPORARY, approved by ticket 267 ("may print the pause run's header with no rows"): a pause run shows its header alone, always in the pause phase, until ticket 268 adds the pause-run view and replaces this branch.
     return { ...common, kind: 'pause', id: winner.record.runId, command: 'pause', phase: 'pause', doneWord: 'confirmed', nextStep: 'run pause again or resume to continue', counts: countsOf(0, 0), rows: [], hasRows: false };
   }
   const shown = rowsOf(winner);

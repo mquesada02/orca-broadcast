@@ -206,9 +206,15 @@ async function listRosters(folder: string): Promise<{ id: string; snapshot: Rost
   return files.sort((a, b) => newerFirst(a.snapshot.lastSavedAt, b.snapshot.lastSavedAt) || newerFirst(a.id, b.id));
 }
 
+// The save stamp of each record `readRecord` returned: the records themselves never carry it.
+const stamps = new WeakMap<object, string>();
+
 async function readRecord<T>(path: string): Promise<T | null> {
   try {
-    return JSON.parse(await readFile(path, 'utf8')) as T;
+    const record = JSON.parse(await readFile(path, 'utf8')) as T & { savedAt?: unknown };
+    if (typeof record?.savedAt === 'string') stamps.set(record, record.savedAt);
+    delete record?.savedAt;
+    return record;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw new Error(`unreadable record ${path}: ${(error as Error).message}`);
@@ -225,11 +231,8 @@ function backfillTargets(record: BroadcastRecord): void {
   record.targets ??= [];
 }
 
-// The save stamp of each record `readOpen` returned: the records themselves never carry it.
-const stamps = new WeakMap<object, string>();
-
 // A missing folder counts as empty.
-async function readOpen<T extends { status: string; savedAt?: string }>(folder: string, sortKey: (record: T) => string, idOf: (record: T) => string, normalise: (record: T) => void = () => {}): Promise<OpenEntry<T> | null> {
+async function readOpen<T extends { status: string }>(folder: string, sortKey: (record: T) => string, idOf: (record: T) => string, normalise: (record: T) => void = () => {}): Promise<OpenEntry<T> | null> {
   let names: string[];
   try {
     names = await readdir(folder);
@@ -240,10 +243,6 @@ async function readOpen<T extends { status: string; savedAt?: string }>(folder: 
   const records: (T | null)[] = await Promise.all<T | null>(names.filter((n) => n.endsWith('.json')).map((n) => readRecord<T>(join(folder, n))));
   const open = records.filter((r): r is T => r?.status === 'open');
   open.forEach(normalise);
-  for (const record of open) {
-    if (typeof record.savedAt === 'string') stamps.set(record, record.savedAt);
-    delete record.savedAt;
-  }
   open.sort((a, b) => sortKey(b).localeCompare(sortKey(a)) || idOf(b).localeCompare(idOf(a)));
   const [record, ...others] = open;
   return record ? { record, others } : null;
@@ -479,9 +478,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
       const records = await Promise.all(names.filter((n) => n.endsWith('.json')).map((n) => readRecord<RecoveryRecord>(join(recoveriesDir, n))));
       const done = records.filter((r): r is RecoveryRecord => r?.status === 'closed' && r.endedBy === 'done');
       done.sort((a, b) => newerFirst(a.createdAt, b.createdAt) || newerFirst(a.id, b.id));
-      const [newest] = done;
-      if (newest) delete newest.savedAt;
-      return newest ?? null;
+      return done[0] ?? null;
     },
 
     async saveRoster(snapshot) {
