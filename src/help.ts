@@ -9,7 +9,7 @@ const PURPOSE: Record<Command, string> = {
   resume: 'Tell every paused agent to continue and prove it did',
   close: 'Abandon the open run, broadcast or recovery without resuming it; nothing is sent',
   recover: 'Show which agents were alive before a restart or a crash, and which came back',
-  status: 'Show the one open broadcast or recovery: whether a process runs it, how old the data is, and every target with the pending ones first',
+  status: 'Show the one open pause run, broadcast or recovery: whether a process runs it, how old the data is, and every target with the pending ones first',
 };
 
 const DETAILS: Record<Command, string[]> = {

@@ -427,7 +427,7 @@ describe('help and completion of status', () => {
     const { code, out } = await runCli(['status', '--help']);
     expect(code).toBe(0);
     expect(out).toContain('Usage: orca-broadcast status\n');
-    expect(out).toContain('Show the one open broadcast or recovery');
+    expect(out).toContain('Show the one open pause run, broadcast or recovery');
     expect(out).toContain('Exit 0 whenever it could read the state');
     expect(out).toContain('--json');
     expect(out).not.toContain('--timeout');
