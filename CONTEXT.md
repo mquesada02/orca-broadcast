@@ -75,3 +75,11 @@ _Avoid_: Dead agent, lost agent
 **Session role**:
 The role of an agent that is neither a coordinator nor a worker of an orchestration run.
 _Avoid_: Standalone, solo, plain agent
+
+**Status**:
+The read-only command `orca-broadcast status`. It prints the one open run once: a header (the record kind and ID, whether a process runs it, the age of its save stamp), every target with the pending ones first, and a count line. It sends nothing, takes no lock and never calls Orca, so it runs while another command waits, also from a `!` command in Claude Code.
+_Avoid_: Monitor, watch, progress command
+
+**Save stamp**:
+The `savedAt` field that the record store adds to the file of a pause run, a broadcast record or a recovery record at every save. It holds the ISO time of the save, and `status` shows its age. It is not in the record in memory, so the `--json` output of the other commands has no such key. A record saved by an older version has none. It is not the per-row `savedAt` of a recovery row, which is the time of the roster save that wrote that entry.
+_Avoid_: Timestamp, updated-at
