@@ -72,10 +72,12 @@ export function formatAge(savedAt: string, nowMs: number): string {
 // Copies only these five fields, so the JSON never holds another field of a target or a row.
 const pick = (r: StatusRow): StatusRow => ({ repo: r.repo, worktree: r.worktree, role: r.role, status: r.status, reason: r.reason });
 
+// A row of a recovery is pending when it is not final by the recovery record's rule.
+const recoveryShown = (rows: RunRecoveryRow[]): { row: StatusRow; pending: boolean }[] => rows.map((r) => ({ row: pick(r), pending: !isFinalRow(r, rows) }));
+
 function rowsOf(winner: Exclude<OpenWinner, { kind: 'pause' }>): { rows: { row: StatusRow; pending: boolean }[]; doneWord: string } {
   if (winner.kind === 'broadcast') return { doneWord: 'acked', rows: winner.record.targets.map((t) => ({ row: pick(t), pending: t.status === 'pending' })) };
-  const { rows } = winner.record;
-  return { doneWord: 'final', rows: rows.map((r) => ({ row: pick(r), pending: !isFinalRow(r, rows) })) };
+  return { doneWord: 'final', rows: recoveryShown(winner.record.rows) };
 }
 
 /**
@@ -90,13 +92,14 @@ function buildPauseStatus(winner: Extract<OpenWinner, { kind: 'pause' }>, common
   const { agents, recovery, runId } = winner.record;
   // The resume phase starts once any agent has a CONTINUE send time on disk.
   const resume = agents.some((a) => a.continueSentAt !== undefined);
-  const shown = agents.map((a) =>
-    resume
-      ? { row: pick({ repo: a.repo, worktree: a.worktree, role: a.role, status: a.resumeStatus, reason: a.resumeReason ?? null }), pending: a.resumeStatus === 'pending' }
-      : { row: pick({ repo: a.repo, worktree: a.worktree, role: a.role, status: a.pauseStatus, reason: a.pauseReason }), pending: isPausePending(a) },
-  );
+  const shown = agents.map((a) => {
+    const who = { repo: a.repo, worktree: a.worktree, role: a.role };
+    return resume
+      ? { row: { ...who, status: a.resumeStatus, reason: a.resumeReason ?? null }, pending: a.resumeStatus === 'pending' }
+      : { row: { ...who, status: a.pauseStatus, reason: a.pauseReason }, pending: isPausePending(a) };
+  });
   const { counts, rows } = sectionOf(shown);
-  const latestRecover = recovery ? sectionOf(recovery.rows.map((r) => ({ row: pick(r), pending: !isFinalRow(r, recovery.rows) }))) : null;
+  const latestRecover = recovery ? sectionOf(recoveryShown(recovery.rows)) : null;
   return {
     ...common,
     kind: 'pause',
@@ -116,7 +119,7 @@ export function buildStatus(winner: OpenWinner, running: boolean, nowMs: number)
   const common = { running, savedAt, age: savedAt === null ? null : formatAge(savedAt, nowMs) };
   if (winner.kind === 'pause') return buildPauseStatus(winner, common);
   const shown = rowsOf(winner);
-  const pending = shown.rows.filter((r) => r.pending).length;
+  const { counts, rows } = sectionOf(shown.rows);
   const isBroadcast = winner.kind === 'broadcast';
   return {
     ...common,
@@ -126,8 +129,8 @@ export function buildStatus(winner: OpenWinner, running: boolean, nowMs: number)
     phase: null,
     doneWord: shown.doneWord,
     nextStep: isBroadcast ? 're-run broadcast to continue' : 're-run recover to continue',
-    counts: countsOf(shown.rows.length, pending),
-    rows: sortRows(shown.rows),
+    counts,
+    rows,
     latestRecover: null,
   };
 }

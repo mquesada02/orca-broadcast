@@ -256,15 +256,21 @@ describe('status of an open pause run', () => {
   });
 
   it('prints the latest recover section after the agents, in text and --json', async () => {
-    const rows = [runRow(null, 'w-null', { status: 'acked' }), runRow('s-1', 'w-due', { status: 'restarted', promptDue: true }), runRow('s-2', 'w-done', { status: 'restarted', reason: null })];
+    const rows = [
+      runRow(null, 'w-null', { status: 'acked' }),
+      runRow('s-1', 'w-due', { status: 'restarted', promptDue: true }),
+      runRow('s-2', 'w-done', { status: 'restarted', reason: null }),
+      runRow(null, 'w-restored', { status: 'restored', promptDue: false }),
+      runRow(null, 'w-restored-due', { status: 'restored', promptDue: true }),
+    ];
     const seed = seedRun([agentRecord('a:1')], { recovery: recovery(rows) });
     expect((await status([], { seed })).out).toBe(
-      ['pause run run-1 · not running: run pause again or resume to continue · saved 0s ago', '  repo/tree-a:1  worker  confirmed', '1/1 confirmed, 0 pending', '', 'latest recover', '  repo/w-due   worker  restarted', '  repo/w-done  worker  restarted', '  repo/w-null  worker  acked', '2/3 final, 1 pending', ''].join('\n'),
+      ['pause run run-1 · not running: run pause again or resume to continue · saved 0s ago', '  repo/tree-a:1  worker  confirmed', '1/1 confirmed, 0 pending', '', 'latest recover', '  repo/w-due           worker  restarted', '  repo/w-restored-due  worker  restored', '  repo/w-done          worker  restarted', '  repo/w-null          worker  acked', '  repo/w-restored      worker  restored', '3/5 final, 2 pending', ''].join('\n'),
     );
     const open = openOf((await status(['--json'], { seed })).out);
     expect(open.counts).toEqual({ done: 1, pending: 0, total: 1 });
-    expect(open.latestRecover?.counts).toEqual({ done: 2, pending: 1, total: 3 });
-    expect(open.latestRecover?.rows.map((r) => r.worktree)).toEqual(['w-due', 'w-done', 'w-null']);
+    expect(open.latestRecover?.counts).toEqual({ done: 3, pending: 2, total: 5 });
+    expect(open.latestRecover?.rows.map((r) => r.worktree)).toEqual(['w-due', 'w-restored-due', 'w-done', 'w-null', 'w-restored']);
   });
 
   it('prints an empty latest recover section for a recovery with no rows, and none without recovery', async () => {
