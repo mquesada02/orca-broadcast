@@ -249,6 +249,8 @@ export interface Progress {
   total: number;
   reasons: Partial<Record<PauseReason, number>>;
   remainingMs: number;
+  /** The live agents that are still unconfirmed: the rows of the redrawn block. */
+  pending: PendingRow[];
 }
 
 /** One row of the redrawn block: a target that is not done yet. */
@@ -262,6 +264,8 @@ export interface PendingRow {
 export interface ResumeProgress {
   resumed: number;
   total: number;
+  /** The live agents that are still pending: the rows of the redrawn block. */
+  pending: PendingRow[];
 }
 
 export interface RunSummary {

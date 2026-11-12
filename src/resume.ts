@@ -1,4 +1,5 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
+import { sortPendingRows } from './block.js';
 import { continueSentence, type Preset } from './reasons.js';
 import { liveSessionIds } from './recover-classify.js';
 import { workerItems, workersSentence } from './recover-prompt.js';
@@ -251,5 +252,5 @@ async function awaitProof(run: Run, selected: AgentRecord[], awaiting: Awaiting[
 
 function reportProgress(selected: AgentRecord[], deps: ResumeDeps): void {
   const live = selected.filter((a) => a.resumeStatus !== 'gone');
-  deps.onProgress?.({ resumed: live.filter((a) => a.resumeStatus === 'resumed').length, total: live.length });
+  deps.onProgress?.({ resumed: live.filter((a) => a.resumeStatus === 'resumed').length, total: live.length, pending: sortPendingRows(live.filter((a) => a.resumeStatus === 'pending').map(({ repo, worktree, role, resumeReason }) => ({ repo, worktree, role, reason: resumeReason ?? null }))) });
 }
