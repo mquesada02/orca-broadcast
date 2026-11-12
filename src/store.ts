@@ -264,7 +264,7 @@ export function selectWinner(open: OpenRecords): OpenWinner | null {
 
 const winnerPointer = (winner: OpenWinner): Pointer => ({ kind: winner.kind, id: winner.kind === 'pause' ? winner.record.runId : winner.record.id });
 
-type Owner ={ kind: 'missing' } | { kind: 'invalid' } | { kind: 'owner'; owner: LockOwner };
+type Owner = { kind: 'missing' } | { kind: 'invalid' } | { kind: 'owner'; owner: LockOwner };
 
 async function readOwner(path: string): Promise<Owner> {
   let text: string;
