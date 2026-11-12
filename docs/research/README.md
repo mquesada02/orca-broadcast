@@ -18,4 +18,5 @@ The guide pages in `docs/guide/` and the ADRs in `docs/adr/` are the current tru
 | [restored-tabs.md](restored-tabs.md) | What the Orca CLI sees and does with tabs that Orca restores after a reboot |
 | [tab-title.md](tab-title.md) | What decides a recovered tab's title, and whether it can be kept or set again |
 | [terminal-identity.md](terminal-identity.md) | How the CLI identifies one agent's terminal reliably |
+| [terminal-redraw.md](terminal-redraw.md) | How to redraw a multi-line block on stderr in place, and clear it |
 | [tui-send.md](tui-send.md) | `orca-ide terminal send` to a Claude Code TUI that is mid-turn |
