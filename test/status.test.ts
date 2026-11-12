@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { complete } from '../src/completion.js';
 import { createRecordStore, type RecordStore, type StoreOptions } from '../src/store.js';
-import type { BroadcastRecord, BroadcastTarget, RecoveryRecord, RecoveryRow } from '../src/types.js';
+import type { AgentRecord, BroadcastRecord, BroadcastTarget, RecoveryRecord, RecoveryRow, Run, RunRecovery, RunRecoveryRow } from '../src/types.js';
 import { agentRecord, broadcastTarget, fakeClock, openBroadcastRecord, FakeOrca, pausedDone, seedOpenRun } from './helpers/fake-orca.js';
 import { recoverRun } from './helpers/recover.js';
 import { runCli, type RunCliOptions } from './helpers/run-cli.js';
@@ -194,17 +194,84 @@ describe('status of an open recovery', () => {
 describe('status of an open pause run', () => {
   const seed: Seed = async (store) => void (await seedOpenRun(store, [agentRecord('a:1')]));
 
-  it('prints the header alone and does not crash', async () => {
-    const { code, out, err } = await status([], { seed });
-    expect(code).toBe(0);
-    expect(err).toBe('');
-    expect(out).toMatch(/^pause run run-1 · not running: run pause again or resume to continue · saved \S+ ago\n$/);
+  const seedRun = (agents: AgentRecord[], extra: Partial<Run> = {}): Seed => async (_store, dir) => void (await seedOpenRun(stampedStore(dir, NOW), agents, extra));
+  const runRow = (sessionId: string | null, worktree: string, extra: Partial<RunRecoveryRow> = {}): RunRecoveryRow => ({ ...row('s', 'repo', worktree), ...extra, sessionId });
+  const recovery = (rows: RunRecoveryRow[]): RunRecovery => ({ snapshotKey: { bootId: 'boot-0', runtimeId: 'runtime-0' }, liveRuntime: { bootId: 'boot-1', runtimeId: null }, starts: [], rows });
+  const unconfirmed = (paneKey: string, extra: Partial<AgentRecord> = {}): AgentRecord => agentRecord(paneKey, { pauseStatus: 'unconfirmed', ...extra });
+  const openOf = (out: string) => jsonOf(out).open as { kind: string; command: string; phase: string; counts: Record<string, number>; rows: { worktree: string; status: string; reason: string | null }[]; latestRecover: { counts: Record<string, number>; rows: { worktree: string; status: string; reason: string | null }[] } | null };
+
+  it('shows the pause phase: pending first, the confirmed word and the pause next step', async () => {
+    const { code, out, err } = await status([], { seed: seedRun([agentRecord('a:2'), unconfirmed('a:1', { pauseReason: 'still-working' })]) });
+    expect({ code, err }).toEqual({ code: 0, err: '' });
+    expect(out).toBe(['pause run run-1 · not running: run pause again or resume to continue · saved 0s ago', '  repo/tree-a:1  worker  unconfirmed  still-working', '  repo/tree-a:2  worker  confirmed', '1/2 confirmed, 1 pending', ''].join('\n'));
   });
 
-  it('prints an interim object in --json', async () => {
-    const { code, out } = await status(['--json'], { seed });
-    expect(code).toBe(0);
-    expect(jsonOf(out).open).toMatchObject({ kind: 'pause', id: 'run-1', command: 'pause', running: false, phase: 'pause', counts: { done: 0, pending: 0, total: 0 }, rows: [], latestRecover: null });
+  it('shows the pause phase in --json', async () => {
+    const open = openOf((await status(['--json'], { seed: seedRun([agentRecord('a:2'), unconfirmed('a:1', { pauseReason: 'still-working' })]) })).out);
+    expect(open).toMatchObject({ kind: 'pause', command: 'pause', phase: 'pause', counts: { done: 1, pending: 1, total: 2 }, latestRecover: null });
+    expect(open.rows).toEqual([{ repo: 'repo', worktree: 'tree-a:1', role: 'worker', status: 'unconfirmed', reason: 'still-working' }, { repo: 'repo', worktree: 'tree-a:2', role: 'worker', status: 'confirmed', reason: null }]);
+  });
+
+  it('shows the resume phase once any agent has a CONTINUE send time: resume statuses, the resumed word and the resume next step', async () => {
+    const agents = [agentRecord('a:1', { resumeStatus: 'pending', resumeReason: 'no-proof', continueSentAt: '2026-01-01T00:00:00.000Z' }), agentRecord('a:2', { resumeStatus: 'resumed' })];
+    const { out } = await status([], { seed: seedRun(agents) });
+    expect(out).toBe(['pause run run-1 · not running: re-run resume to continue · saved 0s ago', '  repo/tree-a:1  worker  pending  no-proof', '  repo/tree-a:2  worker  resumed', '1/2 resumed, 1 pending', ''].join('\n'));
+    expect(openOf((await status(['--json'], { seed: seedRun(agents) })).out)).toMatchObject({ kind: 'pause', command: 'resume', phase: 'resume', counts: { done: 1, pending: 1, total: 2 } });
+  });
+
+  it('FK-1, pause phase: a send-failed, a gone and the running session agent are done, an unconfirmed one is pending', async () => {
+    const agents = [
+      unconfirmed('a:1', { pauseReason: 'still-working' }),
+      unconfirmed('a:2', { pauseReason: 'send-failed' }),
+      unconfirmed('a:3', { pauseReason: 'background', resumeStatus: 'gone', resumeReason: 'terminal-closed' }),
+      unconfirmed('a:4', { pauseReason: 'self' }),
+      agentRecord('a:5'),
+    ];
+    const open = openOf((await status(['--json'], { seed: seedRun(agents) })).out);
+    expect(open.counts).toEqual({ done: 4, pending: 1, total: 5 });
+    expect(open.rows.map((r) => r.worktree)).toEqual(['tree-a:1', 'tree-a:2', 'tree-a:3', 'tree-a:4', 'tree-a:5']);
+    expect(open.rows[2]).toMatchObject({ status: 'unconfirmed', reason: 'background' });
+    expect(open.rows[3]).toMatchObject({ status: 'unconfirmed', reason: 'self' });
+    expect((await status([], { seed: seedRun(agents) })).out).toContain('4/5 confirmed, 1 pending\n');
+    expect((await status([], { seed: seedRun([...agents.slice(0, 4)]) })).out).toContain('3/4 confirmed, 1 pending\n');
+  });
+
+  it('FK-1, resume phase: gone, abandoned and resumed agents are done, pending ones are pending, also one with the self marker', async () => {
+    const sent = '2026-01-01T00:00:00.000Z';
+    const agents = [
+      agentRecord('a:1', { resumeStatus: 'pending', continueSentAt: sent }),
+      agentRecord('a:2', { resumeStatus: 'resumed', resumeReason: 'self', pauseReason: 'self' }),
+      agentRecord('a:3', { resumeStatus: 'gone', resumeReason: 'terminal-closed' }),
+      agentRecord('a:4', { resumeStatus: 'abandoned' }),
+      agentRecord('a:5', { resumeStatus: 'pending', pauseReason: 'self' }),
+    ];
+    const open = openOf((await status(['--json'], { seed: seedRun(agents) })).out);
+    expect(open.counts).toEqual({ done: 3, pending: 2, total: 5 });
+    expect(open.rows.map((r) => r.worktree)).toEqual(['tree-a:1', 'tree-a:5', 'tree-a:2', 'tree-a:3', 'tree-a:4']);
+    expect(open.rows[2]).toMatchObject({ status: 'resumed', reason: 'self' });
+  });
+
+  it('prints 0/0 for a pause run with no agents', async () => {
+    expect((await status([], { seed: seedRun([]) })).out).toBe(['pause run run-1 · not running: run pause again or resume to continue · saved 0s ago', '0/0 confirmed, 0 pending', ''].join('\n'));
+  });
+
+  it('prints the latest recover section after the agents, in text and --json', async () => {
+    const rows = [runRow(null, 'w-null', { status: 'acked' }), runRow('s-1', 'w-due', { status: 'restarted', promptDue: true }), runRow('s-2', 'w-done', { status: 'restarted', reason: null })];
+    const seed = seedRun([agentRecord('a:1')], { recovery: recovery(rows) });
+    expect((await status([], { seed })).out).toBe(
+      ['pause run run-1 · not running: run pause again or resume to continue · saved 0s ago', '  repo/tree-a:1  worker  confirmed', '1/1 confirmed, 0 pending', '', 'latest recover', '  repo/w-due   worker  restarted', '  repo/w-done  worker  restarted', '  repo/w-null  worker  acked', '2/3 final, 1 pending', ''].join('\n'),
+    );
+    const open = openOf((await status(['--json'], { seed })).out);
+    expect(open.counts).toEqual({ done: 1, pending: 0, total: 1 });
+    expect(open.latestRecover?.counts).toEqual({ done: 2, pending: 1, total: 3 });
+    expect(open.latestRecover?.rows.map((r) => r.worktree)).toEqual(['w-due', 'w-done', 'w-null']);
+  });
+
+  it('prints an empty latest recover section for a recovery with no rows, and none without recovery', async () => {
+    expect((await status([], { seed: seedRun([agentRecord('a:1')], { recovery: recovery([]) }) })).out).toContain('\nlatest recover\n0/0 final, 0 pending\n');
+    const none = await status(['--json'], { seed: seedRun([agentRecord('a:1')]) });
+    expect(openOf(none.out).latestRecover).toBeNull();
+    expect((await status([], { seed: seedRun([agentRecord('a:1')]) })).out).not.toContain('latest recover');
   });
 
   it('wins over an open broadcast and leaves the broadcast open', async () => {

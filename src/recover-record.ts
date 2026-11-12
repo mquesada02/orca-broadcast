@@ -5,7 +5,7 @@ import type { BroadcastRecord, RecoverReason, RecoverRow, RecoveryRecord, Recove
  * A row is final when no further start, send or wait is planned for it: `acked`, `gone`, `left-to-coordinator`, `no-coordinator`, `failed`
  * and `abandoned` always; `restored` and `restarted` only when no prompt follows. `pending` never is.
  */
-export function isFinalRow(row: Pick<RecoveryRow, 'status' | 'reason' | 'promptDue' | 'coordinatorSessionId'>, rows: Pick<RecoveryRow, 'sessionId' | 'status'>[]): boolean {
+export function isFinalRow(row: Pick<RunRecoveryRow, 'status' | 'reason' | 'promptDue' | 'coordinatorSessionId'>, rows: Pick<RunRecoveryRow, 'sessionId' | 'status'>[]): boolean {
   switch (row.status) {
     case 'no-coordinator':
       // The exception: a worker whose coordinator did not get the list yet is decided again with its coordinator, while that row is pending.
