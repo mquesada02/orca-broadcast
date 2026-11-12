@@ -55,6 +55,12 @@ export interface LockOwner {
   startTime?: string;
 }
 
+// The open record the rules pick, with the save stamp of its file (null for a record saved before the stamp existed).
+export type OpenWinner =
+  | { kind: 'pause'; record: Run; savedAt: string | null }
+  | { kind: 'broadcast'; record: BroadcastRecord; savedAt: string | null }
+  | { kind: 'recovery'; record: RecoveryRecord; savedAt: string | null };
+
 export interface RecordStore {
   /** The open pause run, as the repairing load sees it. */
   findOpenRun(): Promise<OpenRuns | null>;
@@ -62,6 +68,10 @@ export interface RecordStore {
   loadOpen(): Promise<LoadedRecords>;
   /** The same selection as `loadOpen`, with no repair; safe without the lock. */
   peekOpen(): Promise<OpenRecords>;
+  /** The record that `loadOpen` would pick, with the save stamp of its file; no repair, safe without the lock. */
+  peekWinner(): Promise<OpenWinner | null>;
+  /** Whether a live process holds the lock (the stale-lock rule); safe without the lock. Rejects when the lock path cannot be read. */
+  isRunning(): Promise<boolean>;
   acquireLock(): Promise<() => Promise<void>>;
   /** The parsed lock owner, or null when there is no lock or it is invalid. */
   lockOwner(): Promise<LockOwner | null>;
@@ -95,6 +105,8 @@ export interface StoreOptions {
   readStartTime?: (pid: number) => string | undefined;
   /** The random part of a temporary file name; a fresh UUID when omitted. */
   tmpSuffix?: () => string;
+  /** The clock of the save stamp, in epoch milliseconds; `Date.now` when omitted. */
+  now?: () => number;
 }
 
 function processIsAlive(pid: number): boolean {
@@ -194,9 +206,15 @@ async function listRosters(folder: string): Promise<{ id: string; snapshot: Rost
   return files.sort((a, b) => newerFirst(a.snapshot.lastSavedAt, b.snapshot.lastSavedAt) || newerFirst(a.id, b.id));
 }
 
+// The save stamp of each record `readRecord` returned: the records themselves never carry it.
+const stamps = new WeakMap<object, string>();
+
 async function readRecord<T>(path: string): Promise<T | null> {
   try {
-    return JSON.parse(await readFile(path, 'utf8')) as T;
+    const record = JSON.parse(await readFile(path, 'utf8')) as T & { savedAt?: unknown };
+    if (typeof record?.savedAt === 'string') stamps.set(record, record.savedAt);
+    delete record?.savedAt;
+    return record;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw new Error(`unreadable record ${path}: ${(error as Error).message}`);
@@ -230,6 +248,21 @@ async function readOpen<T extends { status: string }>(folder: string, sortKey: (
   return record ? { record, others } : null;
 }
 
+/**
+ * The open record that wins: a pause run, else the newer `createdAt` of the open recovery and the open broadcast (a tie goes to the recovery).
+ * The one home of this rule: the repairing load and the lock-free winner both use it.
+ */
+export function selectWinner(open: OpenRecords): OpenWinner | null {
+  const stampOf = (record: object): string | null => stamps.get(record) ?? null;
+  if (open.pause) return { kind: 'pause', record: open.pause.record, savedAt: stampOf(open.pause.record) };
+  const recoveryWins = open.recovery && (!open.broadcast || open.recovery.record.createdAt >= open.broadcast.record.createdAt);
+  if (recoveryWins && open.recovery) return { kind: 'recovery', record: open.recovery.record, savedAt: stampOf(open.recovery.record) };
+  if (open.broadcast) return { kind: 'broadcast', record: open.broadcast.record, savedAt: stampOf(open.broadcast.record) };
+  return null;
+}
+
+const winnerPointer = (winner: OpenWinner): Pointer => ({ kind: winner.kind, id: winner.kind === 'pause' ? winner.record.runId : winner.record.id });
+
 type Owner = { kind: 'missing' } | { kind: 'invalid' } | { kind: 'owner'; owner: LockOwner };
 
 async function readOwner(path: string): Promise<Owner> {
@@ -254,6 +287,10 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   const recoveriesDir = join(dir, RECOVERIES);
   const rosterDir = join(dir, ROSTER);
   const tmpNames: TmpNames = { pid, suffix: options.tmpSuffix ?? randomUUID };
+  const now = options.now ?? Date.now;
+  // Every write of a pause run, a broadcast or a recovery goes through here: the stamp is on the file copy only, never on the caller's object.
+  const writeStamped = (folder: string, id: string, record: Run | BroadcastRecord | RecoveryRecord): Promise<void> =>
+    writeRecord(folder, id, { ...record, savedAt: new Date(now()).toISOString() }, tmpNames);
   const lockPath = join(dir, LOCK);
   const takeoverPath = join(dir, TAKEOVER);
   const pointerPath = join(dir, POINTER);
@@ -347,7 +384,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     if (open.pause && open.broadcast) {
       for (const record of [open.broadcast.record, ...open.broadcast.others]) {
         abandonPending(record, 'paused');
-        await writeRecord(broadcastsDir, record.id, record, tmpNames);
+        await writeStamped(broadcastsDir, record.id, record);
         notes.push(`broadcast ${record.id} was open beside a pause run and is now abandoned`);
       }
       open.broadcast = null;
@@ -356,7 +393,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     if (open.pause && open.recovery) {
       for (const record of [open.recovery.record, ...open.recovery.others]) {
         abandonRecovery(record, 'paused');
-        await writeRecord(recoveriesDir, record.id, record, tmpNames);
+        await writeStamped(recoveriesDir, record.id, record);
         notes.push(`recovery ${record.id} was open beside a pause run; abandoned`);
       }
       open.recovery = null;
@@ -365,12 +402,8 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     if (!open.pause && open.recovery && open.broadcast) {
       notes.push(`recovery ${open.recovery.record.id} and broadcast ${open.broadcast.record.id} are both open; run orca-broadcast close to abandon both`);
     }
-    // A pause run wins. Between a recovery and a broadcast the newer wins; a tie goes to the recovery.
-    const recoveryWins = open.recovery && (!open.broadcast || open.recovery.record.createdAt >= open.broadcast.record.createdAt);
-    let winner: Pointer | null = null;
-    if (open.pause) winner = { kind: 'pause', id: open.pause.record.runId };
-    else if (recoveryWins && open.recovery) winner = { kind: 'recovery', id: open.recovery.record.id };
-    else if (open.broadcast) winner = { kind: 'broadcast', id: open.broadcast.record.id };
+    const picked = selectWinner(open);
+    const winner = picked && winnerPointer(picked);
     if (!winner) {
       await removeIfPresent(pointerPath);
     } else {
@@ -390,6 +423,15 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     clearCurrent,
     loadOpen,
     peekOpen,
+
+    async peekWinner() {
+      return selectWinner(await peekOpen());
+    },
+
+    async isRunning() {
+      const owner = await readOwner(lockPath);
+      return owner.kind === 'owner' && !isStale(owner.owner);
+    },
 
     async findOpenRun() {
       const { pause } = await loadOpen();
@@ -421,11 +463,11 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
       throw new LockHeldError();
     },
 
-    save: (run) => writeRecord(pausesDir, run.runId, run, tmpNames),
+    save: (run) => writeStamped(pausesDir, run.runId, run),
 
-    saveBroadcast: (record) => writeRecord(broadcastsDir, record.id, record, tmpNames),
+    saveBroadcast: (record) => writeStamped(broadcastsDir, record.id, record),
 
-    saveRecovery: (record) => writeRecord(recoveriesDir, record.id, record, tmpNames),
+    saveRecovery: (record) => writeStamped(recoveriesDir, record.id, record),
 
     async loadNewestClosedRecovery() {
       let names: string[];
