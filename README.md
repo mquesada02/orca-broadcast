@@ -63,6 +63,13 @@ orca-broadcast recover --keep-tabs                       # keep the restored tab
 Before it restarts an agent, `recover` clears the restored tabs of that worktree, unless the worktree has a live terminal. It restarts an agent that has a saved tab title in a tab with that title.
 More: [Recover](docs/guide/recover.md).
 
+See the open run and the targets that still wait, from any terminal or a `!` command in Claude Code. This only reads the state folder: it sends nothing, takes no lock and never calls Orca:
+```sh
+orca-broadcast status
+```
+While `broadcast`, `pause`, `resume` or `recover` waits on a terminal, it also shows the pending targets in a block that it redraws.
+More: [Status](docs/guide/status.md) and [The live block](docs/guide/how-it-works.md#the-live-block).
+
 Save a snapshot of the live agents. This reads Orca and sends nothing:
 ```sh
 orca-broadcast roster save
@@ -82,6 +89,7 @@ More: [Tab completion](docs/guide/reference.md#tab-completion).
 | [Pause and resume](docs/guide/pause-and-resume.md) | `pause`, `resume`, `close` of a pause run, and the pause reasons |
 | [Broadcast](docs/guide/broadcast.md) | `broadcast`: text, message, proof, wait, re-run and `close` |
 | [Recover](docs/guide/recover.md) | `recover` after a restart or a crash |
+| [Status](docs/guide/status.md) | `status`: the open run, its pending targets and its save age |
 | [Roster](docs/guide/roster.md) | The roster of live agents, its files and the timer |
 | [Filters and groups](docs/guide/filters-and-groups.md) | The filter flags per command and the saved groups |
 | [Reference](docs/guide/reference.md) | Every option, every exit code, Tab completion and `--json` |

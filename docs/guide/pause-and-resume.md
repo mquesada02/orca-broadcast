@@ -74,6 +74,14 @@ If you run `pause` in a Claude session, that session is not paused. The output s
 
 If you run `pause` again before `resume`, it extends the same run. See [Records and the state folder](how-it-works.md#records-and-the-state-folder).
 
+### The live block of pause
+
+The wait shows the block of [the shared rules](how-it-works.md#the-live-block). The count line is `pausing… n/m confirmed · … · m:ss left`. The middle parts count the reasons of the agents, and the last part is the time left. The rows are the pending agents, each with its [reason](#reason-codes).
+
+The agents counted are the selected agents that are not gone and not the running session. A row is pending when the pause status is `unconfirmed`. An agent whose send failed (reason `send-failed`) stays a row.
+
+To see the run from another terminal, run [status](status.md).
+
 ### Pause output
 
 The output groups the agents by pause status. Each row has the columns `repo`, `worktree`, `role`, `run`, `status` and `reason`.
@@ -103,6 +111,14 @@ When no pause run is open and no working agent matches your filters, `pause` pri
 8. An agent counts as resumed when its Claude transcript shows the CONTINUE message as a user entry since the send, because Claude then took the message into its conversation. A wake-up turn never counts. An agent with no readable transcript counts as resumed when its state or its last reply changes after the message. If the agent was still `working`, it counts as resumed once Orca accepts the queued message. The reason is then `queued-while-working`. `resume` waits up to 60 seconds after the message for each agent that is not `working`.
 9. If `resume` runs in the session of a pending agent, it marks that agent `resumed` at once with the reason `self`. The agent gets no message. This holds when `ORCA_PANE_KEY` equals the pane key of the agent. It holds even if Orca shows no row or a permission prompt for it. The session runs the command, so a CONTINUE would wait behind it. From any other session, or with an empty `ORCA_PANE_KEY`, the same row gets a CONTINUE like any agent.
 10. The run closes when no agent in it is `pending`. If you run `resume` again, it acts only on the agents that are still `pending`. An agent whose CONTINUE already got proof becomes `resumed` without a new message.
+
+### The live block of resume
+
+The wait shows the block of [the shared rules](how-it-works.md#the-live-block). The count line is `resuming… n/m resumed`. The rows are the pending agents, each with its [reason](#reason-codes).
+
+The agents counted are the selected agents that are not gone. A row is pending when the resume status is `pending`. An agent leaves the block when it is resumed.
+
+To see the run from another terminal, run [status](status.md).
 
 ### Resume output
 

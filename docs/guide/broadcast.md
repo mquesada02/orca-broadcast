@@ -107,6 +107,12 @@ A `gone` target counts as not acked.
 
 The exit codes are `0` when every target in scope acked, `1` when not, `2` on a refusal and `130` when you interrupt the command. For the exit codes of every command, see [Exit codes](reference.md#exit-codes).
 
+## The live block
+
+The wait shows the block of [the shared rules](how-it-works.md#the-live-block). The count line is `broadcasting… n/m acked`. The rows are the targets in scope that are still `pending`, each with its [reason](#reasons). A target leaves the block when it acks. A target outside the scope, and the running session, never appear.
+
+To see the same data from another terminal, run [status](status.md).
+
 ## Reasons
 
 A pending target shows one reason:

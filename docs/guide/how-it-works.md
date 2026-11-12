@@ -23,6 +23,14 @@ At most one record, of any kind, is open. The one exception is a recovery that i
 
 If you run `pause` again before `resume`, it extends the same run.
 
+### The save stamp
+
+Every save of a pause run, a broadcast record and a recovery record adds a `savedAt` field to the file. It holds the ISO time of the save. The tool adds it to the copy that it writes, not to the record in memory. So the record in the `--json` output of the other commands has no `savedAt` key. An older record has no stamp.
+
+The rows of a recovery are a different case. Each row keeps its own `savedAt`, the time of the roster save that wrote that entry. `recover --json` and `close --json` still show it.
+
+[Status](status.md) shows the age of the stamp, so that you can tell fresh data from stale data.
+
 ## One record at a time
 
 A command may find an open record of another kind. The table shows what each command does then. For `close`, the table shows plain `close`, without filters.
@@ -68,7 +76,7 @@ If a crash leaves several records of one kind open, the newest wins. The tool le
 
 One lock covers `broadcast`, `pause`, `resume`, `close` and `recover`. Each command holds it for its whole run. Two runs cannot overlap.
 
-A second command fails at once with `another orca-broadcast is running`. The `group` commands and `roster save` take no lock.
+A second command fails at once with `another orca-broadcast is running`. The `group` commands, `roster save` and `status` take no lock.
 
 The one exception is the hand-over. In the hand-over, `pause` stops a broadcast that it has proven to be the lock owner. See "Pause stops a waiting broadcast".
 
@@ -130,6 +138,28 @@ A `broadcast` that waits for acks in another terminal holds the lock. `pause` do
 
    If you decline, or an interrupt or an error comes before the commit point, the broadcast stays open. It is stopped and has no pid. `close` abandons it. `broadcast` with no text continues it.
 4. A pause run, a broadcast and a recovery can also be open together after a crash. "One record at a time" has these cases.
+
+## The live block
+
+While `broadcast`, `pause`, `resume` or `recover` waits, it shows a block on stderr. The block lists the targets that are still pending.
+
+The block follows these rules:
+
+- It draws only on a terminal (stderr is a TTY) and without `--json`. Without a terminal, or with `--json`, nothing changes. A `!` command in Claude Code has no terminal, so use [status](status.md) there.
+- Line 1 is the count line of the command. After it comes one row per pending target: `<repo>/<worktree>`, the role and the reason. The rows are sorted by repo, then worktree, then role. The columns are aligned and a row has a two-space indent. An empty reason prints nothing.
+- The block redraws at each poll of the wait, while the command waits. A `recover` that starts no agent and has no row to wait for draws no block. A target leaves the block when it is done, so the block gets shorter.
+- The block fits the terminal. The command reads the size of the terminal at each redraw. The usable lines are the terminal rows minus 1. When the pending rows do not fit, the block shows as many rows as fit, then `… and N more`. N is the number of rows not shown. Under 3 usable lines, or when the size is unknown or 0, the block is the count line alone. Each line is cut to the terminal width minus 1 characters, so a line never wraps.
+- The command clears the block before a confirm prompt and before the final report. It also clears it when you press Ctrl-C, or when SIGTERM or SIGHUP stops the command.
+- The block does not hide the cursor.
+
+The count line and the pending rule of each command are on its own page:
+
+- [broadcast](broadcast.md#the-live-block)
+- [pause](pause-and-resume.md#the-live-block-of-pause)
+- [resume](pause-and-resume.md#the-live-block-of-resume)
+- [recover](recover.md#the-live-block)
+
+The block was not tried on every terminal. How a terminal re-wraps lines after you resize the window depends on the terminal.
 
 ## The proof
 
