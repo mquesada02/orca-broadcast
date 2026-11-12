@@ -1,5 +1,5 @@
 import type { BroadcastProgress } from './broadcast.js';
-import type { AgentRecord, BroadcastSelf, BroadcastTarget, PauseStatus, Progress, RecoverRow, RecoverySummary, ResumeProgress, ResumeStatus } from './types.js';
+import type { AgentRecord, BroadcastSelf, BroadcastTarget, PauseStatus, Progress, RecoverProgress, RecoverRow, RecoverySummary, ResumeProgress, ResumeStatus } from './types.js';
 
 const HINTS: Partial<Record<PauseStatus, string>> = {
   unconfirmed: 'not confirmed paused; check these agents before you leave',
@@ -29,6 +29,10 @@ export function renderProgress(progress: Progress): string {
 
 export function renderResumeProgress(progress: ResumeProgress): string {
   return `resuming… ${progress.resumed}/${progress.total} resumed`;
+}
+
+export function renderRecoverProgress(progress: RecoverProgress): string {
+  return `recovering… ${progress.final}/${progress.total} final`;
 }
 
 function formatTable(header: string[], body: string[][]): string[] {

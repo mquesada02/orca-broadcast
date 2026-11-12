@@ -17,7 +17,7 @@ import { loadGroups, lookupGroup, resolveGroupsPath, toGroupFilter, type GroupSp
 import { checkStates, isCommand, PARSE_OPTIONS, UsageError, validateFlags, validateGroupArgs, validateRosterArgs, type Command, type FlagValues } from './flags.js';
 import { isRosterSubcommand, runRosterSave, type RosterResult } from './roster-cmd.js';
 import { BASH_SCRIPT, complete } from './completion.js';
-import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderRecover, renderRecoveryTable, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
+import { renderBroadcastProgress, renderBroadcastSelfBlock, renderBroadcastTable, renderCloseTable, renderProgress, renderRecover, renderRecoveryTable, renderRecoverProgress, renderResumeProgress, renderResumeTable, renderSelfBlock, renderTable, renderUnknownRuns } from './render.js';
 import { helpFor, helpTopicOf, usageLine, type HelpTopic } from './help.js';
 import { isPreset, PRESET_NAMES } from './reasons.js';
 import { recover } from './recover.js';
@@ -26,8 +26,6 @@ import { resume } from './resume.js';
 import { buildStatus, renderStatus, statusJson } from './status.js';
 import { createRecordStore, type StoreOptions } from './store.js';
 import type { AgentState, Clock, Confirm, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoveryRecord, RecoverySummary, Role, RunSummary } from './types.js';
-
-const CLEAR_LINE = '\r\x1b[K';
 
 // Shows each format character (category Cf, such as U+202E) as \u{HEX}, so a preview cannot read differently from the text sent.
 const escapeFormatChars = (text: string): string => text.replace(/\p{Cf}/gu, (c) => `\\u{${c.codePointAt(0)!.toString(16).toUpperCase()}}`);
@@ -132,9 +130,9 @@ function confirmOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>, clearBlock
 }
 
 // Lists what `recover` will restart, prompt and leave to coordinators, and asks once.
-function confirmRecoverOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>): ConfirmRecover {
+function confirmRecoverOnTerminal(io: CliIo, ask: NonNullable<CliIo['ask']>, clearBlock: () => void): ConfirmRecover {
   return async ({ restarts, prompts, leaves, clears }, signal) => {
-    if (io.isTTY) io.stderr(CLEAR_LINE);
+    if (io.isTTY) clearBlock();
     const lines = [
       ...restarts.map((t) => `  restart ${t.repo}/${t.worktree} (${t.role}) ${t.permission ?? 'no permission flag'}\n`),
       ...prompts.map((t) => `  prompt ${t.repo}/${t.worktree} (${t.role})\n`),
@@ -222,7 +220,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     if (needsConfirm && (io.ask === undefined || json)) throw new Error('refusing to send without an interactive terminal: pass --yes to confirm');
     const block = createBlockDrawer((text) => io.stderr(text), io.size);
     const confirm = needsConfirm && io.ask ? confirmOnTerminal(io, io.ask, block.clear) : undefined;
-    const confirmRecover = command === 'recover' && needsConfirm && io.ask ? confirmRecoverOnTerminal(io, io.ask) : undefined;
+    const confirmRecover = command === 'recover' && needsConfirm && io.ask ? confirmRecoverOnTerminal(io, io.ask, block.clear) : undefined;
     const groupFilters = await loadGroupFilters(values.group as string[] | undefined, command, env, io);
     const filtered = isFiltered(filterSpec, groupFilters);
     // No text and no --file is not an error here: the records decide whether there is a broadcast to refuse or to continue.
@@ -245,7 +243,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
         : {};
     const summary = await withLockAndSignals(store, deps.signals ?? process, (signal) => {
       if (!port || command === 'close') return close(store, signal, port && filtered ? { filters: filterSpec, groups: groupFilters, port, clock, cwd } : undefined);
-      if (command === 'recover') return recover(timeoutMs, { port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, confirm: confirmRecover, keepTabs: values['keep-tabs'] === true, newToken: deps.newToken, signal });
+      if (command === 'recover') return recover(timeoutMs, { port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, confirm: confirmRecover, onProgress: io.isTTY && !json ? (progress) => block.draw(renderRecoverProgress(progress), progress.pending) : undefined, keepTabs: values['keep-tabs'] === true, newToken: deps.newToken, signal });
       if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: io.isTTY && !json ? (progress) => block.draw(renderBroadcastProgress(progress), progress.pending) : undefined, confirm, signal, filters, groups: groupFilters, cwd });
       return command === 'pause'
         ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, groups: groupFilters, cwd, onProgress: io.isTTY && !json ? (progress) => block.draw(renderProgress(progress), progress.pending) : undefined, confirm, signal })
