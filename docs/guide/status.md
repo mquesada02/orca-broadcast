@@ -6,7 +6,7 @@ The terms are defined in [CONTEXT.md](../../CONTEXT.md).
 
 ## What status does
 
-`status` only reads the state folder. It never sends a message, never takes the lock and never calls Orca. It is safe to run while another command waits. It is the one command that is safe to run inside a Claude session.
+`status` only reads the state folder. It never sends a message, never takes the lock and never calls Orca. It is safe to run while another command waits. It is also safe to run inside a Claude session.
 
 It takes no argument and no filter. Any other flag, or any argument, is refused with exit `2`.
 
@@ -44,9 +44,9 @@ The header has up to three parts, separated by ` · `:
 
 1. The kind of the run and its ID. The kind is `broadcast`, `recovery` or `pause run`.
 2. `running`, or `not running: <next step>`.
-3. `saved <age> ago`. This part is left out when the record has no save stamp. See [The save stamp](#the-save-stamp).
+3. `saved <age> ago`. This part is left out when the record has no valid save stamp: no stamp, or one that is not a date. See [The save stamp](#the-save-stamp).
 
-`running` means that the lock file names a live process with the same start time as the one in the lock. It is the stale-lock rule of [The lock](how-it-works.md#stale-lock). A pause run has no process ID of its own, so only the owner of the lock shows a live process.
+`running` means that the lock file names a live process with the same start time as the one in the lock. When the lock holds no start time, only the process ID counts. It is the stale-lock rule of [The lock](how-it-works.md#stale-lock). A pause run has no process ID of its own, so only the owner of the lock shows a live process.
 
 When no process runs the open run, the header says what to do next:
 
@@ -74,7 +74,7 @@ A row is pending in these cases:
 
 Every other row is done.
 
-The rule of the pause phase is not the rule of [the live block](pause-and-resume.md#the-live-block-of-pause). `status` leaves out an agent whose pause send failed (reason `send-failed`) and the agent of the running session. The block keeps an agent with `send-failed`, and it shows only the selected agents.
+The rule of the pause phase is not the rule of [the live block](pause-and-resume.md#the-live-block-of-pause). `status` leaves out an agent whose pause send failed (reason `send-failed`), a gone agent and the agent of the running session. The block keeps an agent with `send-failed`, and it shows only the selected agents.
 
 ### The count line
 

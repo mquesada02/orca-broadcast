@@ -191,7 +191,7 @@ On a terminal, and without `--json`, `recover` shows a block while it waits. Old
 
 The `m` counts the rows that this run works on. In a first run, these are all rows of the record. In a re-run, or in pause-run mode, these are the rows of the run's scope. The stored rows that the run did not take again are not counted.
 
-A row is final by the rule in [When the recovery record closes](#when-the-recovery-record-closes). A `restarted` row whose continue prompt is still due is not final, so it stays in the block until its prompt is acked. A row leaves the block when it becomes final.
+A row is final by the rule in [When the recovery record closes](#when-the-recovery-record-closes). A `restored` or `restarted` row whose continue prompt is still due is not final, so it stays in the block until its prompt is acked. A row leaves the block when it becomes final.
 
 The shared rules are in [The live block](how-it-works.md#the-live-block). To see the recovery from another terminal, run [status](status.md).
 

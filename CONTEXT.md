@@ -81,5 +81,5 @@ The read-only command `orca-broadcast status`. It prints the one open run once: 
 _Avoid_: Monitor, watch, progress command
 
 **Save stamp**:
-The `savedAt` field that the record store adds to the file of a pause run, a broadcast record or a recovery record at every save. It holds the ISO time of the save, and `status` shows its age. It is not in the record in memory, so the `--json` output of the other commands has no such key. A record saved by an older version has none. It is not the per-row `savedAt` of a recovery row, which is the time of the roster save that wrote that entry.
+The `savedAt` field that the record store adds to the file of a pause run, a broadcast record or a recovery record at every save. It holds the ISO time of the save, and `status` shows its age. A record saved by an older version has none. It is not the per-row `savedAt` of a recovery row.
 _Avoid_: Timestamp, updated-at

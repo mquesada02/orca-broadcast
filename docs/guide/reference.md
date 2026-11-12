@@ -117,6 +117,7 @@ The fields mean:
 
 These rules also hold:
 
+- `status` prints its own object when it can read the state. A refused command line or an unreadable state folder prints the usual error object of the other commands. See [JSON output of status](status.md#json-output).
 - For `broadcast`, `pause`, `resume`, `close` and `recover`, a command that exits `1` has outcome `done`, and a command that exits `2` or `130` has outcome `error`. A skipped `roster save` has outcome `skipped` and exits `1`.
 - A `roster save` error object also has `exitCode` (`2`) and `error`.
 - When `close` closes a recovery and a broadcast that are open together, `warnings` holds `closed broadcast <id>`.
