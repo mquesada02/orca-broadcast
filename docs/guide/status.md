@@ -32,8 +32,8 @@ The output has a header, one row per target and a count line.
 
 ```
 broadcast 20261112T100000000Z-a1b2c3d4 · running · saved 4s ago
-  alpha/main      worker       pending  waiting-permission
   alpha/docs      coordinator  pending
+  alpha/main      worker       pending  waiting-permission
   beta/feature-x  session      acked
 1/3 acked, 2 pending
 ```
@@ -92,6 +92,7 @@ The count line is `<done>/<total> <word>, <pending> pending`. The `total` is eve
 A pause run is in the resume phase once any agent has a CONTINUE send time in the record. Before that, it is in the pause phase. The status column shows the pause status and reason in the pause phase. It shows the resume status and reason in the resume phase.
 
 The agents are always the main rows of a pause run. When the run also holds the rows of its latest `recover` (pause-run mode), `status` prints them after the agents, in a second section. The section starts with the heading `latest recover` and ends with its own count line, with the word `final`.
+
 ## The save stamp
 
 Every save of a record adds a [`savedAt` time](how-it-works.md#the-save-stamp) to its file. The header shows its age: `<n>s` under one minute (for example `saved 12s ago`), else `m:ss` (for example `saved 1:05 ago`).
