@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { agentRecord, FakeOrca, PAUSED_REPLY, repliesWithToken, seedOpenRun, startsNewTurnAfterContinue, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
+import { withoutStamp } from './helpers/records.js';
 import { scanOf } from './helpers/roster.js';
 import { runCli, type RunCliOptions } from './helpers/run-cli.js';
 import type { AgentRecord, Run, SessionRecord } from '../src/types.js';
@@ -25,13 +26,14 @@ const seedCapturing = (...records: AgentRecord[]): { seed: NonNullable<RunCliOpt
   return {
     seed: async (store, dir) => {
       await seedOpenRun(store, records);
-      written = await readFile(runPath(dir), 'utf8');
+      written = await runText(dir);
     },
     text: () => written,
   };
 };
 const runPath = (dir: string): string => join(dir, 'orca-broadcast', 'pauses', 'run-1.json');
-const runText = (dir: string): Promise<string> => readFile(runPath(dir), 'utf8');
+/** The run file's text without the store's save stamp, which every save renews. */
+const runText = async (dir: string): Promise<string> => JSON.stringify(withoutStamp(await readFile(runPath(dir), 'utf8')));
 const readRun = async (dir: string): Promise<Run> => JSON.parse(await runText(dir)) as Run;
 const handle = (paneKey: string): string => `term_${paneKey}`;
 const continues = (port: FakeOrca): string[] => port.sends.filter((s) => s.text.startsWith('[orca-broadcast] CONTINUE')).map((s) => s.handle);

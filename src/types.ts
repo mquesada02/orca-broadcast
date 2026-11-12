@@ -356,6 +356,8 @@ export type RecoveryRow = RosterEntry & {
 
 // The durable record of a crash recovery, in `recoveries/<id>.json`.
 export interface RecoveryRecord {
+  /** ISO time of the last save, written by the store to the file copy only; the store removes it from every record it returns. An older record has none. */
+  savedAt?: string;
   id: string;
   token: string;
   createdAt: string;
@@ -438,6 +440,8 @@ export interface GroupFilter {
 }
 
 export interface Run {
+  /** ISO time of the last save, written by the store to the file copy only; the store removes it from every record it returns. An older record has none. */
+  savedAt?: string;
   runId: string;
   token: string;
   startedAt: string;
@@ -496,6 +500,8 @@ export interface BroadcastTarget {
 
 // The store itself reads only id, createdAt and status.
 export interface BroadcastRecord {
+  /** ISO time of the last save, written by the store to the file copy only; the store removes it from every record it returns. An older record has none. */
+  savedAt?: string;
   id: string;
   token: string;
   text: string;

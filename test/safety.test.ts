@@ -4,6 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { agentRecord, fakeClock, PAUSED_REPLY, repliesWithToken, seedOpenRun, startsNewTurnAfterContinue, working, wokenWorking, type FakeOrca } from './helpers/fake-orca.js';
+import { withoutStamp } from './helpers/records.js';
 import { CTRL_C, runCli, type Answer, type RunCliOptions, type Seed } from './helpers/run-cli.js';
 import type { AgentRecord } from '../src/types.js';
 
@@ -15,7 +16,7 @@ async function runFiles(dir: string): Promise<Record<string, string>> {
   const stateDir = join(dir, 'orca-broadcast', 'pauses');
   if (!existsSync(stateDir)) return {};
   const names = (await readdir(stateDir)).filter((name) => name.endsWith('.json'));
-  return Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readFile(join(stateDir, name), 'utf8')])));
+  return Object.fromEntries(await Promise.all(names.map(async (name) => [name, JSON.stringify(withoutStamp(await readFile(join(stateDir, name), 'utf8')))])));
 }
 
 const interrupts: [string, Answer][] = [['SIGTERM', 'SIGTERM'], ['Ctrl-C', CTRL_C]];
