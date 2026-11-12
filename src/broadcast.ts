@@ -1,5 +1,5 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
-import { sortPendingRows } from './block.js';
+import { pendingRows } from './block.js';
 import { isFiltered, matches, NO_FILTERS, type Subject } from './filters.js';
 import { sessionsByPane } from './roster.js';
 import { autoRoster, type AutoRoster } from './roster-cmd.js';
@@ -276,7 +276,7 @@ async function wait({ record, scope, snapshot: first, self, scan }: Plan, timeou
       await store.saveBroadcast(record);
       const scoped = record.targets.filter((t) => scope.has(t.paneKey));
       const stillPending = scoped.filter((t) => t.status === 'pending');
-      deps.onProgress?.({ acked: scoped.filter((t) => t.status === 'acked').length, total: scoped.length, pending: sortPendingRows(stillPending.map(({ repo, worktree, role, reason }) => ({ repo, worktree, role, reason }))) });
+      deps.onProgress?.({ acked: scoped.filter((t) => t.status === 'acked').length, total: scoped.length, pending: pendingRows(stillPending, (t) => t.reason) });
       // Ends when nothing in scope is pending, or every pending target in scope is send-failed (no target can progress).
       if (record.status === 'closed' || stillPending.every((t) => t.reason === 'send-failed')) break;
       await sleepOrAbort(clock, POLL_INTERVAL_MS, deps.signal);

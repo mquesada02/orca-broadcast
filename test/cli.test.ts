@@ -131,7 +131,7 @@ describe('orca-broadcast pause', () => {
 
   it('shows an in-place progress line on a TTY and none otherwise', async () => {
     const tty = await run(['pause', '--yes', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: working }], true);
-    expect(tty.err).toMatch(/\r\x1b\[Kpausing… 0\/1 confirmed · 1 still-working · \d+:\d{2} left/);
+    expect(tty.err).toMatch(/\r\x1b\[Jpausing… 0\/1 confirmed · 1 still-working · \d+:\d{2} left/);
     const plain = await run(['pause', '--yes', '--timeout', '10s'], [{ paneKey: 'a:1', behavior: working }], false);
     expect(plain.err).toBe('');
   });
@@ -220,8 +220,8 @@ describe('orca-broadcast resume', () => {
 
   it('shows a resuming progress line on a TTY', async () => {
     const { err } = await run(['resume', '--yes'], [{ paneKey: 'a:1', behavior: startsNewTurnAfterContinue }], true, () => {}, seedRun([{ paneKey: 'a:1' }]));
-    expect(err).toContain('\r\x1b[Kresuming… 0/1 resumed');
-    expect(err).toContain('\r\x1b[Kresuming… 1/1 resumed');
+    expect(err).toContain('\r\x1b[Jresuming… 0/1 resumed');
+    expect(err).toContain('\r\x1b[Jresuming… 1/1 resumed');
   });
 
   it('marks the session that runs resume as resumed without a send, when ORCA_PANE_KEY is its pane key', async () => {

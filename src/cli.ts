@@ -230,8 +230,6 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
     const text = rawText === undefined ? undefined : normaliseText(rawText);
 
     const store = createRecordStore(resolveStateDir(env), deps.storeOptions);
-    const progressLine = <P>(render: (progress: P) => string) =>
-      io.isTTY && !json ? (progress: P) => io.stderr(`${CLEAR_LINE}${render(progress)}`) : undefined;
     const clock = deps.clock ?? systemClock;
     const { cwd } = deps;
     // A plain close never uses the port; only a filtered one needs live listings.
@@ -250,8 +248,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv, io: CliIo, de
       if (command === 'recover') return recover(timeoutMs, { port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, confirm: confirmRecover, keepTabs: values['keep-tabs'] === true, newToken: deps.newToken, signal });
       if (command === 'broadcast') return broadcast(text, timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, onProgress: io.isTTY && !json ? (progress) => block.draw(renderBroadcastProgress(progress), progress.pending) : undefined, confirm, signal, filters, groups: groupFilters, cwd });
       return command === 'pause'
-        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, groups: groupFilters, cwd, onProgress: progressLine(renderProgress), confirm, signal })
-        : resume({ port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, onProgress: progressLine(renderResumeProgress), confirm, signal });
+        ? pause(timeoutMs, { port, clock, store, newToken: deps.newToken, selfPaneKey: env.ORCA_PANE_KEY, reason: reason as PauseDeps['reason'], filters, groups: groupFilters, cwd, onProgress: io.isTTY && !json ? (progress) => block.draw(renderProgress(progress), progress.pending) : undefined, confirm, signal })
+        : resume({ port, clock, store, filters, groups: groupFilters, cwd, selfPaneKey: env.ORCA_PANE_KEY, onProgress: io.isTTY && !json ? (progress) => block.draw(renderResumeProgress(progress), progress.pending) : undefined, confirm, signal });
     }, guardOptions);
     if (json) {
       // The broadcast that a close closed beside a recovery shows as a warning in the JSON line, and as its own line in text.

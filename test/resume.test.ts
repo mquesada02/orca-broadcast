@@ -296,8 +296,8 @@ describe('progress', () => {
       ],
     );
     await go();
-    expect(progress[0]).toEqual({ resumed: 0, total: 1 });
-    expect(progress.at(-1)).toEqual({ resumed: 1, total: 1 });
+    expect(progress[0]).toEqual({ resumed: 0, total: 1, pending: [{ repo: 'repo', worktree: 'tree-a:1', role: 'worker', reason: null }] });
+    expect(progress.at(-1)).toEqual({ resumed: 1, total: 1, pending: [] });
   });
 });
 
@@ -488,7 +488,7 @@ describe('resume from the self session', () => {
 
     await go(undefined, { selfPaneKey: 's:1' });
 
-    expect(progress.at(-1)).toEqual({ resumed: 2, total: 2 });
+    expect(progress.at(-1)).toEqual({ resumed: 2, total: 2, pending: [] });
   });
 });
 
