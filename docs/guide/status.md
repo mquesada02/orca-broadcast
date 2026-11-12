@@ -46,7 +46,7 @@ The header has up to three parts, separated by ` · `:
 2. `running`, or `not running: <next step>`.
 3. `saved <age> ago`. This part is left out when the record has no valid save stamp: no stamp, or one that is not a date. See [The save stamp](#the-save-stamp).
 
-`running` means that the lock file names a live process with the same start time as the one in the lock. When the lock holds no start time, only the process ID counts. It is the stale-lock rule of [The lock](how-it-works.md#stale-lock). A pause run has no process ID of its own, so only the owner of the lock shows a live process.
+`running` means that the lock file names a live process with the same start time as the one in the lock. When the lock holds no start time, only the process ID counts. It is the stale-lock rule of [The lock](how-it-works.md#stale-lock). The rule is the same for every kind of run: `running` always comes from the lock. A broadcast or recovery record also stores the process ID of the process that runs it, but `status` does not read it. A pause run stores no process ID.
 
 When no process runs the open run, the header says what to do next:
 
@@ -74,7 +74,7 @@ A row is pending in these cases:
 
 Every other row is done.
 
-The rule of the pause phase is not the rule of [the live block](pause-and-resume.md#the-live-block-of-pause). `status` leaves out an agent whose pause send failed (reason `send-failed`), a gone agent and the agent of the running session. The block keeps an agent with `send-failed`, and it shows only the selected agents.
+The rule of the pause phase is not the rule of [the live block](pause-and-resume.md#the-live-block-of-pause). `status` shows an agent whose pause send failed (reason `send-failed`), a gone agent and the agent of the running session as rows, but it does not count them as pending. The block keeps an agent with `send-failed`, and it shows only the selected agents.
 
 ### The count line
 

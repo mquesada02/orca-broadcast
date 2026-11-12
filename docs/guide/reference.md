@@ -87,7 +87,7 @@ Anything else falls back to file names. Tab completion reads only the groups fil
 
 `--json` prints one JSON object on stdout and a newline. It prints nothing on stderr. The one exception is the line about each skipped group `state` kind. It never prompts, so `broadcast`, `pause`, `resume` and `recover` need `--yes`.
 
-Every object has a `warnings` array, except the object of `status`. It holds the warning lines that text mode prints on stderr, such as a roster save that failed. The line about a skipped group `state` kind is not in `warnings`.
+Every object has a `warnings` array, except the object that `status` prints when it could read the state. A refused or failed `status` call prints the error object, which has the array. The array holds the warning lines that text mode prints on stderr, such as a roster save that failed. The line about a skipped group `state` kind is not in `warnings`.
 
 | Command | Fields |
 |---|---|
