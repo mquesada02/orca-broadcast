@@ -12,7 +12,7 @@ Each row names the commands that accept the option. A command that gets an optio
 | `--file <path>` | Read the `broadcast` text from a file. The text may have several lines. Give the text or `--file`, not both. | `broadcast` |
 | `--reason <name>` | Say why you pause. Use `network`, `away`, `end-of-day`, `limit` or `restart`. Without it, the message is neutral. | `pause` |
 | `--yes` | Skip the confirmation before the command sends anything. Without a terminal, the command refuses to send unless you pass `--yes`. `close` never asks, so it never needs `--yes`. | `pause`, `resume`, `broadcast`, `recover` |
-| `--json` | Print one JSON object on stdout. See [JSON output](#json-output). | `pause`, `resume`, `broadcast`, `close`, `recover`, `group`, `roster save` |
+| `--json` | Print one JSON object on stdout. See [JSON output](#json-output). | `pause`, `resume`, `broadcast`, `close`, `recover`, `status`, `group`, `roster save` |
 | `--group <name>` | Use a saved group. Repeat the option to use the union of several groups. `group add` does not accept it. | `broadcast`, `pause`, `resume`, `close`, `recover` |
 | `--state <working\|done>` | Select agents by their live state. Repeat the option for both states. | `broadcast`, `group add` |
 | `--repo <id\|path\|name>` | Select the agents of a repo. Repeat the option for several repos. | `broadcast`, `pause`, `resume`, `close`, `recover`, `group add` |
@@ -20,11 +20,11 @@ Each row names the commands that accept the option. A command that gets an optio
 | `--role <coordinator\|worker\|session>` | Select the agents with a role. Repeat the option for several roles. | `broadcast`, `pause`, `resume`, `close`, `recover`, `group add` |
 | `--run <id>` | Select the agents of an orchestration run. Use an exact run ID. Repeat the option for several runs. | `broadcast`, `pause`, `resume`, `close`, `recover`, `group add` |
 | `--keep-tabs` | Do not clear a worktree before the first start there. The confirmation lists no worktree to clear. See [Restored tabs and titles](recover.md#restored-tabs-and-titles). | `recover` |
-| `--help` | Show the help text and exit `0`. | `broadcast`, `pause`, `resume`, `close`, `recover`, `group`, `roster`, `completion` |
+| `--help` | Show the help text and exit `0`. | `broadcast`, `pause`, `resume`, `close`, `recover`, `status`, `group`, `roster`, `completion` |
 
 ## Exit codes
 
-`broadcast`, `pause`, `resume`, `close` and `recover` take the lock. `group`, `roster save` and `completion` take no lock.
+`broadcast`, `pause`, `resume`, `close` and `recover` take the lock. `group`, `roster save`, `status` and `completion` take no lock.
 
 | Code | Command | Meaning |
 |---|---|---|
@@ -33,6 +33,7 @@ Each row names the commands that accept the option. A command that gets an optio
 | `0` | `broadcast` | Every target in scope acked. Also "nothing to broadcast". |
 | `0` | `close` | The command finished. Also "nothing to close". |
 | `0` | `recover` | No row is `pending`, `gone`, `no-coordinator` or `failed`. Rows `restored`, `restarted`, `acked`, `left-to-coordinator` and `abandoned` give `0`. Also "nothing to recover". |
+| `0` | `status` | `status` could read the state. This includes no open run, and an open run that no process runs. |
 | `0` | `roster save` | The roster is saved. |
 | `0` | `group` | The call succeeded. |
 | `0` | `completion` | `completion bash` printed the script. |
@@ -56,6 +57,7 @@ Each row names the commands that accept the option. A command that gets an optio
 | `2` | `recover` | There is no roster, no open pause run and no open recovery. A roster file cannot be read. The scan of the Claude processes fails. A broadcast is open and no pause run is open. The fleet restarted again while a recovery is open. |
 | `2` | `group` | A usage error: the subcommand is missing or unknown, an option does not apply, or the argument count is wrong. The groups file is invalid or cannot be saved. A value does not resolve. The Orca listing fails. The group name is invalid, has no filter, exists already, or is unknown. |
 | `2` | `roster save` | A usage error: the subcommand is missing or unknown, an option does not apply, or there is an extra argument. |
+| `2` | `status` | The state folder cannot be read, or the command line is refused: an option other than `--json` or `--help`, or any argument. |
 | `2` | `completion` | Any option other than `--help`, no argument, or an argument other than `bash`. |
 | `130` | `pause`, `resume`, `broadcast`, `close`, `recover` | The command was interrupted by SIGINT, SIGTERM or SIGHUP, or by Ctrl-C at its question (`close` asks no question). Run the command again to continue. |
 
@@ -74,7 +76,7 @@ eval "$(orca-broadcast completion bash)"
 
 Tab then offers:
 
-- the commands `broadcast`, `pause`, `resume`, `close`, `recover`, `group`, `roster` and `completion`, and the subcommands of `group`, `roster` and `completion`;
+- the commands `broadcast`, `pause`, `resume`, `close`, `recover`, `status`, `group`, `roster` and `completion`, and the subcommands of `group`, `roster` and `completion`;
 - only the options that the typed command accepts;
 - the values of `--role`, `--state` and `--reason`, also in the form `--flag=value`;
 - your saved group names after `--group`, `group show` and `group remove`.
@@ -85,13 +87,14 @@ Anything else falls back to file names. Tab completion reads only the groups fil
 
 `--json` prints one JSON object on stdout and a newline. It prints nothing on stderr. The one exception is the line about each skipped group `state` kind. It never prompts, so `broadcast`, `pause`, `resume` and `recover` need `--yes`.
 
-Every object has a `warnings` array. It holds the warning lines that text mode prints on stderr, such as a roster save that failed. The line about a skipped group `state` kind is not in `warnings`.
+Every object has a `warnings` array, except the object of `status`. It holds the warning lines that text mode prints on stderr, such as a roster save that failed. The line about a skipped group `state` kind is not in `warnings`.
 
 | Command | Fields |
 |---|---|
 | `broadcast`, `pause`, `resume`, `close` | `command`, `outcome`, `exitCode`, `run`, `record`, `error`, `warnings` |
 | `recover` | `command`, `outcome`, `exitCode`, `run`, `record`, `error`, `rows`, `snapshots`, `cleared`, `warnings` |
 | `group add`, `group list`, `group show`, `group remove` | `command`, `outcome`, `exitCode`, `error`, `groups`, `warnings` |
+| `status` | `command`, `open` |
 | `roster save` | `command`, `outcome`, `agents`, `warnings` |
 
 The fields mean:
@@ -108,6 +111,7 @@ The fields mean:
 | `snapshots` | `recover` only. The roster snapshot lines that `recover` used. |
 | `cleared` | `recover` only. The worktrees that this run cleared, as `{ "repo", "worktree" }`. `[]` when none. In crash mode the `record` also holds `cleared`, with every clear of the recovery. |
 | `groups` | `group` only. The groups that the call touched, or `null` for an error. |
+| `open` | `status` only. `null` when no run is open, else the open run, as the [status page](status.md#json-output) shows it. |
 | `agents` | `roster save` only. The number of saved agents, or `null`. |
 | `warnings` | The warning lines. For `group`, always `[]`. For `roster save`, `[]` when saved, and the reason when skipped. |
 

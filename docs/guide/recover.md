@@ -185,6 +185,16 @@ A worker whose coordinator does not get this list shows `no-coordinator`.
 
 `--timeout` limits the whole command from its start. The default is `10m`. The time that the question waits does not count.
 
+## The live block
+
+On a terminal, and without `--json`, `recover` shows a block while it waits. Older versions showed no progress. This holds in crash mode and in pause-run mode. `recover` redraws the block at each tick of its wait. Line 1 is the count line `recovering… n/m final`. After it comes one row per row that is not final yet, with `<repo>/<worktree>`, the role and the [reason](#reasons-of-a-pending-row).
+
+The `m` counts the rows that this run works on. In a first run, these are all rows of the record. In a re-run, or in pause-run mode, these are the rows of the run's scope. The stored rows that the run did not take again are not counted.
+
+A row is final by the rule in [When the recovery record closes](#when-the-recovery-record-closes). A `restarted` row whose continue prompt is still due is not final, so it stays in the block until its prompt is acked. A row leaves the block when it becomes final.
+
+The shared rules are in [The live block](how-it-works.md#the-live-block). To see the recovery from another terminal, run [status](status.md).
+
 ## Statuses
 
 | Status | Meaning |
