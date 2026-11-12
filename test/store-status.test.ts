@@ -100,6 +100,22 @@ describe('the save stamp', () => {
   });
 });
 
+describe('the repair writes of loadOpen', () => {
+  it('stamp the broadcast and the recovery they abandon beside a pause run', async () => {
+    const dir = await withDir();
+    let now = T0;
+    const s = newStore(dir, { now: () => now });
+    await s.save(run('r1'));
+    await s.saveBroadcast(broadcast('b1', '2026-02-01T00:00:00.000Z'));
+    await s.saveRecovery(recovery('c1', '2026-02-01T00:00:00.000Z'));
+    now = T0 + 7000;
+    await s.loadOpen();
+    const repaired = '2026-05-01T10:00:07.000Z';
+    expect(await fileOf(dir, 'broadcasts', 'b1')).toMatchObject({ status: 'closed', savedAt: repaired });
+    expect(await fileOf(dir, 'recoveries', 'c1')).toMatchObject({ status: 'closed', savedAt: repaired });
+  });
+});
+
 describe('peekWinner', () => {
   it('returns null when nothing is open, also when the state folder does not exist', async () => {
     expect(await newStore(await tempStateDir()).peekWinner()).toBeNull();

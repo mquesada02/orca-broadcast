@@ -288,7 +288,9 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
   const rosterDir = join(dir, ROSTER);
   const tmpNames: TmpNames = { pid, suffix: options.tmpSuffix ?? randomUUID };
   const now = options.now ?? Date.now;
-  const stamp = (): string => new Date(now()).toISOString();
+  // Every write of a pause run, a broadcast or a recovery goes through here: the stamp is on the file copy only, never on the caller's object.
+  const writeStamped = (folder: string, id: string, record: Run | BroadcastRecord | RecoveryRecord): Promise<void> =>
+    writeRecord(folder, id, { ...record, savedAt: new Date(now()).toISOString() }, tmpNames);
   const lockPath = join(dir, LOCK);
   const takeoverPath = join(dir, TAKEOVER);
   const pointerPath = join(dir, POINTER);
@@ -382,7 +384,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     if (open.pause && open.broadcast) {
       for (const record of [open.broadcast.record, ...open.broadcast.others]) {
         abandonPending(record, 'paused');
-        await writeRecord(broadcastsDir, record.id, record, tmpNames);
+        await writeStamped(broadcastsDir, record.id, record);
         notes.push(`broadcast ${record.id} was open beside a pause run and is now abandoned`);
       }
       open.broadcast = null;
@@ -391,7 +393,7 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
     if (open.pause && open.recovery) {
       for (const record of [open.recovery.record, ...open.recovery.others]) {
         abandonRecovery(record, 'paused');
-        await writeRecord(recoveriesDir, record.id, record, tmpNames);
+        await writeStamped(recoveriesDir, record.id, record);
         notes.push(`recovery ${record.id} was open beside a pause run; abandoned`);
       }
       open.recovery = null;
@@ -461,11 +463,11 @@ export function createRecordStore(dir: string, options: StoreOptions = {}): Reco
       throw new LockHeldError();
     },
 
-    save: (run) => writeRecord(pausesDir, run.runId, { ...run, savedAt: stamp() }, tmpNames),
+    save: (run) => writeStamped(pausesDir, run.runId, run),
 
-    saveBroadcast: (record) => writeRecord(broadcastsDir, record.id, { ...record, savedAt: stamp() }, tmpNames),
+    saveBroadcast: (record) => writeStamped(broadcastsDir, record.id, record),
 
-    saveRecovery: (record) => writeRecord(recoveriesDir, record.id, { ...record, savedAt: stamp() }, tmpNames),
+    saveRecovery: (record) => writeStamped(recoveriesDir, record.id, record),
 
     async loadNewestClosedRecovery() {
       let names: string[];
