@@ -13,7 +13,7 @@ import { autoRoster, type AutoRoster } from './roster-cmd.js';
 import { paneOfSession, sessionsByPane } from './roster.js';
 import { assertCurrentFormat, clearPid, failure, iso, listSnapshot, liveSources, locate, randomToken, recordId, resolveFilterSet, roleInfoOf, setPid, withWarnings, type Snapshot } from './shared.js';
 import type { RecordStore } from './store.js';
-import type { Clock, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoverRow, RecoverSelf, RecoveryRecord, RecoveryRow, RecoverySummary, RosterEntry, Run, RunRecoveryRow, RunSummary, RuntimeKey, SessionScan, SnapshotLine } from './types.js';
+import type { Clock, ConfirmRecover, FilterSpec, GroupFilter, OrcaPort, RecoverProgress, RecoverRow, RecoverSelf, RecoveryRecord, RecoveryRow, RecoverySummary, RosterEntry, Run, RunRecoveryRow, RunSummary, RuntimeKey, SessionScan, SnapshotLine } from './types.js';
 
 const NO_ROSTER_MESSAGE = 'no roster and no open pause run; nothing to recover from';
 const BROADCAST_OPEN_MESSAGE = 'a broadcast is still open; run `orca-broadcast close` and then `recover` again';
@@ -36,6 +36,8 @@ export interface RecoverDeps {
   newToken?: () => string;
   /** `--keep-tabs`: the restored tabs of a worktree are not cleared before the first start there. */
   keepTabs?: boolean;
+  /** Called at the end of each tick of the wait loop, with the count of final rows and the rows that are not final. */
+  onProgress?: (progress: RecoverProgress) => void;
   signal?: AbortSignal;
 }
 
@@ -385,7 +387,7 @@ async function execute({ deps, warnings, mode, run, restarts, earlier, rows, sna
     const startDeps: StartDeps = { port, clock, signal, save: mode.save, deadline, warnings, clearing };
     const started = await startAgents(restarts, startDeps);
     for (const [sessionId, pane] of started.panes) panes.set(sessionId, pane);
-    if (started.count > 0 || rows.some(needsWait)) await settle(started, { ...startDeps, token: mode.token, scan, panes, rows, earlier });
+    if (started.count > 0 || rows.some(needsWait)) await settle(started, { ...startDeps, onProgress: deps.onProgress, token: mode.token, scan, panes, rows, earlier });
     // The end snapshot comes before the record closes: a failed listing leaves the record open like any other.
     if (started.count > 0) await roster.end(await listSnapshot({ port, clock, signal }));
     await mode.finish();

@@ -268,6 +268,15 @@ export interface ResumeProgress {
   pending: PendingRow[];
 }
 
+export interface RecoverProgress {
+  /** The rows of the run that are final. */
+  final: number;
+  /** The rows the run works on: every row of the record, or on a re-run the rows in its scope. */
+  total: number;
+  /** The rows that are not final: the rows of the redrawn block. */
+  pending: PendingRow[];
+}
+
 export interface RunSummary {
   outcome: 'done' | 'nothing-to-do' | 'error';
   exitCode: 0 | 1 | 2 | 130;

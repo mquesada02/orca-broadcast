@@ -1,10 +1,12 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
+import { pendingRows } from './block.js';
+import { isFinalRow } from './recover-record.js';
 import { START_WINDOW_MS } from './recover-classify.js';
 import { startAgents, type Started, type StartDeps } from './recover-start.js';
 import { continueText, workerItems } from './recover-prompt.js';
 import { holdersBySession, livePanes, sessionsByPane } from './roster.js';
 import { ackLine, busyReason, coordinatorsFirst, hasNewReply, isSendable, isWaitingLike, listFresh, locate, markTranscript, POLL_INTERVAL_MS, proves, sendDue, transcriptProof, type TranscriptReadState } from './shared.js';
-import type { AgentRow, RecoveryRow, SessionScan } from './types.js';
+import type { AgentRow, RecoverProgress, RecoveryRow, SessionScan } from './types.js';
 
 export interface SettleDeps extends StartDeps {
   /** The token of the recovery record: the ack line of every prompt. */
@@ -21,6 +23,8 @@ export interface SettleDeps extends StartDeps {
   rows: RecoveryRow[];
   /** The rows that wait for a start that an earlier run recorded and that has not appeared: this run did not start them and does not fail them at its timeout. */
   earlier: RecoveryRow[];
+  /** Called at the end of each tick, after the save, with the count of final rows and the rows that are not final. */
+  onProgress?: (progress: RecoverProgress) => void;
 }
 
 const setResult = (row: RecoveryRow, status: RecoveryRow['status'], reason: RecoveryRow['reason']): void => {
@@ -152,6 +156,8 @@ export async function settle(started: Started, deps: SettleDeps): Promise<void> 
     }
 
     await deps.save();
+    const open = rows.filter((row) => !isFinalRow(row, rows));
+    deps.onProgress?.({ final: rows.length - open.length, total: rows.length, pending: pendingRows(open, (row) => row.reason) });
     if (!rows.some(needsWait) || clock.now() >= deadline) break;
     await sleepOrAbort(clock, Math.min(POLL_INTERVAL_MS, deadline - clock.now()), signal);
   }
