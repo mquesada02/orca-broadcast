@@ -1,3 +1,4 @@
+import { isSettled } from './pause-rule.js';
 import { isFinalRow } from './recover-record.js';
 import type { OpenWinner } from './store.js';
 import type { AgentRecord, RunRecoveryRow } from './types.js';
@@ -81,10 +82,10 @@ function rowsOf(winner: Exclude<OpenWinner, { kind: 'pause' }>): { rows: { row: 
 }
 
 /**
- * A pause-phase agent is pending when `pause` still waits for it: it is not confirmed, and it is not settled by the pause code (`isSettled`:
- * gone, or `send-failed`) or left out of the pause count (the running session's own agent, marked `self`).
+ * A pause-phase agent is pending when `pause` still waits for it: it is not settled by the pause rule (`isSettled`: gone, confirmed or
+ * `send-failed`), and it is not left out of the pause count (the running session's own agent, marked `self`).
  */
-const isPausePending = (a: AgentRecord): boolean => a.pauseStatus === 'unconfirmed' && a.pauseReason !== 'send-failed' && a.pauseReason !== 'self' && a.resumeStatus !== 'gone';
+const isPausePending = (a: AgentRecord): boolean => !isSettled(a) && a.pauseReason !== 'self';
 
 const sectionOf = (shown: { row: StatusRow; pending: boolean }[]): StatusSection => ({ counts: countsOf(shown.length, shown.filter((r) => r.pending).length), rows: sortRows(shown) });
 
