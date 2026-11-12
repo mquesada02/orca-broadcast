@@ -104,6 +104,7 @@ describe('recover on a terminal: the block, crash mode', () => {
   it('draws no block when there is nothing to start, send or wait on', async () => {
     const { err } = await recover([], [doneEntry('s-a')], { scan: scanOf(holds('s-a', 'new:a')) });
     expect(err).not.toContain('recovering');
+    expect(chunks(err)).toEqual([CLEAR]);
   });
 });
 
