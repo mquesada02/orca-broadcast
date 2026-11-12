@@ -1,5 +1,6 @@
 import { sleepOrAbort, throwIfAborted } from './abort.js';
 import { pendingRows } from './block.js';
+import { isGone, isSettled } from './pause-rule.js';
 import { mismatchMessage, pauseSentence, type Preset } from './reasons.js';
 import { abandonRecovery } from './recover-record.js';
 import { abandonPending, type RecordStore } from './store.js';
@@ -56,14 +57,6 @@ async function provesPauseFromAnySource(agent: AgentRecord, row: AgentRow, token
 // A confirmed agent is woken only by a newer reply that does not end with the token line; state alone never wakes it.
 function isWoken(agent: AgentRecord, row: AgentRow, token: string): boolean {
   return hasNewReply(agent.pauseBaseline, row) && !endsWithLine(row.lastAssistantMessage, pausedLine(token));
-}
-
-function isGone(agent: AgentRecord): boolean {
-  return agent.resumeStatus === 'gone';
-}
-
-function isSettled(agent: AgentRecord): boolean {
-  return isGone(agent) || agent.pauseStatus === 'confirmed' || agent.pauseReason === 'send-failed';
 }
 
 function clearContinueProof(agent: AgentRecord): void {

@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 import type { TerminalSize } from '../src/block.js';
 import type { BroadcastTarget } from '../src/types.js';
+import { chunks, CLEAR, roomy } from './helpers/block.js';
 import { broadcastTarget, fakeClock, openBroadcastRecord, working, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
 import { runCli, type RunCliOptions, type Seed } from './helpers/run-cli.js';
 
@@ -26,14 +27,8 @@ const seedBroadcast = (targets: BroadcastTarget[]): Seed => async (store) => {
   await store.setCurrent('broadcast', record.id);
 };
 
-const CLEAR ='\r\x1b[J';
-const roomy: TerminalSize = { rows: 30, columns: 100 };
-
 const send = (agents: FakeAgent[], opts: RunCliOptions = {}, argv: string[] = []) =>
   runCli(['broadcast', 'hello', '--yes', '--timeout', '10s', ...argv], agents, { newToken: () => TOKEN, isTTY: true, ...opts });
-
-/** The blocks that were drawn: every chunk of stderr that starts a redraw, cut at the next redraw or at the final clear. */
-const chunks = (err: string): string[] => err.split(/(?=\r(?:\x1b\[\d+A)?\x1b\[J)/).filter((c) => c !== '');
 
 describe('broadcast on a terminal: the block', () => {
   it('draws the count line and one aligned row per pending target, with the reason, sorted by repo, worktree, role', async () => {

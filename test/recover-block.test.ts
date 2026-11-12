@@ -1,20 +1,15 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import type { TerminalSize } from '../src/block.js';
 import type { AgentRecord, RecoveryRecord, RecoveryRow, RosterEntry } from '../src/types.js';
+import { chunks, CLEAR, roomy } from './helpers/block.js';
 import { agentRecord, fakeClock, seedOpenRun, type Behavior, type FakeAgent } from './helpers/fake-orca.js';
 import { doneEntry, GONE, recoverRun, type RecoverOptions } from './helpers/recover.js';
 import { agent, rosterEntry, rosterSnapshot, scanOf, seedRosters } from './helpers/roster.js';
 import type { Seed } from './helpers/run-cli.js';
 
-const CLEAR = '\r\x1b[J';
 const TOKEN = 'tok1';
 const OLD = 'Earlier reply.';
 const LIVE = { bootId: 'boot-1', runtimeId: 'runtime-1' };
-const roomy: TerminalSize = { rows: 30, columns: 100 };
-
-/** The blocks that were drawn: every chunk of stderr that starts a redraw. */
-const chunks = (err: string): string[] => err.split(/(?=\r(?:\x1b\[\d+A)?\x1b\[J)/).filter((c) => c !== '');
 
 // An agent that never acks, one that acks once it was sent the prompt, and one whose ack comes after `polls` more listings.
 const silent: Behavior = () => ({ state: 'working', message: OLD });
@@ -60,7 +55,7 @@ describe('recover on a terminal: the block, crash mode', () => {
     const blocks = chunks(err);
     expect(blocks[0]).toMatch(/^\r\x1b\[Jrecovering… 0\/1 final\n {2}repo\/tree-s-a {2}session {2}awaiting-start$/);
     expect(blocks.some((b) => b.includes('0/1 final') && /tree-s-a {2}session {2}\S+/.test(b) && !b.includes('awaiting-start'))).toBe(true);
-    expect(blocks.at(-2)).toContain('1/1 final');
+    expect(blocks.filter((b) => b.includes('recovering…')).at(-1)).toContain('1/1 final');
   });
 
   it('clears the block before the report, with the report after it', async () => {
