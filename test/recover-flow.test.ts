@@ -148,6 +148,25 @@ describe('the pre-restart set', () => {
     expect(parseJson(out).snapshots).toHaveLength(expected.length);
   });
 
+  it.each([
+    [59, ['s-new', 's-old']],
+    [60, ['s-new']],
+  ])('adds the older snapshot only when its last save is less than 60 minutes before the first save of the newer one (%i minutes)', async (gap, expected) => {
+    // The newer first save is 5 + 10 = 15 minutes old, and the older last save is 15 + gap minutes old: the gap is exactly `gap`.
+    const newer = rosterSnapshot({ bootId: 'boot-0', runtimeId: 'runtime-new' }, [doneEntry('s-new')], 5, 10);
+    const older = rosterSnapshot({ bootId: 'boot-0', runtimeId: 'runtime-old' }, [doneEntry('s-old')], 15 + gap, 600);
+    const { out } = await recoverRun(['--yes', '--json'], [], [], { seed: seedRosters(older, newer) });
+    expect(Object.keys(resultsOf(out)).sort()).toEqual(expected);
+  });
+
+  it('does not add a days-old snapshot when the newer runtime only had its first save shortly before the restart', async () => {
+    const older = rosterSnapshot({ bootId: 'boot-0', runtimeId: 'runtime-old' }, [doneEntry('s-old')], 6 * 24 * 60, 600);
+    const newer = rosterSnapshot({ bootId: 'boot-0', runtimeId: 'runtime-new' }, [doneEntry('s-new')], 5, 7);
+    const { out } = await recoverRun(['--yes', '--json'], [], [], { seed: seedRosters(older, newer) });
+    expect(Object.keys(resultsOf(out))).toEqual(['s-new']);
+    expect(parseJson(out).snapshots).toEqual([{ lastSave: minutesBefore(5), ageMinutes: 5 }]);
+  });
+
   it('merges the snapshots by session ID, and the entry of the newer snapshot wins', async () => {
     const older = rosterSnapshot({ bootId: 'boot-0', runtimeId: 'runtime-old' }, [doneEntry('s-same', { worktree: 'old-tree' })], 100, 600);
     const newer = rosterSnapshot({ bootId: 'boot-0', runtimeId: 'runtime-new' }, [doneEntry('s-same', { worktree: 'new-tree' })], 5, 10);
@@ -155,8 +174,8 @@ describe('the pre-restart set', () => {
     expect(parseJson(out).rows.map((row) => row.worktree)).toEqual(['new-tree']);
   });
 
-  it('goes back no further than the 5 kept snapshots: 6 short runtimes saved in order use the newest 5', async () => {
-    const snapshots = [1, 2, 3, 4, 5, 6].map((i) => rosterSnapshot({ bootId: 'boot-0', runtimeId: `runtime-${i}` }, [doneEntry(`s-${i}`)], 700 - i * 100, 10));
+  it('goes back no further than the 5 kept snapshots: 6 short runtimes saved in order, 20 minutes apart, use the newest 5', async () => {
+    const snapshots = [1, 2, 3, 4, 5, 6].map((i) => rosterSnapshot({ bootId: 'boot-0', runtimeId: `runtime-${i}` }, [doneEntry(`s-${i}`)], 200 - i * 30, 10));
     const { out, dir } = await recoverRun(['--yes', '--json'], [], [], { seed: seedRosters(...snapshots) });
     expect(Object.keys(resultsOf(out)).sort()).toEqual(['s-2', 's-3', 's-4', 's-5', 's-6']);
     expect(parseJson(out).snapshots).toHaveLength(5);
