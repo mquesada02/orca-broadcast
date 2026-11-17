@@ -5,14 +5,16 @@ import type { RosterEntry, RosterSnapshot, RuntimeKey, SnapshotLine } from './ty
 export const sameRuntime = (a: RuntimeKey, b: RuntimeKey): boolean =>
   a.bootId === b.bootId && (a.runtimeId === null || b.runtimeId === null || a.runtimeId === b.runtimeId);
 
-// A chain of quick restarts: each runtime in it lived less than an hour, and started less than an hour after the last save of the one before.
-const QUICK_RESTART_MS = 60 * 60_000;
+// A chain of quick restarts: each runtime in it lived less than SHORT_RUNTIME_MS, and had its first save less than MAX_GAP_MS
+// after the last save of the runtime before it.
+const SHORT_RUNTIME_MS = 60 * 60_000;
+const MAX_GAP_MS = 60 * 60_000;
 
 // The roster knows only the times of its saves, so a runtime's life is measured from its first save to its last one.
-const isShort = (snapshot: RosterSnapshot): boolean => Date.parse(snapshot.lastSavedAt) - Date.parse(snapshot.firstSavedAt) < QUICK_RESTART_MS;
+const isShort = (snapshot: RosterSnapshot): boolean => Date.parse(snapshot.lastSavedAt) - Date.parse(snapshot.firstSavedAt) < SHORT_RUNTIME_MS;
 
 // A runtime whose first save came long after the last save of the older one may have run for days before that save, so the older one is not part of the chain.
-const followsSoon = (older: RosterSnapshot, newer: RosterSnapshot): boolean => Date.parse(newer.firstSavedAt) - Date.parse(older.lastSavedAt) < QUICK_RESTART_MS;
+const startedSoonAfter = (newer: RosterSnapshot, older: RosterSnapshot): boolean => Date.parse(newer.firstSavedAt) - Date.parse(older.lastSavedAt) < MAX_GAP_MS;
 
 export const FALLBACK_NOTICE = "no snapshot from before the restart; using the live runtime's snapshot (best effort)";
 
@@ -39,10 +41,11 @@ export function preRestartSet(rosters: RosterSnapshot[], live: RuntimeKey, now: 
   const [first, ...older] = (fallback ? rosters : others) as [RosterSnapshot, ...RosterSnapshot[]];
   const used = [first];
   if (!fallback) {
+    let last = first;
     for (const next of older) {
-      const last = used.at(-1) as RosterSnapshot;
-      if (!isShort(last) || !followsSoon(next, last)) break;
+      if (!isShort(last) || !startedSoonAfter(last, next)) break;
       used.push(next);
+      last = next;
     }
   }
 
