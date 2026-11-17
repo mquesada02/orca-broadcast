@@ -48,7 +48,9 @@ For the full definition of each option, see [Options](reference.md#options). For
 `recover` reads the roster. The roster holds saved snapshots of the live Claude agents, one file per Orca runtime. `roster save` writes it, and so do other commands.
 
 1. `recover` takes the newest snapshot of an earlier runtime.
-2. While the runtime of the last snapshot used lived less than one hour, `recover` adds the next older snapshot of an earlier runtime. This covers a chain of quick restarts.
+2. `recover` adds the next older snapshot of an earlier runtime when both of these are true. This covers a chain of quick restarts. `recover` repeats this step for each snapshot that it adds.
+   - The runtime of the last snapshot used lived less than one hour. The roster knows only the times of its saves, so this is the time from the first save to the last save of that runtime.
+   - The older snapshot was last saved less than one hour before the first save of the last snapshot used. A longer gap means that the newer runtime may have run for days before its first save, so the older snapshot is not part of the chain.
 3. The entries merge by session ID. The newer entry wins.
 4. If no snapshot of an earlier runtime exists, `recover` uses the snapshot of the live runtime. It then warns `no snapshot from before the restart; using the live runtime's snapshot (best effort)`.
 
